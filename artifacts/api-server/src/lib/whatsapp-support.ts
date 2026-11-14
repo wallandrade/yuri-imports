@@ -572,10 +572,13 @@ export function decideSupportTurn(input: {
         session: handoff ? humanSession() : menuSession(),
       };
     }
+    if (!cpfPromptIsDue(session.lastCpfPromptAt, now, cpfCooldownMs)) {
+      return { kind: "silent", session: keepNudge(session) };
+    }
     return {
       kind: "text",
       message: buildSupportUnknownMessage(),
-      session,
+      session: { ...keepNudge(session), lastCpfPromptAt: now },
     };
   }
 
@@ -1276,14 +1279,20 @@ export async function handleSupportInbound(body: unknown): Promise<{ ok: boolean
     media: inbound.media,
   }, menu);
   if (turn.kind === "silent") {
-    if (turn.session.step === "await_cpf") {
+    if (turn.session.step === "await_cpf" || turn.session.step === "await_lookup" || turn.session.step === "await_problem") {
       if (cpfSessionChanged(session, turn.session)) await rememberCpfSession(inbound.phone, turn.session);
       return { ok: true, silenced: true, line };
     }
     await saveSession(inbound.phone, turn.session);
     return { ok: true, silenced: true, line };
   }
-  if (turn.kind === "text" && turn.message === ASK_CPF_MESSAGE && turn.session.step === "await_cpf") {
+  if (
+    turn.kind === "text"
+    && (
+      (turn.message === ASK_CPF_MESSAGE && turn.session.step === "await_cpf")
+      || (turn.message === buildSupportUnknownMessage() && (turn.session.step === "await_lookup" || turn.session.step === "await_problem"))
+    )
+  ) {
     const claimedAt = new Date();
     const delivery = await sendClaimedCpfPrompt({
       claim: () => claimSupportCpfPrompt(inbound.phone, turn.session, claimedAt),

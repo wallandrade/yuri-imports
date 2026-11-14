@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildSupportOrderMessage,
   buildSupportOrdersMessage,
+  buildSupportUnknownMessage,
   classifySupportText,
   decideSupportTurn,
   cpfPromptIsDue,
@@ -195,6 +196,87 @@ test("envio do CPF que falha pede de novo na mensagem seguinte", async () => {
   });
   assert.equal(thrown, "failed");
   assert.equal(released, true);
+});
+
+test("pedido de número ou CPF sai uma vez e falha no envio libera a marca", async () => {
+  const cooldownMs = 2 * 60 * 60 * 1000;
+  const now = 1_700_000_000_000;
+  const waiting: SupportSession = {
+    step: "await_lookup",
+    problem: null,
+    orderNumber: null,
+    lastCpfPromptAt: null,
+  };
+  const first = decideSupportTurn({ text: "cadê meu pedido", session: waiting, now, cpfCooldownMs: cooldownMs });
+  assert.equal(first.kind, "text");
+  if (first.kind === "text") assert.equal(first.message, buildSupportUnknownMessage());
+  assert.equal(first.session.step, "await_lookup");
+  assert.equal(first.session.lastCpfPromptAt, now);
+
+  const second = decideSupportTurn({
+    text: "ainda não achei",
+    session: first.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(second.kind, "silent");
+  assert.equal(second.session.step, "await_lookup");
+  assert.equal(second.session.lastCpfPromptAt, now);
+
+  const later = decideSupportTurn({
+    text: "cadê",
+    session: first.session,
+    now: now + cooldownMs,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(later.kind, "text");
+  if (later.kind === "text") assert.equal(later.message, buildSupportUnknownMessage());
+
+  const lookedUp = decideSupportTurn({
+    text: "12345678909",
+    session: first.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(lookedUp.kind, "lookup");
+
+  const asked = decideSupportTurn({
+    text: "1782",
+    session: first.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(asked.session.orderNumber, 1782);
+  assert.equal(asked.session.step, "await_cpf");
+
+  const problem = decideSupportTurn({
+    text: "oi sumiu",
+    session: { step: "await_problem", problem: "atrasado", lastCpfPromptAt: null },
+    now,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(problem.kind, "text");
+  if (problem.kind === "text") assert.equal(problem.message, buildSupportUnknownMessage());
+  assert.equal(problem.session.step, "await_problem");
+
+  let lock: number | null = now;
+  const failed = await sendClaimedCpfPrompt({
+    claim: async () => "claimed",
+    send: async () => false,
+    release: async () => {
+      lock = null;
+    },
+  });
+  assert.equal(failed, "failed");
+  assert.equal(lock, null);
+  const retry = decideSupportTurn({
+    text: "cadê",
+    session: { ...waiting, lastCpfPromptAt: lock },
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(retry.kind, "text");
+  if (retry.kind === "text") assert.equal(retry.message, buildSupportUnknownMessage());
 });
 
 test("frase sem toque não repete o menu", () => {
