@@ -69,6 +69,8 @@ export type SupportSession = {
   lastNudgeAt?: number | null;
   /** Epoch ms do último pedido de CPF. */
   lastCpfPromptAt?: number | null;
+  /** Epoch ms da frase "número ou CPF". Não é a trava do pedido de CPF. */
+  lastUnknownPromptAt?: number | null;
 };
 
 export type SupportOption = {
@@ -377,11 +379,11 @@ function resolveChoice(choiceId: string, text: string, step: SupportStep, menu: 
 }
 
 function menuSession(): SupportSession {
-  return { step: "menu", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null, lastCpfPromptAt: null };
+  return { step: "menu", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null, lastCpfPromptAt: null, lastUnknownPromptAt: null };
 }
 
 function humanSession(): SupportSession {
-  return { step: "human", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null, lastCpfPromptAt: null };
+  return { step: "human", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null, lastCpfPromptAt: null, lastUnknownPromptAt: null };
 }
 
 function keepNudge(session: SupportSession): SupportSession {
@@ -392,6 +394,7 @@ function keepNudge(session: SupportSession): SupportSession {
     nudgeCount: session.nudgeCount ?? 0,
     lastNudgeAt: session.lastNudgeAt ?? null,
     lastCpfPromptAt: session.lastCpfPromptAt ?? null,
+    lastUnknownPromptAt: session.lastUnknownPromptAt ?? null,
   };
 }
 
@@ -572,13 +575,13 @@ export function decideSupportTurn(input: {
         session: handoff ? humanSession() : menuSession(),
       };
     }
-    if (!cpfPromptIsDue(session.lastCpfPromptAt, now, cpfCooldownMs)) {
+    if (!cpfPromptIsDue(session.lastUnknownPromptAt, now, cpfCooldownMs)) {
       return { kind: "silent", session: keepNudge(session) };
     }
     return {
       kind: "text",
       message: buildSupportUnknownMessage(),
-      session: { ...keepNudge(session), lastCpfPromptAt: now },
+      session: { ...keepNudge(session), lastUnknownPromptAt: now },
     };
   }
 
@@ -945,6 +948,7 @@ async function loadSession(phone: string): Promise<SupportSession | null> {
   const nudgeCount = Number(row.nudgeCount);
   const lastNudge = row.lastNudgeAt instanceof Date ? row.lastNudgeAt.getTime() : null;
   const lastCpf = row.lastCpfPromptAt instanceof Date ? row.lastCpfPromptAt.getTime() : null;
+  const lastUnknown = row.lastUnknownPromptAt instanceof Date ? row.lastUnknownPromptAt.getTime() : null;
   return {
     step: row.step,
     problem: row.problem || null,
@@ -952,6 +956,7 @@ async function loadSession(phone: string): Promise<SupportSession | null> {
     nudgeCount: Number.isFinite(nudgeCount) && nudgeCount > 0 ? Math.floor(nudgeCount) : 0,
     lastNudgeAt: lastNudge,
     lastCpfPromptAt: lastCpf,
+    lastUnknownPromptAt: lastUnknown,
   };
 }
 
@@ -968,6 +973,7 @@ async function saveSession(phone: string, session: SupportSession): Promise<void
       nudgeCount: session.nudgeCount ?? 0,
       lastNudgeAt: session.lastNudgeAt ? new Date(session.lastNudgeAt) : null,
       lastCpfPromptAt: session.lastCpfPromptAt ? new Date(session.lastCpfPromptAt) : null,
+      lastUnknownPromptAt: session.lastUnknownPromptAt ? new Date(session.lastUnknownPromptAt) : null,
       updatedAt: now,
     })
     .onDuplicateKeyUpdate({
@@ -978,6 +984,7 @@ async function saveSession(phone: string, session: SupportSession): Promise<void
         nudgeCount: session.nudgeCount ?? 0,
         lastNudgeAt: session.lastNudgeAt ? new Date(session.lastNudgeAt) : null,
         lastCpfPromptAt: session.lastCpfPromptAt ? new Date(session.lastCpfPromptAt) : null,
+        lastUnknownPromptAt: session.lastUnknownPromptAt ? new Date(session.lastUnknownPromptAt) : null,
         updatedAt: now,
       },
     });
@@ -1083,6 +1090,55 @@ export async function sendClaimedCpfPrompt(input: {
   }
   await input.release();
   return "failed";
+}
+
+/** Reserva a frase "número ou CPF". Não mexe na trava do pedido de CPF. */
+export async function claimSupportUnknownPrompt(phone: string, session: SupportSession, now = new Date()): Promise<"claimed" | "cooldown"> {
+  const { pool } = await database();
+  const cutoff = new Date(now.getTime() - supportCpfPromptCooldownMs());
+  const stamp = cpfPromptStamp(now);
+  await pool.query(
+    `INSERT INTO whatsapp_support_sessions
+      (phone, step, problem, pending_order, nudge_count, last_unknown_prompt_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?)
+     ON DUPLICATE KEY UPDATE updated_at = updated_at`,
+    [phone, session.step, session.problem, session.orderNumber ?? null, session.nudgeCount ?? 0, now],
+  );
+  const [claimed] = await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET last_unknown_prompt_at = ?,
+            step = ?,
+            problem = ?,
+            pending_order = ?,
+            updated_at = ?
+      WHERE phone = ?
+        AND (last_unknown_prompt_at IS NULL OR last_unknown_prompt_at <= ?)`,
+    [stamp, session.step, session.problem, session.orderNumber ?? null, now, phone, cutoff],
+  );
+  if (mysqlAffectedRows(claimed) === 1) return "claimed";
+  await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET step = ?,
+            problem = ?,
+            pending_order = ?,
+            updated_at = updated_at
+      WHERE phone = ?`,
+    [session.step, session.problem, session.orderNumber ?? null, phone],
+  );
+  return "cooldown";
+}
+
+/** Devolve a frase "número ou CPF" se o n8n não entregou. Não apaga o pedido de CPF. */
+export async function releaseSupportUnknownPrompt(phone: string, claimedAt: Date): Promise<void> {
+  const { pool } = await database();
+  await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET last_unknown_prompt_at = NULL,
+            updated_at = updated_at
+      WHERE phone = ?
+        AND last_unknown_prompt_at = ?`,
+    [phone, cpfPromptStamp(claimedAt)],
+  );
 }
 
 function cpfSessionChanged(before: SupportSession | null, after: SupportSession): boolean {
@@ -1286,18 +1342,27 @@ export async function handleSupportInbound(body: unknown): Promise<{ ok: boolean
     await saveSession(inbound.phone, turn.session);
     return { ok: true, silenced: true, line };
   }
-  if (
-    turn.kind === "text"
-    && (
-      (turn.message === ASK_CPF_MESSAGE && turn.session.step === "await_cpf")
-      || (turn.message === buildSupportUnknownMessage() && (turn.session.step === "await_lookup" || turn.session.step === "await_problem"))
-    )
-  ) {
+  if (turn.kind === "text" && turn.message === ASK_CPF_MESSAGE && turn.session.step === "await_cpf") {
     const claimedAt = new Date();
     const delivery = await sendClaimedCpfPrompt({
       claim: () => claimSupportCpfPrompt(inbound.phone, turn.session, claimedAt),
       send: () => sendText(inbound.phone, turn.message, line),
       release: () => releaseSupportCpfPrompt(inbound.phone, claimedAt),
+    });
+    if (delivery === "silent") return { ok: true, silenced: true, line };
+    if (delivery === "failed") return { ok: false, error: "not_configured", line };
+    return { ok: true, line };
+  }
+  if (
+    turn.kind === "text"
+    && turn.message === buildSupportUnknownMessage()
+    && (turn.session.step === "await_lookup" || turn.session.step === "await_problem")
+  ) {
+    const claimedAt = new Date();
+    const delivery = await sendClaimedCpfPrompt({
+      claim: () => claimSupportUnknownPrompt(inbound.phone, turn.session, claimedAt),
+      send: () => sendText(inbound.phone, turn.message, line),
+      release: () => releaseSupportUnknownPrompt(inbound.phone, claimedAt),
     });
     if (delivery === "silent") return { ok: true, silenced: true, line };
     if (delivery === "failed") return { ok: false, error: "not_configured", line };
