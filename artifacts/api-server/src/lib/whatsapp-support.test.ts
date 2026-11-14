@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildSupportOrderMessage,
   buildSupportOrdersMessage,
+  buildSupportUnknownMessage,
   classifySupportText,
   decideSupportTurn,
   cpfPromptIsDue,
@@ -195,6 +196,89 @@ test("envio do CPF que falha pede de novo na mensagem seguinte", async () => {
   });
   assert.equal(thrown, "failed");
   assert.equal(released, true);
+});
+
+test("frase de número ou CPF não trava o pedido de CPF", async () => {
+  const cooldownMs = 2 * 60 * 60 * 1000;
+  const now = 1_700_000_000_000;
+  const waiting: SupportSession = {
+    step: "await_lookup",
+    problem: null,
+    orderNumber: null,
+    lastCpfPromptAt: null,
+    lastUnknownPromptAt: null,
+  };
+  const loose = decideSupportTurn({ text: "cadê meu pedido", session: waiting, now, cpfCooldownMs: cooldownMs });
+  assert.equal(loose.kind, "text");
+  if (loose.kind === "text") assert.equal(loose.message, buildSupportUnknownMessage());
+  assert.equal(loose.session.step, "await_lookup");
+  assert.equal(loose.session.lastUnknownPromptAt, now);
+  assert.equal(loose.session.lastCpfPromptAt ?? null, null);
+
+  const again = decideSupportTurn({
+    text: "ainda não achei",
+    session: loose.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(again.kind, "silent");
+  assert.equal(again.session.step, "await_lookup");
+  assert.equal(again.session.lastUnknownPromptAt, now);
+
+  const numbered = decideSupportTurn({
+    text: "2408",
+    session: loose.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(numbered.kind, "text");
+  if (numbered.kind === "text") assert.match(numbered.message, /CPF/);
+  assert.equal(numbered.session.step, "await_cpf");
+  assert.equal(numbered.session.orderNumber, 2408);
+
+  const found = decideSupportTurn({
+    text: "12345678909",
+    session: numbered.session,
+    now: now + 2000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(found.kind, "lookup");
+
+  const direct = decideSupportTurn({
+    text: "123.456.789-09",
+    session: loose.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(direct.kind, "lookup");
+
+  let unknownLock: number | null = now;
+  const cpfLock = now - cooldownMs;
+  const failed = await sendClaimedCpfPrompt({
+    claim: async () => "claimed",
+    send: async () => false,
+    release: async () => {
+      unknownLock = null;
+    },
+  });
+  assert.equal(failed, "failed");
+  assert.equal(unknownLock, null);
+  const retry = decideSupportTurn({
+    text: "cadê",
+    session: { ...waiting, lastUnknownPromptAt: unknownLock, lastCpfPromptAt: cpfLock },
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(retry.kind, "text");
+  if (retry.kind === "text") assert.equal(retry.message, buildSupportUnknownMessage());
+  const stillAsksCpf = decideSupportTurn({
+    text: "2408",
+    session: { ...loose.session, lastCpfPromptAt: cpfLock },
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(stillAsksCpf.kind, "text");
+  if (stillAsksCpf.kind === "text") assert.match(stillAsksCpf.message, /CPF/);
 });
 
 test("frase sem toque não repete o menu", () => {
