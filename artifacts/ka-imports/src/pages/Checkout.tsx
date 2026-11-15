@@ -39,7 +39,7 @@ import { getStoredReferralCode } from "@/lib/affiliate";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
 import { getFlashVisitorId } from "@/lib/flash-offer";
-import { formatCurrency, getActiveWhatsApp, getSellerSlugFromCheckoutPath, setSellerContext } from "@/lib/utils";
+import { formatCurrency, getActiveWhatsApp, getSellerSlugFromCheckoutPath, setSellerContext, whatsAppSendUrl } from "@/lib/utils";
 import {
   CHECKOUT_INSURANCE_SETTING_KEYS,
   catalogProductId,
@@ -1908,7 +1908,7 @@ export default function Checkout() {
         return;
       }
 
-      const waUrl = `https://wa.me/${supportNumber}?text=${encodeURIComponent(message)}`;
+      const waUrl = whatsAppSendUrl(supportNumber, message);
       const orderRef = order.orderNumber != null ? String(order.orderNumber) : order.id;
 
       // Book motoboy slot after order creation
@@ -2045,7 +2045,7 @@ export default function Checkout() {
         return;
       }
 
-      const waUrl = `https://wa.me/${supportNumber}?text=${encodeURIComponent(message)}`;
+      const waUrl = whatsAppSendUrl(supportNumber, message);
       setKycOrderId(order.id);
       setKycOrderRef(order.orderNumber != null ? String(order.orderNumber) : order.id);
       setKycWhatsAppUrl(waUrl);
@@ -2174,7 +2174,7 @@ export default function Checkout() {
                           `📦 *Itens:*\n${itemsText}\n\n` +
                           `💵 *TOTAL: ${formatCurrency(total)}*\n\n` +
                           `Pode me enviar a chave PIX para pagamento?`;
-                        window.open(`https://wa.me/${supportNumber}?text=${encodeURIComponent(message)}`, "_blank");
+                        window.open(whatsAppSendUrl(supportNumber, message), "_blank");
                       }}
                       className="mt-6 w-full h-12 rounded-2xl bg-green-500 hover:bg-green-600 text-white font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                     >

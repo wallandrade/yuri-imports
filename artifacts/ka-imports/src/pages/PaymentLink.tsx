@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { formatCurrency, fetchAndCacheSellerWhatsApp, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, fetchAndCacheSellerWhatsApp, getActiveWhatsApp, whatsAppSendUrl } from "@/lib/utils";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -315,7 +315,7 @@ function PaymentLinkInner() {
       `Pagamento PIX confirmado! Aguardo o retorno da equipe.`;
 
     const openWhatsApp = () => {
-      window.open(`https://wa.me/${getActiveWhatsApp()}?text=${encodeURIComponent(waMsg)}`, "_blank");
+      window.open(whatsAppSendUrl(getActiveWhatsApp(), waMsg), "_blank");
     };
 
     return (

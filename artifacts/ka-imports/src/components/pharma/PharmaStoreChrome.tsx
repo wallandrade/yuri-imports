@@ -3,7 +3,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { Menu, Search, ShoppingBag, User, X, Home, MessageCircle, ChevronDown } from "lucide-react";
 import { getCustomerToken } from "@/lib/customer-auth";
 import { useCart } from "@/store/use-cart";
-import { formatCurrency, getActiveWhatsApp, getSellerSlugFromPath } from "@/lib/utils";
+import { formatCurrency, getActiveWhatsApp, getSellerSlugFromPath, whatsAppSendUrl } from "@/lib/utils";
 import { pharmaNameSuggestions, pharmaSalePrice } from "@/lib/pharma-catalog-query";
 import { usePharmaLogin } from "@/components/pharma/PharmaLoginDialog";
 
@@ -284,7 +284,7 @@ export function PharmaStoreChrome() {
         // Mantém o número já guardado.
       }
     }
-    window.open(`https://wa.me/${number}?text=${encodeURIComponent("Olá, gostaria de suporte.")}`, "_blank", "noopener,noreferrer");
+    window.open(whatsAppSendUrl(number, "Olá, gostaria de suporte."), "_blank", "noopener,noreferrer");
   }
 
   return (

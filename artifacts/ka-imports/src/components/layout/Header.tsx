@@ -4,7 +4,7 @@ import { ShoppingBag, Search, Menu, X, MessageCircle, Home, UserCircle2 } from "
 import { getCustomerToken } from "@/lib/customer-auth";
 import { useCart } from "@/store/use-cart";
 import { Button } from "@/components/ui/button";
-import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, getActiveWhatsApp, whatsAppSendUrl } from "@/lib/utils";
 import { PHARMA_COMPACT_THEME, useStoreTheme } from "@/lib/store-theme";
 import { PharmaStoreChrome } from "@/components/pharma/PharmaStoreChrome";
 
@@ -267,7 +267,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     }
 
     window.open(
-      `https://wa.me/${number}?text=${encodeURIComponent("Olá, gostaria de suporte.")}`,
+      whatsAppSendUrl(number, "Olá, gostaria de suporte."),
       "_blank",
       "noopener,noreferrer"
     );

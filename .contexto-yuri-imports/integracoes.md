@@ -1,6 +1,6 @@
 # Integrações — Yuri Import
 
-> **Última atualização:** 2026-11-14
+> **Última atualização:** 2026-11-15
 
 Providers externos **presentes no código**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ Providers externos **presentes no código**. Precedência: código > memória.
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Link de WhatsApp com texto preserva emoji | `whatsAppSendUrl` usa `https://api.whatsapp.com/send`. `wa.me` sem texto continua | Mensagens, PIX, estoque e compra iguais |
 | 2026-11-14 | Lembrete de número ou CPF sai uma vez a cada 2 horas | Em `await_lookup` e `await_problem`, a frase usa `last_unknown_prompt_at`. Não usa `last_cpf_prompt_at`. Falha no envio devolve só essa marca | Menu, Chave PIX, atendente e o pedido de CPF iguais |
 | 2026-11-12 | Moderação só apaga convite de grupo | Figurinha, mídia, texto, repetição, flood e outros links não removem. Só `chat.whatsapp.com` | A lista de grupos 1 a 7 e o atendimento 1:1 iguais |
 | 2026-11-12 | Ranking de custo por fornecedor | O admin consulta preço de custo. A coleta é só leitura, a cada 6 h, com botão Atualizar agora | Preço de venda, catálogo, PIX, estoque, WhatsApp, e-mail e n8n iguais |

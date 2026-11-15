@@ -1,5 +1,6 @@
 import { Copy, ExternalLink, MessageCircle, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
+import { whatsAppSendUrl } from "@/lib/utils";
 
 export type DeliveryCorrectionNotice = {
   fields: Array<"cpf" | "cep" | "endereco">;
@@ -13,7 +14,7 @@ export type DeliveryCorrectionNotice = {
 function whatsappHref(phone: string, message: string): string {
   const digits = String(phone || "").replace(/\D/g, "");
   const withCountry = digits.startsWith("55") && digits.length >= 12 ? digits : digits ? `55${digits.replace(/^0+/, "")}` : "";
-  return `https://wa.me/${withCountry}?text=${encodeURIComponent(message)}`;
+  return whatsAppSendUrl(withCountry, message);
 }
 
 export function DeliveryCorrectionModal({
