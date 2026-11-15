@@ -7,6 +7,7 @@ import {
   getEnvioEcomEnvAuth,
   inventoryPoolForEnvioEcomAccount,
   isEnvioEcomAuthConfigured,
+  pickEnvioEcomLabelAuth,
   runWithEnvioEcomAuth,
   type EnvioEcomAuth,
   type EnvioEcomInventoryPool,
@@ -206,7 +207,7 @@ export async function withEnvioEcomAccount<T>(
     }
   } else {
     const all = await listConfiguredEnvioEcomAuths();
-    auth = all[0] || null;
+    auth = pickEnvioEcomLabelAuth(all);
   }
   if (!auth) {
     throw new EnvioEcomApiError(

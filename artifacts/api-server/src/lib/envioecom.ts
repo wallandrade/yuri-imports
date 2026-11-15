@@ -7,8 +7,14 @@ import { AsyncLocalStorage } from "async_hooks";
 
 const DEFAULT_BASE = "https://envioecom.com.br/api/v1/whitelabel";
 
-/** Conta vinda das env vars do servidor (Railway). */
+/** Conta vinda das env vars do servidor. */
 export const ENVIOECOM_ENV_ACCOUNT_ID = "env";
+
+/** Sem conta escolhida, a etiqueta usa uma conta salva. A do servidor só entra se não houver outra. */
+export function pickEnvioEcomLabelAuth<T extends { accountId: string }>(auths: T[]): T | null {
+  const saved = auths.find((auth) => auth.accountId !== ENVIOECOM_ENV_ACCOUNT_ID);
+  return saved || auths[0] || null;
+}
 
 /** Pool de estoque ligado à conta EnvioEcom: SP → Motoboy, MG → Minas. Sem conta = null. */
 export type EnvioEcomInventoryPool = "motoboy" | "minas";

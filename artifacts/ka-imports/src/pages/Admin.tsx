@@ -928,6 +928,7 @@ import WhatsAppGroupCampaignCard from "@/components/admin/WhatsAppGroupCampaignC
 import WhatsAppSupportAiCard from "@/components/admin/WhatsAppSupportAiCard";
 import WhatsAppSupportMenuCard from "@/components/admin/WhatsAppSupportMenuCard";
 import AdminEnvioEcomAccountsPanel, { type EnvioEcomAccountPublic } from "@/pages/AdminEnvioEcomAccountsPanel";
+import { envioecomAccountsForLabelPicker } from "@/lib/envioecom-label-accounts";
 import AdminSuperfreteAccountsPanel, { type SuperfreteAccountPublic } from "@/pages/AdminSuperfreteAccountsPanel";
 import { superfreteServiceName } from "@/lib/superfrete-status";
 import AdminInventoryExitAccessPanel from "@/pages/AdminInventoryExitAccessPanel";
@@ -11447,7 +11448,7 @@ function OrdersPanel({
     return () => { cancelled = true; };
   }, []);
 
-  const selectableEnvioEcomAccounts = envioecomAccounts.filter((account) => account.configured);
+  const selectableEnvioEcomAccounts = envioecomAccountsForLabelPicker(envioecomAccounts);
   const envioecomAccountNameById = (id: string | null | undefined) =>
     envioecomAccounts.find((account) => account.id === id)?.name || null;
 
@@ -11637,7 +11638,7 @@ function OrdersPanel({
       : refreshEnvioEcomAccounts();
     const relatedPromise = fetchRelatedShipments(order.id, authHeaders()).catch(() => null);
     const [list, related] = await Promise.all([accountsPromise, relatedPromise]);
-    const ready = list.filter((account) => account.configured);
+    const ready = envioecomAccountsForLabelPicker(list);
     if (!ready.length) {
       toast.error("Nenhuma API EnvioEcom configurada. Cadastre em Configurações.");
       return;
@@ -11960,7 +11961,7 @@ function OrdersPanel({
     const list = selectableEnvioEcomAccounts.length
       ? envioecomAccounts
       : await refreshEnvioEcomAccounts();
-    const ready = list.filter((account) => account.configured);
+    const ready = envioecomAccountsForLabelPicker(list);
     if (!ready.length) {
       toast.error("Nenhuma API EnvioEcom configurada. Cadastre em Configurações.");
       return;
