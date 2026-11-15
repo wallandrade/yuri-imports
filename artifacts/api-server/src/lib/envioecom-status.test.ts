@@ -8,6 +8,7 @@ import {
   isAwaitingPickupStatus,
   envioecomLabelDownloadName,
   isEnvioEcomCancelStatus,
+  pickEnvioEcomLabelAuth,
   shouldPollEnvioEcomStatus,
   isEnvioEcomPanelShipmentId,
   isInTransitStatus,
@@ -170,6 +171,15 @@ test("conta EnvioEcom SP mapeia Motoboy e MG mapeia Minas (pool sugerido, sem ba
   assert.equal(inventoryPoolForEnvioEcomAccount("abc", "EnvioEcom MG"), "minas");
   assert.equal(inventoryPoolForEnvioEcomAccount("extra-uuid", "API 2"), "minas");
   assert.equal(inventoryPoolForEnvioEcomAccount(null, null), null);
+});
+
+test("etiqueta sem conta escolhida prefere a conta salva e deixa a do servidor por último", () => {
+  const env = { accountId: ENVIOECOM_ENV_ACCOUNT_ID };
+  const minas = { accountId: "minas" };
+  assert.equal(pickEnvioEcomLabelAuth([env, minas])?.accountId, "minas");
+  assert.equal(pickEnvioEcomLabelAuth([minas, env])?.accountId, "minas");
+  assert.equal(pickEnvioEcomLabelAuth([env])?.accountId, ENVIOECOM_ENV_ACCOUNT_ID);
+  assert.equal(pickEnvioEcomLabelAuth([]), null);
 });
 
 test("ID do painel EnvioEcom é numérico curto; rastreio J&T não é", () => {
