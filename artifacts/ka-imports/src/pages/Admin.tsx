@@ -893,7 +893,7 @@ import { DeliveryCorrectionModal, type DeliveryCorrectionNotice } from "@/compon
 import { AnimatePresence, motion } from "framer-motion";
 import { canSavePromoEnd, isPromoEndScheduleIncomplete, promoEndsAtFromParts, splitPromoEndsAt } from "@/lib/promo-ends-at";
 import { DEFAULT_PHARMA_GREEN, normalizeThemeColor } from "@/lib/store-theme";
-import { formatCurrency, formatDateOnlyBR, sellerListTitle, type SavedSellerItem } from "@/lib/utils";
+import { formatCurrency, formatDateOnlyBR, sellerListTitle, whatsAppSendUrl, type SavedSellerItem } from "@/lib/utils";
 import { clampLineDiscount, lineNetAmount } from "@/lib/line-discount";
 import { cartLineKey, orderCopyItemName, orderLineNameWithVariants, parseVariantGroups, readEditorVariantGroups, readOrderVariantChoices, toggleVariantOption, variantImageFromSelection, variantSelectionError, type SelectedVariant, type VariantGroup } from "@/lib/product-variants";
 import { OrderVariantChoices } from "@/components/order/OrderVariantChoices";
@@ -3898,13 +3898,13 @@ export default function Admin() {
       : "";
     const msg = intro + orderToFullText(order);
     const p = order.clientPhone.replace(/\D/g, "");
-    window.open(`https://wa.me/${p.startsWith("55") ? p : "55" + p}?text=${encodeURIComponent(msg)}`, "_blank");
+    window.open(whatsAppSendUrl(p.startsWith("55") ? p : "55" + p, msg), "_blank");
   };
 
   const openChargeWhatsApp = (charge: CustomCharge) => {
     const msg = chargeToText(charge);
     const p = charge.clientPhone.replace(/\D/g, "");
-    window.open(`https://wa.me/${p.startsWith("55") ? p : "55" + p}?text=${encodeURIComponent(msg)}`, "_blank");
+    window.open(whatsAppSendUrl(p.startsWith("55") ? p : "55" + p, msg), "_blank");
   };
 
   // --------------------------------------------------------------------------
@@ -17400,7 +17400,7 @@ function RecurringCustomersPanel({
       .replace(/\{\{\s*total\s*\}\}/gi, formatCurrency(Number(customer.totalSpent || 0)))
       .replace(/\{\{\s*dias_sem_compra\s*\}\}/gi, String(daysSince(customer.lastOrderAt)))
       .trim();
-    window.open(`https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`, "_blank");
+    window.open(whatsAppSendUrl(normalizedPhone, message), "_blank");
   };
 
   return (

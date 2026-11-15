@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
-import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, formatDateBR, getActiveWhatsApp, whatsAppSendUrl } from "@/lib/utils";
 import { parseInsurancePlan } from "@/lib/checkout-insurance";
 import {
   customerForecastLines,
@@ -993,7 +993,7 @@ export default function CustomerOrders() {
                               onClick={() => {
                                 const phone = getActiveWhatsApp();
                                 window.open(
-                                  `https://wa.me/${phone}?text=${encodeURIComponent(`Olá! Gostaria de informações sobre o pedido #${orderRef}`)}`,
+                                  whatsAppSendUrl(phone, `Olá! Gostaria de informações sobre o pedido #${orderRef}`),
                                   "_blank",
                                   "noopener,noreferrer"
                                 );

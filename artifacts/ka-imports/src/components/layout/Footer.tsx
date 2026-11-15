@@ -1,6 +1,6 @@
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getActiveWhatsApp } from "@/lib/utils";
+import { getActiveWhatsApp, whatsAppSendUrl } from "@/lib/utils";
 import { PHARMA_COMPACT_THEME, useStoreTheme } from "@/lib/store-theme";
 import { TrustMarksFooterStrip } from "@/components/pharma/TrustMarks";
 
@@ -52,7 +52,7 @@ async function resolveSupportWhatsApp(): Promise<string> {
 
 async function openWhatsApp(text: string) {
   const number = await resolveSupportWhatsApp();
-  const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+  const url = whatsAppSendUrl(number, text);
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
