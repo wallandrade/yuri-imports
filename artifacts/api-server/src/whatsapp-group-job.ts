@@ -14,6 +14,7 @@ import {
   groupSlotDue,
   groupImageSendAllowed,
   GROUP_IMAGE_HOURLY_LIMIT,
+  RECENT_GROUP_IMAGE_SENDS_SQL,
   parseGroupChats,
   peptideDailyCaption,
   peptideDailyDue,
@@ -108,13 +109,9 @@ async function catalog(): Promise<CampaignProduct[]> {
   }));
 }
 
-async function recentImageSends(now: Date): Promise<number> {
-  const since = new Date(now.getTime() - 60 * 60 * 1000);
+async function recentImageSends(): Promise<number> {
   try {
-    const [rows] = await pool.query(
-      "SELECT COUNT(*) AS total FROM whatsapp_group_send_log WHERE sent_at > ?",
-      [since],
-    );
+    const [rows] = await pool.query(RECENT_GROUP_IMAGE_SENDS_SQL);
     const list = Array.isArray(rows) ? rows as Array<{ total?: number }> : [];
     return Number(list[0]?.total || 0);
   } catch (err) {
@@ -123,8 +120,8 @@ async function recentImageSends(now: Date): Promise<number> {
   }
 }
 
-async function deliver(creds: ZapiMain, claimId: string, phone: string, image: string, caption: string, label: string, now: Date): Promise<void> {
-  const sentInHour = await recentImageSends(now);
+async function deliver(creds: ZapiMain, claimId: string, phone: string, image: string, caption: string, label: string): Promise<void> {
+  const sentInHour = await recentImageSends();
   if (!groupImageSendAllowed(sentInHour)) {
     console.log("[Grupos WhatsApp] adiado pelo limite", label);
     return;
@@ -166,7 +163,6 @@ export async function runWhatsappGroupTick(now = new Date()): Promise<void> {
         product.image,
         productCaption(product.name, product.id),
         chat.name,
-        now,
       );
     }
   }
@@ -189,7 +185,6 @@ export async function runWhatsappGroupTick(now = new Date()): Promise<void> {
           product.image,
           peptideDailyCaption(pick.brief, product.id),
           `${chat.name} peptídeo`,
-          now,
         );
       }
     }
@@ -216,7 +211,7 @@ export async function runWhatsappGroupTick(now = new Date()): Promise<void> {
       }, now, index);
       if (!chat || !slot) continue;
       const claimId = slot === "once" ? `c:${post.id}:${chat.phone}` : `c:${post.id}:${slot}:${chat.phone}`;
-      await deliver(creds, claimId, chat.phone, post.imageUrl, customCaption(post.caption || "", post.linkUrl, post.imageUrl), `${chat.name} avulso`, now);
+      await deliver(creds, claimId, chat.phone, post.imageUrl, customCaption(post.caption || "", post.linkUrl, post.imageUrl), `${chat.name} avulso`);
     }
   }
 }

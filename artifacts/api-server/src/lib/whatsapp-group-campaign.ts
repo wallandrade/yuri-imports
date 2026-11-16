@@ -648,3 +648,11 @@ export function groupImageSendAllowed(sentInLastHour: number, limit = GROUP_IMAG
 export function sendsInRollingHour(sentAt: number[], at: number, windowMs = 60 * 60 * 1000): number {
   return sentAt.filter((time) => time <= at && at - time < windowMs).length;
 }
+
+/**
+ * A janela fica no relógio do MySQL. `sent_at` nasce de CURRENT_TIMESTAMP e a sessão
+ * guarda TIMESTAMP em UTC. Um Date do Node, com TZ America/Sao_Paulo, viraria texto
+ * 3 horas atrás e a hora viraria cerca de 4.
+ */
+export const RECENT_GROUP_IMAGE_SENDS_SQL =
+  "SELECT COUNT(*) AS total FROM whatsapp_group_send_log WHERE sent_at > DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 60 MINUTE)";

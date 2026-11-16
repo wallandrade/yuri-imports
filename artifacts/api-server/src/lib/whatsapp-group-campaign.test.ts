@@ -17,6 +17,7 @@ import {
   GROUP_IMAGE_HOURLY_LIMIT,
   GROUP_STAGGER_MINUTES,
   sendsInRollingHour,
+  RECENT_GROUP_IMAGE_SENDS_SQL,
   peptideDailyCaption,
   peptideDailyDue,
   peptideDailyQueue,
@@ -219,4 +220,6 @@ test("no máximo 6 imagens por hora, somando as campanhas", () => {
   assert.equal(sent, 6);
   assert.equal(blocked, 6);
   assert.equal(sendsInRollingHour(product, product[0] + hour), 5);
+  assert.match(RECENT_GROUP_IMAGE_SENDS_SQL, /sent_at > DATE_SUB\(CURRENT_TIMESTAMP\(\), INTERVAL 60 MINUTE\)/);
+  assert.equal(RECENT_GROUP_IMAGE_SENDS_SQL.includes("?"), false);
 });
