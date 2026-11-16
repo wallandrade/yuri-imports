@@ -3667,7 +3667,7 @@ router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, r
     const body = req.body as { inventoryPool?: string; reserveNow?: boolean; password?: string; senha?: string };
     const nextPool = parseInventoryPool(body?.inventoryPool);
     if (!nextPool) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy' ou 'minas'." });
+      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy', 'minas' ou 'santa_catarina'." });
       return;
     }
     const reserveNow = body?.reserveNow === true;
@@ -3813,7 +3813,7 @@ router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, r
       type: "order_inventory_pool_updated",
       data: { id, inventoryPool: nextPool, inventoryReserved },
     });
-    const poolLabel = nextPool === "loja" ? "Foz Guaçu" : nextPool === "motoboy" ? "Motoboy" : nextPool === "minas" ? "Minas" : nextPool;
+    const poolLabel = inventoryPoolLabel(nextPool);
     recordAdminActivity(
       req,
       id,
@@ -3932,7 +3932,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     const { enviado, adminPassword, inventoryPool: inventoryPoolRaw } = req.body as {
       enviado: boolean;
       adminPassword?: string;
-      inventoryPool?: "loja" | "motoboy" | "minas" | string;
+      inventoryPool?: "loja" | "motoboy" | "minas" | "santa_catarina" | string;
     };
     if (typeof enviado !== "boolean") {
       res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'enviado' obrigatório e deve ser boolean." });
@@ -3940,7 +3940,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     }
     const requestedPool = parseInventoryPool(inventoryPoolRaw);
     if (inventoryPoolRaw && !requestedPool) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy' ou 'minas'." });
+      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy', 'minas' ou 'santa_catarina'." });
       return;
     }
     const rows = await db

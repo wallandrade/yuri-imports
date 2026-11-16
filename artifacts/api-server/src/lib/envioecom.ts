@@ -16,8 +16,8 @@ export function pickEnvioEcomLabelAuth<T extends { accountId: string }>(auths: T
   return saved || auths[0] || null;
 }
 
-/** Pool de estoque ligado à conta EnvioEcom: SP → Motoboy, MG → Minas. Sem conta = null. */
-export type EnvioEcomInventoryPool = "motoboy" | "minas";
+/** Pool de estoque ligado à conta EnvioEcom: SP → Motoboy, MG → Minas, Santa Catarina pelo nome. Sem conta = null. */
+export type EnvioEcomInventoryPool = "motoboy" | "minas" | "santa_catarina";
 
 /** Nome do PDF ao baixar. O id do pedido fica só na pasta, para o arquivo não ser um número. */
 export function envioecomLabelDownloadName(clientName: string | null | undefined): string {
@@ -41,6 +41,7 @@ export function inventoryPoolForEnvioEcomAccount(
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
+  if (/santa catarina/.test(name)) return "santa_catarina";
   if (/\bminas\b|\bmg\b/.test(name)) return "minas";
   if (/sao paulo|\bsp\b|servidor/.test(name)) return "motoboy";
   if (id === ENVIOECOM_ENV_ACCOUNT_ID) return "motoboy";

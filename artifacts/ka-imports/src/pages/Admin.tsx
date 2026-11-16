@@ -19,7 +19,7 @@ function formatTimeBR(date: string | Date | undefined | null): string {
 
 function inventoryPoolNeedsExitPassword(pool: string | null | undefined): boolean {
   const value = String(pool || "").toLowerCase().trim();
-  return value === "motoboy" || value === "minas";
+  return value === "motoboy" || value === "minas" || value === "santa_catarina";
 }
 
 function isInventoryExitPasswordError(data: { error?: string; passwordRequired?: boolean; message?: string } | null | undefined): boolean {
@@ -1794,6 +1794,8 @@ export default function Admin() {
   const [motoboyInventoryMovements, setMotoboyInventoryMovements] = useState<InventoryMovementRecord[]>([]);
   const [minasInventoryBalances, setMinasInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
   const [minasInventoryMovements, setMinasInventoryMovements] = useState<InventoryMovementRecord[]>([]);
+  const [santaCatarinaInventoryBalances, setSantaCatarinaInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
+  const [santaCatarinaInventoryMovements, setSantaCatarinaInventoryMovements] = useState<InventoryMovementRecord[]>([]);
   const inventoryMvDatesRef = useRef({ from: todayStr(), to: todayStr() });
   const [inventoryMvDateFrom, setInventoryMvDateFrom] = useState(inventoryMvDatesRef.current.from);
   const [inventoryMvDateTo, setInventoryMvDateTo] = useState(inventoryMvDatesRef.current.to);
@@ -2742,12 +2744,13 @@ export default function Admin() {
       if (from) qs.set("dateFrom", from);
       if (to) qs.set("dateTo", to);
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      const [lojaRes, motoRes, minasRes] = await Promise.all([
+      const [lojaRes, motoRes, minasRes, santaCatarinaRes] = await Promise.all([
         fetch(`${BASE}/api/admin/inventory/overview${suffix}`, { headers: authHeaders() }),
         fetch(`${BASE}/api/admin/inventory/motoboy/overview${suffix}`, { headers: authHeaders() }),
         fetch(`${BASE}/api/admin/inventory/minas/overview${suffix}`, { headers: authHeaders() }),
+        fetch(`${BASE}/api/admin/inventory/santa_catarina/overview${suffix}`, { headers: authHeaders() }),
       ]);
-      if (lojaRes.status === 401 || motoRes.status === 401 || minasRes.status === 401) { handleUnauthorized(); return; }
+      if (lojaRes.status === 401 || motoRes.status === 401 || minasRes.status === 401 || santaCatarinaRes.status === 401) { handleUnauthorized(); return; }
       if (lojaRes.ok) {
         const data = await lojaRes.json() as {
           balances: InventoryBalanceRecord[];
@@ -2773,6 +2776,14 @@ export default function Admin() {
         };
         setMinasInventoryBalances(minasData.balances || []);
         setMinasInventoryMovements(minasData.movements || []);
+      }
+      if (santaCatarinaRes.ok) {
+        const santaCatarinaData = await santaCatarinaRes.json() as {
+          balances: InventoryBalanceRecord[];
+          movements: InventoryMovementRecord[];
+        };
+        setSantaCatarinaInventoryBalances(santaCatarinaData.balances || []);
+        setSantaCatarinaInventoryMovements(santaCatarinaData.movements || []);
       }
     } catch {
       // silent
@@ -5696,6 +5707,7 @@ export default function Admin() {
             inventoryBalances={inventoryBalances}
             motoboyInventoryBalances={motoboyInventoryBalances}
             minasInventoryBalances={minasInventoryBalances}
+            santaCatarinaInventoryBalances={santaCatarinaInventoryBalances}
             getCommissionRate={getCommissionRate}
             gatewayFeePercent={Number(settings["gateway_fee_percent"] || 0)}
             gatewayFeeFixed={Number(settings["gateway_fee_fixed"] || 0)}
@@ -6416,6 +6428,8 @@ export default function Admin() {
             motoboyMovements={motoboyInventoryMovements}
             minasBalances={minasInventoryBalances}
             minasMovements={minasInventoryMovements}
+            santaCatarinaBalances={santaCatarinaInventoryBalances}
+            santaCatarinaMovements={santaCatarinaInventoryMovements}
             movementDateFrom={inventoryMvDateFrom}
             movementDateTo={inventoryMvDateTo}
             onMovementDatesChange={(from, to) => {
@@ -6544,6 +6558,36 @@ export default function Admin() {
                 toast.success(movementType === "exit" ? "Saída Minas registrada." : "Entrada Minas registrada.");
               } catch {
                 toast.error("Erro ao registrar estoque Minas.");
+              } finally {
+                setInventorySubmitting(false);
+              }
+            }}
+            onCreateSantaCatarinaEntry={async () => {
+              const productId = String(inventoryEntryForm.productId || "").trim();
+              const quantity = Number(inventoryEntryForm.quantity || 0);
+              const reason = String(inventoryEntryForm.reason || "").trim();
+              const movementType = inventoryEntryForm.movementType === "exit" ? "exit" : "entry";
+              if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+                toast.error("Selecione o produto e informe quantidade válida.");
+                return;
+              }
+              setInventorySubmitting(true);
+              try {
+                const res = await fetch(`${BASE}/api/admin/inventory/santa_catarina/entries`, {
+                  method: "POST",
+                  headers: authHeaders(),
+                  body: JSON.stringify({ productId, quantity, reason, movementType }),
+                });
+                const data = await res.json() as { message?: string };
+                if (!res.ok) {
+                  toast.error(data?.message || "Erro ao registrar estoque Santa Catarina.");
+                  return;
+                }
+                setInventoryEntryForm((prev) => ({ ...prev, productId: "", quantity: "", reason: "" }));
+                fetchInventoryOverview();
+                toast.success(movementType === "exit" ? "Saída Santa Catarina registrada." : "Entrada Santa Catarina registrada.");
+              } catch {
+                toast.error("Erro ao registrar estoque Santa Catarina.");
               } finally {
                 setInventorySubmitting(false);
               }
@@ -9635,7 +9679,7 @@ function SupportTicketsPanel({
   );
 }
 
-type InventoryPoolKind = "loja" | "motoboy" | "minas";
+type InventoryPoolKind = "loja" | "motoboy" | "minas" | "santa_catarina";
 type StockTabKind = InventoryPoolKind | "resumo";
 
 type InventoryCatalogLite = {
@@ -9719,6 +9763,7 @@ function InventoryStockSummary({
   balances,
   motoboyBalances,
   minasBalances,
+  santaCatarinaBalances,
   onRefresh,
 }: {
   loading: boolean;
@@ -9726,6 +9771,7 @@ function InventoryStockSummary({
   balances: InventoryBalanceRecord[];
   motoboyBalances: InventoryBalanceRecord[];
   minasBalances: InventoryBalanceRecord[];
+  santaCatarinaBalances: InventoryBalanceRecord[];
   onRefresh: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -9735,9 +9781,10 @@ function InventoryStockSummary({
     const lojaMap = inventoryQtyMap(balances);
     const motoboyMap = inventoryQtyMap(motoboyBalances);
     const minasMap = inventoryQtyMap(minasBalances);
+    const santaCatarinaMap = inventoryQtyMap(santaCatarinaBalances);
     const nameById = new Map<string, string>();
     const imageById = new Map<string, string>();
-    for (const row of [...balances, ...motoboyBalances, ...minasBalances]) {
+    for (const row of [...balances, ...motoboyBalances, ...minasBalances, ...santaCatarinaBalances]) {
       nameById.set(row.productId, row.productName);
       const img = String(row.image || "").trim();
       if (img) imageById.set(row.productId, img);
@@ -9754,6 +9801,7 @@ function InventoryStockSummary({
       ...lojaMap.keys(),
       ...motoboyMap.keys(),
       ...minasMap.keys(),
+      ...santaCatarinaMap.keys(),
     ]);
 
     return Array.from(ids).map((productId) => {
@@ -9763,7 +9811,8 @@ function InventoryStockSummary({
       const qtyLoja = lojaMap.get(productId) || 0;
       const qtyMotoboy = motoboyMap.get(productId) || 0;
       const qtyMinas = minasMap.get(productId) || 0;
-      const totalQty = qtyLoja + qtyMotoboy + qtyMinas;
+      const qtySantaCatarina = santaCatarinaMap.get(productId) || 0;
+      const totalQty = qtyLoja + qtyMotoboy + qtyMinas + qtySantaCatarina;
       const costUnit = Math.max(0, Number(product?.costPrice || 0) || 0);
       const saleUnit = getCatalogSalePrice(product);
       return {
@@ -9773,6 +9822,7 @@ function InventoryStockSummary({
         qtyLoja,
         qtyMotoboy,
         qtyMinas,
+        qtySantaCatarina,
         totalQty,
         costUnit,
         saleUnit,
@@ -9785,7 +9835,7 @@ function InventoryStockSummary({
       if (b.totalQty !== a.totalQty) return b.totalQty - a.totalQty;
       return a.name.localeCompare(b.name, "pt-BR");
     });
-  }, [products, balances, motoboyBalances, minasBalances]);
+  }, [products, balances, motoboyBalances, minasBalances, santaCatarinaBalances]);
 
   const normalized = search.trim().toLowerCase();
   const visible = rows.filter((row) => {
@@ -9805,6 +9855,8 @@ function InventoryStockSummary({
       acc.motoboySale += row.qtyMotoboy * row.saleUnit;
       acc.minasCost += row.qtyMinas * row.costUnit;
       acc.minasSale += row.qtyMinas * row.saleUnit;
+      acc.santaCatarinaCost += row.qtySantaCatarina * row.costUnit;
+      acc.santaCatarinaSale += row.qtySantaCatarina * row.saleUnit;
       if (row.missingCost) acc.missing += 1;
       return acc;
     },
@@ -9818,6 +9870,8 @@ function InventoryStockSummary({
       motoboySale: 0,
       minasCost: 0,
       minasSale: 0,
+      santaCatarinaCost: 0,
+      santaCatarinaSale: 0,
       missing: 0,
     },
   );
@@ -9834,14 +9888,14 @@ function InventoryStockSummary({
     const lines = visible
       .filter((row) => row.totalQty > 0)
       .map((row) =>
-        `${row.totalQty} un · ${row.name} · Foz ${row.qtyLoja} / Moto ${row.qtyMotoboy} / Minas ${row.qtyMinas} · custo ${formatCurrency(row.costTotal)} · venda ${formatCurrency(row.saleTotal)}`,
+        `${row.totalQty} un · ${row.name} · Foz ${row.qtyLoja} / Moto ${row.qtyMotoboy} / Minas ${row.qtyMinas} / SC ${row.qtySantaCatarina} · custo ${formatCurrency(row.costTotal)} · venda ${formatCurrency(row.saleTotal)}`,
       );
     const text = [
       `RESUMO ESTOQUE (${when})`,
       `Empatado: ${formatCurrency(totals.cost)}`,
       `Se vender tudo: ${formatCurrency(totals.sale)}`,
       `Lucro potencial: ${formatCurrency(profit)}`,
-      `Foz Guaçu ${formatCurrency(totals.lojaCost)} · Motoboy ${formatCurrency(totals.motoboyCost)} · Minas ${formatCurrency(totals.minasCost)}`,
+      `Foz Guaçu ${formatCurrency(totals.lojaCost)} · Motoboy ${formatCurrency(totals.motoboyCost)} · Minas ${formatCurrency(totals.minasCost)} · Santa Catarina ${formatCurrency(totals.santaCatarinaCost)}`,
       "",
       ...lines,
     ].join("\n");
@@ -9856,7 +9910,7 @@ function InventoryStockSummary({
           <div>
             <p className="text-sm font-semibold">Resumo de valores</p>
             <p className="text-xs text-muted-foreground">
-              Junta Loja, Motoboy e Minas. Custo e venda vêm do cadastro do produto (promo se estiver ativa). Sem entrada/saída nesta aba.
+              Junta Foz Guaçu, Motoboy, Minas e Santa Catarina. Custo e venda vêm do cadastro do produto (promo se estiver ativa). Sem entrada/saída nesta aba.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
@@ -9879,7 +9933,7 @@ function InventoryStockSummary({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 text-xs">
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2">
             <span className="font-semibold">Foz Guaçu:</span> {formatCurrency(totals.lojaCost)} custo · {formatCurrency(totals.lojaSale)} venda
           </p>
@@ -9888,6 +9942,9 @@ function InventoryStockSummary({
           </p>
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2">
             <span className="font-semibold">Minas:</span> {formatCurrency(totals.minasCost)} custo · {formatCurrency(totals.minasSale)} venda
+          </p>
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+            <span className="font-semibold">Santa Catarina:</span> {formatCurrency(totals.santaCatarinaCost)} custo · {formatCurrency(totals.santaCatarinaSale)} venda
           </p>
         </div>
         {totals.missing > 0 && (
@@ -9944,7 +10001,7 @@ function InventoryStockSummary({
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{row.name}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        Foz Guaçu {row.qtyLoja} · Motoboy {row.qtyMotoboy} · Minas {row.qtyMinas} · {row.totalQty} un
+                        Foz Guaçu {row.qtyLoja} · Motoboy {row.qtyMotoboy} · Minas {row.qtyMinas} · Santa Catarina {row.qtySantaCatarina} · {row.totalQty} un
                       </p>
                     </div>
                   </div>
@@ -9968,13 +10025,14 @@ function InventoryStockSummary({
 
 function parseInventoryPool(raw: unknown): InventoryPoolKind | null {
   const value = String(raw || "").toLowerCase().trim();
-  if (value === "loja" || value === "motoboy" || value === "minas") return value;
+  if (value === "loja" || value === "motoboy" || value === "minas" || value === "santa_catarina") return value;
   return null;
 }
 
 function inventoryPoolLabel(pool: InventoryPoolKind): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
+  if (pool === "santa_catarina") return "Santa Catarina";
   return "Foz Guaçu";
 }
 
@@ -9987,6 +10045,7 @@ function inventoryPoolForEnvioEcomAccount(
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+  if (/santa catarina/.test(name)) return "santa_catarina";
   if (/\bminas\b|\bmg\b/.test(name)) return "minas";
   if (/sao paulo|\bsp\b|servidor/.test(name)) return "motoboy";
   if (id === "env") return "motoboy";
@@ -9995,7 +10054,7 @@ function inventoryPoolForEnvioEcomAccount(
 }
 
 function isDeferredDebitPool(pool: InventoryPoolKind): boolean {
-  return pool === "motoboy" || pool === "minas";
+  return pool === "motoboy" || pool === "minas" || pool === "santa_catarina";
 }
 
 function InventoryPanel({
@@ -10007,6 +10066,8 @@ function InventoryPanel({
   motoboyMovements,
   minasBalances,
   minasMovements,
+  santaCatarinaBalances,
+  santaCatarinaMovements,
   movementDateFrom,
   movementDateTo,
   onMovementDatesChange,
@@ -10022,6 +10083,7 @@ function InventoryPanel({
   onCreateEntry,
   onCreateMotoboyEntry,
   onCreateMinasEntry,
+  onCreateSantaCatarinaEntry,
   onZeroBalances,
   onCreateManualReshipment,
   onUndoMovement,
@@ -10035,6 +10097,8 @@ function InventoryPanel({
   motoboyMovements: InventoryMovementRecord[];
   minasBalances: InventoryBalanceRecord[];
   minasMovements: InventoryMovementRecord[];
+  santaCatarinaBalances: InventoryBalanceRecord[];
+  santaCatarinaMovements: InventoryMovementRecord[];
   movementDateFrom: string;
   movementDateTo: string;
   onMovementDatesChange: (from: string, to: string) => void;
@@ -10106,6 +10170,7 @@ function InventoryPanel({
   onCreateEntry: () => void;
   onCreateMotoboyEntry: () => void;
   onCreateMinasEntry: () => void;
+  onCreateSantaCatarinaEntry: () => void;
   onZeroBalances: (pool: InventoryPoolKind) => Promise<void>;
   onCreateManualReshipment: () => void;
   onUndoMovement: (pool: InventoryPoolKind, movementId: string) => Promise<void>;
@@ -10153,12 +10218,16 @@ function InventoryPanel({
     ? motoboyBalances
     : stockTab === "minas"
       ? minasBalances
-      : balances;
+      : stockTab === "santa_catarina"
+        ? santaCatarinaBalances
+        : balances;
   const activeMovements = stockTab === "motoboy"
     ? motoboyMovements
     : stockTab === "minas"
       ? minasMovements
-      : movements;
+      : stockTab === "santa_catarina"
+        ? santaCatarinaMovements
+        : movements;
   const resolvedBalances = activeBalances.map((row) => {
     const display = resolveInventoryDisplay(products, row.productId, row.productName, row.image);
     return { ...row, displayName: display.name, displayImage: display.image };
@@ -10352,6 +10421,17 @@ function InventoryPanel({
         </button>
         <button
           type="button"
+          onClick={() => setStockTab("santa_catarina")}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition ${
+            stockTab === "santa_catarina"
+              ? "bg-sky-700 text-white border-sky-700"
+              : "bg-white text-muted-foreground border-border hover:border-sky-300"
+          }`}
+        >
+          Estoque Santa Catarina
+        </button>
+        <button
+          type="button"
           onClick={() => setStockTab("resumo")}
           className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition ${
             stockTab === "resumo"
@@ -10370,6 +10450,7 @@ function InventoryPanel({
           balances={balances}
           motoboyBalances={motoboyBalances}
           minasBalances={minasBalances}
+          santaCatarinaBalances={santaCatarinaBalances}
           onRefresh={onRefresh}
         />
       ) : (
@@ -10382,14 +10463,18 @@ function InventoryPanel({
                 ? "Estoque Motoboy"
                 : stockTab === "minas"
                   ? "Estoque Minas"
-                  : "Estoque Foz Guaçu"}
+                  : stockTab === "santa_catarina"
+                    ? "Estoque Santa Catarina"
+                    : "Estoque Foz Guaçu"}
             </p>
             <p className="text-xs text-muted-foreground">
               {stockTab === "motoboy"
                   ? "Registre o que está na mão do motoboy. Pedidos só baixam com Dar baixa agora no card. Pedidos com etiqueta EE aparecem como previsão (linha imaginária), sem baixar."
                 : stockTab === "minas"
                   ? "Registre o que está no estoque Minas. Pedidos só baixam com Dar baixa agora no card."
-                  : "Registre entrada ou saída de estoque. Pedidos Foz também só baixam com Dar baixa agora. Entradas por compra ou devolução liberam reenvios automaticamente."}
+                  : stockTab === "santa_catarina"
+                    ? "Registre o que está no estoque Santa Catarina. Pedidos só baixam com Dar baixa agora no card."
+                    : "Registre entrada ou saída de estoque. Pedidos Foz também só baixam com Dar baixa agora. Entradas por compra ou devolução liberam reenvios automaticamente."}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -10447,6 +10532,7 @@ function InventoryPanel({
             onClick={() => {
               if (stockTab === "motoboy") onCreateMotoboyEntry();
               else if (stockTab === "minas") onCreateMinasEntry();
+              else if (stockTab === "santa_catarina") onCreateSantaCatarinaEntry();
               else onCreateEntry();
             }}
             disabled={submitting}
@@ -10585,7 +10671,9 @@ function InventoryPanel({
                       ? "copy-motoboy-stock-btn"
                       : stockTab === "minas"
                         ? "copy-minas-stock-btn"
-                        : "copy-stock-btn";
+                        : stockTab === "santa_catarina"
+                          ? "copy-santa-catarina-stock-btn"
+                          : "copy-stock-btn";
                     const btn = document.getElementById(copyBtnId);
                     if (btn) {
                       const original = btn.textContent;
@@ -10594,7 +10682,7 @@ function InventoryPanel({
                     }
                   });
                 }}
-                id={stockTab === "motoboy" ? "copy-motoboy-stock-btn" : stockTab === "minas" ? "copy-minas-stock-btn" : "copy-stock-btn"}
+                id={stockTab === "motoboy" ? "copy-motoboy-stock-btn" : stockTab === "minas" ? "copy-minas-stock-btn" : stockTab === "santa_catarina" ? "copy-santa-catarina-stock-btn" : "copy-stock-btn"}
                 className="text-xs px-2 py-1 rounded-md border border-border bg-muted hover:bg-accent transition-colors font-medium"
               >
                 {`Copiar ${stockTabLabel}`}
@@ -11191,6 +11279,7 @@ function OrdersPanel({
   inventoryBalances,
   motoboyInventoryBalances,
   minasInventoryBalances,
+  santaCatarinaInventoryBalances,
   getCommissionRate,
   gatewayFeePercent,
   gatewayFeeFixed,
@@ -11210,6 +11299,7 @@ function OrdersPanel({
   inventoryBalances: InventoryBalanceRecord[];
   motoboyInventoryBalances: InventoryBalanceRecord[];
   minasInventoryBalances: InventoryBalanceRecord[];
+  santaCatarinaInventoryBalances: InventoryBalanceRecord[];
   getCommissionRate: (sellerCode?: string | null, snapshot?: number | null) => number;
   gatewayFeePercent: number;
   gatewayFeeFixed: number;
@@ -12828,6 +12918,7 @@ function OrdersPanel({
   const balancesForInventoryPool = (pool: InventoryPoolKind): InventoryBalanceRecord[] => {
     if (pool === "motoboy") return motoboyInventoryBalances;
     if (pool === "minas") return minasInventoryBalances;
+    if (pool === "santa_catarina") return santaCatarinaInventoryBalances;
     return inventoryBalances;
   };
 
@@ -13579,7 +13670,8 @@ function OrdersPanel({
     : inventoryBalances;
   const trackingInventoryReady = modalInventoryBalances.length > 0
     || motoboyInventoryBalances.length > 0
-    || minasInventoryBalances.length > 0;
+    || minasInventoryBalances.length > 0
+    || santaCatarinaInventoryBalances.length > 0;
   const trackingReviewPool = trackingReview ? resolveInventoryPoolForOrder(trackingReview.order.id) : "loja" as InventoryPoolKind;
   const trackingTargetPool = trackingTargetOrderId ? resolveInventoryPoolForOrder(trackingTargetOrderId) : "loja" as InventoryPoolKind;
   const trackingReviewBalances = trackingReviewPool === "loja"
@@ -14547,6 +14639,21 @@ function OrdersPanel({
                       }`}
                     >
                       Minas
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
+                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
+                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
+                        : undefined}
+                      onClick={() => { void saveInventoryPoolForOrder(order.id, "santa_catarina"); }}
+                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
+                        selectedInventoryPool === "santa_catarina"
+                          ? "bg-sky-700 text-white border-sky-700"
+                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
+                      }`}
+                    >
+                      Santa Catarina
                     </button>
                     {!inventoryReservedByOrder[order.id] && (
                       <>
@@ -19145,7 +19252,7 @@ function ProductsPanel({
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Até durar o estoque</label>
-                        <p className="text-xs text-muted-foreground mt-1">Ligado, a promoção usa o saldo Motoboy + Minas e baixa a cada pedido pago. Desligado, vale a data e a hora.</p>
+                        <p className="text-xs text-muted-foreground mt-1">Ligado, a promoção usa o saldo Motoboy + Minas + Santa Catarina e baixa a cada pedido pago. Desligado, vale a data e a hora.</p>
                       </div>
                       <button
                         type="button"
@@ -19169,7 +19276,7 @@ function ProductsPanel({
                     {(productForm as { promoUntilStock?: boolean }).promoUntilStock === true ? (
                       <p className="text-xs font-medium text-emerald-800">
                         {(productForm as { promoStockLeft?: number | null }).promoStockLeft == null
-                          ? "Ao salvar, o saldo copia o estoque Motoboy + Minas."
+                          ? "Ao salvar, o saldo copia o estoque Motoboy + Minas + Santa Catarina."
                           : `Restam ${(productForm as { promoStockLeft?: number | null }).promoStockLeft} nesta promoção. A baixa do depósito continua no botão Dar baixa agora.`}
                       </p>
                     ) : (
@@ -19506,7 +19613,7 @@ function ProductsPanel({
                   <div className="sm:col-span-2 flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3">
                     <div>
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Mostrar estoque ao cliente</p>
-                      <p className="text-xs text-muted-foreground mt-1">Soma Motoboy + Minas. Foz Guaçu não entra e o carrinho continua igual.</p>
+                      <p className="text-xs text-muted-foreground mt-1">Soma Motoboy + Minas + Santa Catarina. Foz Guaçu não entra e o carrinho continua igual.</p>
                     </div>
                     <button
                       type="button"

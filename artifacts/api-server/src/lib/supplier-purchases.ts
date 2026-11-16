@@ -3,6 +3,7 @@ import {
   db,
   inventoryMinasMovementsTable,
   inventoryMotoboyMovementsTable,
+  inventorySantaCatarinaMovementsTable,
   inventoryMovementsTable,
   marketingExpensesTable,
   productCostHistoryTable,
@@ -18,6 +19,7 @@ import {
   registerInventoryEntry,
   registerMinasInventoryEntry,
   registerMotoboyInventoryEntry,
+  registerSantaCatarinaInventoryEntry,
 } from "./reshipments";
 import {
   canCompletePurchase,
@@ -67,12 +69,17 @@ async function applyInventoryEntry(pool: InventoryPoolKind, input: {
     await registerMinasInventoryEntry(payload);
     return;
   }
+  if (pool === "santa_catarina") {
+    await registerSantaCatarinaInventoryEntry(payload);
+    return;
+  }
   await registerInventoryEntry(payload);
 }
 
 function movementsTableForPool(pool: InventoryPoolKind) {
   if (pool === "motoboy") return inventoryMotoboyMovementsTable;
   if (pool === "minas") return inventoryMinasMovementsTable;
+  if (pool === "santa_catarina") return inventorySantaCatarinaMovementsTable;
   return inventoryMovementsTable;
 }
 
@@ -169,6 +176,7 @@ export async function loadPurchaseInventoryAppliedMap(
     loja: new Set(),
     motoboy: new Set(),
     minas: new Set(),
+    santa_catarina: new Set(),
   };
 
   for (const pool of Object.keys(keysByPool) as InventoryPoolKind[]) {
@@ -319,7 +327,7 @@ export async function completeSupplierPurchase(input: {
 }): Promise<{ expenseId: string; totalAmount: number; inventoryPool: InventoryPoolKind }> {
   const pool = parseInventoryPool(input.inventoryPool);
   if (!pool) {
-    throw new SupplierPurchaseError("INVALID_POOL", "Escolha o estoque: Foz Guaçu, Motoboy ou Minas.");
+    throw new SupplierPurchaseError("INVALID_POOL", "Escolha o estoque: Foz Guaçu, Motoboy, Minas ou Santa Catarina.");
   }
 
   const purchaseId = String(input.purchaseId || "").trim();

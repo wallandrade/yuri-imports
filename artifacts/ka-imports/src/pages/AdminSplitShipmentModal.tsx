@@ -40,6 +40,7 @@ const POOLS: Array<{ id: SplitPoolKind; label: string }> = [
   { id: "minas", label: "Minas" },
   { id: "motoboy", label: "Motoboy" },
   { id: "loja", label: "Foz Guaçu" },
+  { id: "santa_catarina", label: "Santa Catarina" },
 ];
 
 function poolLabel(pool: SplitPoolKind): string {
@@ -58,7 +59,11 @@ type Line = {
 };
 
 function emptyQty(): Record<SplitPoolKind, number> {
-  return { loja: 0, motoboy: 0, minas: 0 };
+  return { loja: 0, motoboy: 0, minas: 0, santa_catarina: 0 };
+}
+
+function qtyTotal(qty: Record<SplitPoolKind, number>): number {
+  return qty.loja + qty.motoboy + qty.minas + qty.santa_catarina;
 }
 
 export function AdminSplitShipmentModal({
@@ -87,7 +92,7 @@ export function AdminSplitShipmentModal({
     }));
     for (const pack of packages) {
       const pool = pack.inventoryPool;
-      if (pool !== "loja" && pool !== "motoboy" && pool !== "minas") continue;
+      if (pool !== "loja" && pool !== "motoboy" && pool !== "minas" && pool !== "santa_catarina") continue;
       for (const item of pack.items || []) {
         const key = splitLineKey(item);
         const line = lines.find((row) => row.key === key);
@@ -97,7 +102,7 @@ export function AdminSplitShipmentModal({
     }
     if (packages.length < 2) {
       for (const line of lines) {
-        if (line.qty.minas + line.qty.motoboy + line.qty.loja === 0) {
+        if (qtyTotal(line.qty) === 0) {
           line.qty.minas = line.quantity;
         }
       }
@@ -120,7 +125,7 @@ export function AdminSplitShipmentModal({
 
   const submit = () => {
     for (const line of lines) {
-      const sum = line.qty.minas + line.qty.motoboy + line.qty.loja;
+      const sum = qtyTotal(line.qty);
       if (sum !== line.quantity) {
         setError(`${line.productName}: some ${line.quantity} un nos estoques (agora ${sum}).`);
         return;
@@ -148,7 +153,7 @@ export function AdminSplitShipmentModal({
 
   return (
     <div className="fixed inset-0 z-[130] bg-black/45 flex items-center justify-center p-4">
-      <div className="w-full max-w-2xl rounded-2xl border border-border bg-white shadow-2xl overflow-hidden">
+      <div className="w-full max-w-3xl rounded-2xl border border-border bg-white shadow-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-foreground">Dividir envio EnvioEcom</h3>
@@ -176,7 +181,7 @@ export function AdminSplitShipmentModal({
             </thead>
             <tbody>
               {lines.map((line) => {
-                const sum = line.qty.minas + line.qty.motoboy + line.qty.loja;
+                const sum = qtyTotal(line.qty);
                 const ok = sum === line.quantity;
                 return (
                   <tr key={line.key} className="border-t border-border/70">

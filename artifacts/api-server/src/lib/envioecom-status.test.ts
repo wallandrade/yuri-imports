@@ -169,6 +169,7 @@ test("conta EnvioEcom SP mapeia Motoboy e MG mapeia Minas (pool sugerido, sem ba
   assert.equal(inventoryPoolForEnvioEcomAccount("env", null), "motoboy");
   assert.equal(inventoryPoolForEnvioEcomAccount("abc", "Minas"), "minas");
   assert.equal(inventoryPoolForEnvioEcomAccount("abc", "EnvioEcom MG"), "minas");
+  assert.equal(inventoryPoolForEnvioEcomAccount("abc", "Santa Catarina"), "santa_catarina");
   assert.equal(inventoryPoolForEnvioEcomAccount("extra-uuid", "API 2"), "minas");
   assert.equal(inventoryPoolForEnvioEcomAccount(null, null), null);
 });

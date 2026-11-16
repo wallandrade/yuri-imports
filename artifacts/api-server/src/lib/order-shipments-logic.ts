@@ -6,7 +6,7 @@ import {
 } from "./envioecom";
 import { isSuperfreteExcludedFromCopy, superfreteLeavesSendCard } from "./superfrete-status";
 
-export type InventoryPoolKind = "loja" | "motoboy" | "minas";
+export type InventoryPoolKind = "loja" | "motoboy" | "minas" | "santa_catarina";
 
 export type OrderShipmentItem = {
   productId: string;
@@ -32,13 +32,14 @@ export type OrderShipmentAllocationInput = {
 
 export function parseShipmentPool(raw: unknown): InventoryPoolKind | null {
   const value = String(raw || "").toLowerCase().trim();
-  if (value === "loja" || value === "motoboy" || value === "minas") return value;
+  if (value === "loja" || value === "motoboy" || value === "minas" || value === "santa_catarina") return value;
   return null;
 }
 
 export function shipmentPoolLabel(pool: InventoryPoolKind): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
+  if (pool === "santa_catarina") return "Santa Catarina";
   return "Foz Guaçu";
 }
 
@@ -631,7 +632,7 @@ export function validateShipmentAllocation(
   for (const pack of packages) {
     const pool = parseShipmentPool(pack.inventoryPool);
     if (!pool) {
-      return { ok: false, code: "INVALID_POOL", message: "Cada pacote precisa de estoque Foz Guaçu, Motoboy ou Minas." };
+      return { ok: false, code: "INVALID_POOL", message: "Cada pacote precisa de estoque Foz Guaçu, Motoboy, Minas ou Santa Catarina." };
     }
     if (seenPools.has(pool)) {
       return { ok: false, code: "DUPLICATE_POOL", message: `Já existe um pacote para o estoque ${shipmentPoolLabel(pool)}.` };

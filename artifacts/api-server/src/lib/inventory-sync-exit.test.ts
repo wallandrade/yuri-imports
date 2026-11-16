@@ -34,6 +34,13 @@ test("baixa só com orderId (pedido Yury)", () => {
   assert.equal(parsed.value.items.length, 0);
 });
 
+test("aceita pool santa catarina", () => {
+  const parsed = parseInventoryExitBody({ pool: "santa_catarina", productId: "abc", quantity: 1 });
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.value.pool, "santa_catarina");
+});
+
 test("recusa pool loja / Foz", () => {
   const parsed = parseInventoryExitBody({ pool: "loja", productId: "abc", quantity: 1 });
   assert.equal(parsed.ok, false);

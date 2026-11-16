@@ -1,6 +1,6 @@
 # Arquitetura — Yuri Import
 
-> **Última atualização:** 2026-11-13
+> **Última atualização:** 2026-11-16
 
 Stack, pastas e deploy **como existem no código**. Precedência: código > memória > tipagens.
 
@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Tabelas `inventory_santa_catarina_balances` / `inventory_santa_catarina_movements` (+ runtime) | Quarto pool de estoque (Santa Catarina). Chave `santa_catarina` cabe em `inventory_pool` varchar(16) | Loja, Motoboy e Minas iguais |
 | 2026-11-13 | Front aponta `/api` para a DigitalOcean | Os dois `vercel.json` reescrevem para `https://yuri-imports-9483v.ondigitalocean.app/api/:path*`. O CSP troca o host Railway por esse e pelo R2 | Manutenção, PIX, esgotado e a moderação iguais |
 | 2026-11-12 | Tabela `whatsapp_group_moderation_log` (+ runtime) | Guarda a mensagem moderada no grupo para poder desfazer. Chave é o id da mensagem | Campanha dos grupos, atendimento e pedido iguais. Sem `tenant_id` |
 | 2026-11-11 | Tabela `order_delivery_corrections` e coluna `orders.client_data_corrected_at` (+ runtime) | Link público `/corrigir-entrega` para CPF, CEP e endereço. Vale 7 dias, só sem etiqueta. A loja ganha a página e o modal do admin | PIX, estoque e a senha de baixa iguais. Sem `tenant_id` |
@@ -91,7 +92,7 @@ Workspace: `pnpm-workspace.yaml` (`artifacts/*`, `lib/*`, `scripts`).
 
 Schemas em `lib/db/src/schema/*.ts` (export em `index.ts`):
 
-`orders`, `checkout_drafts`, `order_shipments`, `order_activity`, `carrier_loss_incidents`, `custom_charges`, `admin_users`, `admin_sessions`, `customer_users`, `customer_subscriptions`, `customer_store_credits`, `customer_store_credit_ledger`, `coupons`, `products`, `product_cost_history`, `site_settings`, `sellers`, `shipping_options`, `order_bumps`, `kyc_documents`, `social_proof_settings`, `social_proof_fake_entries`, `affiliates`, `affiliate_referrals`, `affiliate_commissions`, `affiliate_credit_uses`, `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`, `support_tickets`, `reshipments`, `manual_reshipments`, `inventory_balances`, `inventory_movements`, `inventory_motoboy_balances`, `inventory_motoboy_movements`, `inventory_minas_balances`, `inventory_minas_movements`, `manual_return_items`, `marketing_expenses`, `suppliers`, `supplier_purchases`, `supplier_purchase_items`, `seller_commission_batches`, `motoboy_neighborhoods`, `motoboy_bookings`, `motoboy_cep_ranges`, `shipping_queue`, `admin_images`.
+`orders`, `checkout_drafts`, `order_shipments`, `order_activity`, `carrier_loss_incidents`, `custom_charges`, `admin_users`, `admin_sessions`, `customer_users`, `customer_subscriptions`, `customer_store_credits`, `customer_store_credit_ledger`, `coupons`, `products`, `product_cost_history`, `site_settings`, `sellers`, `shipping_options`, `order_bumps`, `kyc_documents`, `social_proof_settings`, `social_proof_fake_entries`, `affiliates`, `affiliate_referrals`, `affiliate_commissions`, `affiliate_credit_uses`, `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`, `support_tickets`, `reshipments`, `manual_reshipments`, `inventory_balances`, `inventory_movements`, `inventory_motoboy_balances`, `inventory_motoboy_movements`, `inventory_minas_balances`, `inventory_minas_movements`, `inventory_santa_catarina_balances`, `inventory_santa_catarina_movements`, `manual_return_items`, `marketing_expenses`, `suppliers`, `supplier_purchases`, `supplier_purchase_items`, `seller_commission_batches`, `motoboy_neighborhoods`, `motoboy_bookings`, `motoboy_cep_ranges`, `shipping_queue`, `admin_images`.
 
 ## Auth (resumo)
 

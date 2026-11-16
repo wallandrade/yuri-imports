@@ -1,4 +1,4 @@
-export type SplitPoolKind = "loja" | "motoboy" | "minas";
+export type SplitPoolKind = "loja" | "motoboy" | "minas" | "santa_catarina";
 
 export type SplitShipmentDraftItem = {
   productId: string;

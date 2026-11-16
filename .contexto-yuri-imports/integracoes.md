@@ -8,6 +8,7 @@ Providers externos **presentes no código**. Precedência: código > memória.
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Snapshot e baixa do espelho incluem Santa Catarina | `GET .../inventory/snapshot` ganha `santaCatarina[]`. `POST .../exit` aceita `pool: santa_catarina`. Webhook manda `balances.santaCatarina` | Foz Guaçu continua fora. Motoboy e Minas iguais. Baixa do espelho segue sem senha |
 | 2026-11-16 | Etiqueta EnvioEcom mais segura | J&T corta o valor declarado em R$ 1.000 (ou no teto da cotação). Recusa do lote volta 422 com a frase da EnvioEcom. Clique duplo não cria dois envios | Contas do seletor, prazo do checkout, PIX e PAC/Sedex iguais |
 | 2026-11-15 | Seletor de etiqueta esconde a conta do servidor | Com conta salva no admin, o modal não lista "São Paulo (servidor)". Sem conta salva, ela continua. O prazo do frete segue nessa conta | Preço, opções de frete, PIX e a emissão nas contas salvas iguais |
 | 2026-11-15 | Link de WhatsApp com texto preserva emoji | `whatsAppSendUrl` usa `https://api.whatsapp.com/send`. `wa.me` sem texto continua | Mensagens, PIX, estoque e compra iguais |
@@ -324,15 +325,15 @@ Yury = **fonte da verdade** de bairros + faixas CEP (`motoboy_neighborhoods`, `m
 - Lib: `lib/motoboy-coverage-sync.ts`; rota: `routes/motoboy-coverage-sync.ts`.
 - Fase 2 (proposta do espelho → Yury) **não** implementada.
 
-## Estoque Motoboy + Minas → espelho
+## Estoque Motoboy + Minas + Santa Catarina → espelho
 
 Yury = **fonte da verdade**. Snapshot é leitura. Baixa do espelho entra **sem senha**. Sem entrada de compra por essa API.
 
-- **Pull:** `GET /api/integrations/inventory/snapshot` — Bearer ou `X-Api-Key` = `INVENTORY_SYNC_TOKEN` (se vazio, usa `MOTOBOY_SYNC_TOKEN`). Sem token → 503. Resposta: `{ syncedAt, source, motoboy[], minas[] }` (`productId`, `productName` do catálogo se o id existir **ou** nome único/legado de pedido se o produto foi recadastrado, `quantity`).
+- **Pull:** `GET /api/integrations/inventory/snapshot` — Bearer ou `X-Api-Key` = `INVENTORY_SYNC_TOKEN` (se vazio, usa `MOTOBOY_SYNC_TOKEN`). Sem token → 503. Resposta: `{ syncedAt, source, motoboy[], minas[], santaCatarina[] }` (`productId`, `productName` do catálogo se o id existir **ou** nome único/legado de pedido se o produto foi recadastrado, `quantity`).
 - **Status da janela:** `GET /api/integrations/inventory/exit-status` — mesmo token. `{ unlocked, remainingMs, passwordRequired }`. `passwordRequired` volta **sempre false** (o KA não mostra **Senha da baixa Yury**).
 - **Liberar:** `POST /api/integrations/inventory/unlock` `{ password }` continua na API. Certo → 30 minutos. Errado → 403 `INVALID_PASSWORD`. O `POST .../exit` **não** usa essa janela.
-- **Baixa:** `POST /api/integrations/inventory/exit` — mesmo token, **sem senha**. Body: `{ pool: "motoboy"|"minas", productId, quantity }` ou `{ pool, items[] }` ou `{ pool, orderId }`. Hash em `site_settings` (`inventory_exit_password`); janela em `inventory_exit_unlocked_until` ficam para o Admin. Primeira vez: hash a partir de `INVENTORY_EXIT_PASSWORD` (env) se ainda não houver registro. Admin Configurações: **Liberar 30 min** (`POST /api/admin/integrations/inventory/unlock`) e troca (`PUT .../exit-password`). **Dar baixa agora** Motoboy/Minas no card do Admin ainda pede a senha. **Não** aceita pool `loja` (Foz Guaçu). Trocar a senha zera a janela do Admin.
-- **Push (opcional):** env `INVENTORY_SYNC_WEBHOOK_URL` + `INVENTORY_SYNC_WEBHOOK_SECRET` (secret cai no `MOTOBOY_SYNC_WEBHOOK_SECRET` se vazio). Sem URL = no-op. Evento `inventory.changed` em entrada/saída Motoboy ou Minas (Admin **e** baixa do espelho na janela), fire-and-forget (3 tentativas). Payload inclui `pool`, `productId`, `quantityDelta` e `balances.motoboy` + `balances.minas` do mesmo produto.
+- **Baixa:** `POST /api/integrations/inventory/exit` — mesmo token, **sem senha**. Body: `{ pool: "motoboy"|"minas"|"santa_catarina", productId, quantity }` ou `{ pool, items[] }` ou `{ pool, orderId }`. Hash em `site_settings` (`inventory_exit_password`); janela em `inventory_exit_unlocked_until` ficam para o Admin. Primeira vez: hash a partir de `INVENTORY_EXIT_PASSWORD` (env) se ainda não houver registro. Admin Configurações: **Liberar 30 min** (`POST /api/admin/integrations/inventory/unlock`) e troca (`PUT .../exit-password`). **Dar baixa agora** Motoboy/Minas/Santa Catarina no card do Admin ainda pede a senha. **Não** aceita pool `loja` (Foz Guaçu). Trocar a senha zera a janela do Admin.
+- **Push (opcional):** env `INVENTORY_SYNC_WEBHOOK_URL` + `INVENTORY_SYNC_WEBHOOK_SECRET` (secret cai no `MOTOBOY_SYNC_WEBHOOK_SECRET` se vazio). Sem URL = no-op. Evento `inventory.changed` em entrada/saída Motoboy, Minas ou Santa Catarina (Admin **e** baixa do espelho), fire-and-forget (3 tentativas). Payload inclui `pool`, `productId`, `quantityDelta` e `balances.motoboy` + `balances.minas` + `balances.santaCatarina` do mesmo produto.
 - **Headers webhook:** iguais à cobertura (`X-Yury-Signature: sha256=<hmac_body>`, `X-Yury-Event-Id`, `X-Yury-Timestamp`).
 - Lib: `lib/inventory-sync.ts`, `lib/inventory-exit-access.ts`; rota: `routes/inventory-sync.ts`.
 

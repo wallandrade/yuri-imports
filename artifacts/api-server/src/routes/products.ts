@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable, inventoryMotoboyBalancesTable, inventoryMinasBalancesTable } from "@workspace/db";
+import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable, inventoryMotoboyBalancesTable, inventoryMinasBalancesTable, inventorySantaCatarinaBalancesTable } from "@workspace/db";
 import { eq, asc, desc, gte, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
@@ -262,8 +262,8 @@ function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = fal
   return product;
 }
 
-async function loadMotoboyMinasStockTotals(): Promise<Map<string, number>> {
-  const [motoboyRows, minasRows] = await Promise.all([
+async function loadCustomerVisibleStockTotals(): Promise<Map<string, number>> {
+  const [motoboyRows, minasRows, santaCatarinaRows] = await Promise.all([
     db.select({
       productId: inventoryMotoboyBalancesTable.productId,
       quantity: inventoryMotoboyBalancesTable.quantity,
@@ -272,12 +272,16 @@ async function loadMotoboyMinasStockTotals(): Promise<Map<string, number>> {
       productId: inventoryMinasBalancesTable.productId,
       quantity: inventoryMinasBalancesTable.quantity,
     }).from(inventoryMinasBalancesTable),
+    db.select({
+      productId: inventorySantaCatarinaBalancesTable.productId,
+      quantity: inventorySantaCatarinaBalancesTable.quantity,
+    }).from(inventorySantaCatarinaBalancesTable),
   ]);
-  return customerStockTotals([...motoboyRows, ...minasRows]);
+  return customerStockTotals([...motoboyRows, ...minasRows, ...santaCatarinaRows]);
 }
 
 async function snapshotPromoStock(productId: string): Promise<number> {
-  const totals = await loadMotoboyMinasStockTotals();
+  const totals = await loadCustomerVisibleStockTotals();
   return customerStockQtyForProduct(totals, productId);
 }
 
@@ -305,7 +309,7 @@ router.get("/products", async (_req, res) => {
     let stockTotals: Map<string, number> | null = null;
     if (rows.some((row) => Boolean(row.showStockQuantity))) {
       try {
-        stockTotals = await loadMotoboyMinasStockTotals();
+        stockTotals = await loadCustomerVisibleStockTotals();
       } catch (err) {
         console.error("[API] GET /api/products - stock qty:", err);
       }

@@ -1,6 +1,6 @@
 # Auth e permissões — Yuri Import
 
-> **Última atualização:** 2026-11-10
+> **Última atualização:** 2026-11-16
 
 RBAC/admin e auth de cliente **como implementados**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Senha de baixa vale para Santa Catarina | Dar baixa agora desse pool pede a mesma senha de Motoboy/Minas. O espelho baixa `santa_catarina` só com o token | Foz Guaçu continua sem senha. Janela de 30 min igual |
 | 2026-11-10 | Aba Entrar sem CPF | A tela `/login` pede só e-mail e senha. O pedido sem conta continua ligando pelo e-mail. CPF já gravado na conta continua valendo | API de login ainda aceita `document`. Aba Criar conta, pharma e o claim iguais |
 | 2026-11-10 | Pedido de senha diz o que aconteceu | `POST /api/auth/forgot-password` devolve `sent`, `unknown_email`, `rate_limited`, `invalid_email`, `not_configured` ou `failed`. Sucesso só com `messageId` do Brevo. Log do e-mail ausente sai mascarado | Token SHA-256, 1 h, uso único, limite 3/e-mail e 8/IP, PBKDF2 e `set-password` iguais |
 | 2026-11-10 | Cliente pede link de senha por e-mail | `POST /api/auth/forgot-password` responde sempre a mesma frase. `POST /api/auth/reset-password` troca a senha com o token. A tela `/redefinir-senha` cria a senha nova. O admin continua com `set-password` | Sessão, PBKDF2 e a senha de baixa iguais. PIX, estoque e Cell Tech iguais |
@@ -43,6 +44,7 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 - `isPrimary === true` → acesso global.
 - Admin não primário → precisa de seller vinculado via env `ADMIN_SELLER_SCOPE_MAP` (JSON `{"usuario":"seller-slug"}`). Sem vínculo → erro pedindo configuração do mapa.
 - Gestão de usuários admin (criar, promoção `isPrimary`, senha): rotas sob `/api/admin/users*` com `requirePrimaryAdmin` onde aplicável.
+- Troca de vendedor de um pedido: `PATCH /api/admin/orders/:id/seller` = `requirePrimaryAdmin`. O card mostra **Trocar vendedor** só com `isPrimary`.
 - Contas extras EnvioEcom: `POST/PUT/DELETE /api/admin/envioecom/accounts` = `requirePrimaryAdmin`; `GET` = qualquer admin autenticado (seletor no card).
 - **Não** há multi-tenant por `tenant_id`; isolamento = `sellerCode` + escopo.
 - Aba **Biblioteca** (fichas de compostos): todos os admins autenticados; não está em `PRIMARY_ONLY_TABS`. API das fichas continua pública (`/api/chat/*`).
@@ -64,11 +66,11 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 - Pull: `GET /api/integrations/motoboy/coverage` com Bearer ou `X-Api-Key`.
 - Não usa sessão admin nem `MOTOBOY_PORTAL_TOKEN`.
 
-## Sync estoque Motoboy + Minas (espelho externo)
+## Sync estoque Motoboy + Minas + Santa Catarina (espelho externo)
 
 - Pull: `GET /api/integrations/inventory/snapshot` — Bearer ou `X-Api-Key` = `INVENTORY_SYNC_TOKEN` ou, se vazio, `MOTOBOY_SYNC_TOKEN`. Sem token → 503.
-- Baixa: `POST /api/integrations/inventory/exit` — mesmo token, **sem senha**. `GET .../exit-status` devolve `passwordRequired: false`. `POST .../unlock` continua; o exit não exige a janela.
-- Admin Pedidos: Dar baixa agora Motoboy/Minas — mesma senha (modal). Foz sem senha.
+- Baixa: `POST /api/integrations/inventory/exit` — mesmo token, **sem senha**. Pool `motoboy`, `minas` ou `santa_catarina`. `GET .../exit-status` devolve `passwordRequired: false`. `POST .../unlock` continua; o exit não exige a janela.
+- Admin Pedidos: Dar baixa agora Motoboy/Minas/Santa Catarina — mesma senha (modal). Foz sem senha.
 - Admin: `GET /api/admin/integrations/inventory/exit-access` e `POST .../unlock` = `requireAdminAuth`. `PUT .../exit-password` = `requirePrimaryAdmin`. Hash, senha não volta no GET.
 - Push: `INVENTORY_SYNC_WEBHOOK_URL` + `INVENTORY_SYNC_WEBHOOK_SECRET` (secret pode cair no da cobertura). Sem URL = no-op.
 - Não usa sessão admin.
