@@ -12,6 +12,9 @@ import {
   customSlotKey,
   parseScheduleTimes,
   groupSlotDue,
+  groupImageSendAllowed,
+  GROUP_IMAGE_HOURLY_LIMIT,
+  RECENT_GROUP_IMAGE_SENDS_SQL,
   parseGroupChats,
   peptideDailyCaption,
   peptideDailyDue,
@@ -106,7 +109,23 @@ async function catalog(): Promise<CampaignProduct[]> {
   }));
 }
 
+async function recentImageSends(): Promise<number> {
+  try {
+    const [rows] = await pool.query(RECENT_GROUP_IMAGE_SENDS_SQL);
+    const list = Array.isArray(rows) ? rows as Array<{ total?: number }> : [];
+    return Number(list[0]?.total || 0);
+  } catch (err) {
+    console.warn("[Grupos WhatsApp] limite", err instanceof Error ? err.message : err);
+    return GROUP_IMAGE_HOURLY_LIMIT;
+  }
+}
+
 async function deliver(creds: ZapiMain, claimId: string, phone: string, image: string, caption: string, label: string): Promise<void> {
+  const sentInHour = await recentImageSends();
+  if (!groupImageSendAllowed(sentInHour)) {
+    console.log("[Grupos WhatsApp] adiado pelo limite", label);
+    return;
+  }
   if (!await claim(claimId)) return;
   const sent = await sendImage(creds, phone, image, caption);
   if (!sent) {
@@ -198,10 +217,17 @@ export async function runWhatsappGroupTick(now = new Date()): Promise<void> {
 }
 
 export function startWhatsappGroupJob(): void {
+  let ticking = false;
   const tick = () => {
-    void runWhatsappGroupTick().catch((err: unknown) => {
-      console.warn("[Grupos WhatsApp]", err instanceof Error ? err.message : err);
-    });
+    if (ticking) return;
+    ticking = true;
+    void runWhatsappGroupTick()
+      .catch((err: unknown) => {
+        console.warn("[Grupos WhatsApp]", err instanceof Error ? err.message : err);
+      })
+      .finally(() => {
+        ticking = false;
+      });
   };
   setInterval(tick, TICK_MS);
   console.log("[Grupos WhatsApp] conferência a cada 60s. A campanha nasce desligada.");

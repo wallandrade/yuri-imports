@@ -1,6 +1,7 @@
 export const GROUP_SLOTS = [9, 13, 17, 21] as const;
-export const GROUP_STAGGER_MINUTES = 3;
+export const GROUP_STAGGER_MINUTES = 10;
 export const GROUP_LIMIT = 6;
+export const GROUP_IMAGE_HOURLY_LIMIT = 6;
 export const GROUP_CAMPAIGN_ENABLED_SETTING = "whatsapp_group_campaign_enabled";
 export const GROUP_PRODUCT_IDS_SETTING = "whatsapp_group_product_ids";
 export const GROUP_CHATS_SETTING = "whatsapp_group_chats";
@@ -45,7 +46,7 @@ export function saoPauloParts(date: Date): { dayKey: string; hour: number; minut
   };
 }
 
-/** Hora do slot se este grupo está na janela de 2 minutos. */
+/** Hora do slot se este grupo está na janela de 2 minutos. Seis grupos vão de :00 a :50. */
 export function groupSlotDue(hour: number, minute: number, groupIndex: number): number | null {
   if (!(GROUP_SLOTS as readonly number[]).includes(hour)) return null;
   const start = groupIndex * GROUP_STAGGER_MINUTES;
@@ -635,3 +636,23 @@ export function peptideSendHours(raw: string): number[] {
   }
   return [peptideSendHour(value)];
 }
+
+/** Cabe mais uma imagem na última hora. O teto vale para todas as campanhas juntas. */
+export function groupImageSendAllowed(sentInLastHour: number, limit = GROUP_IMAGE_HOURLY_LIMIT): boolean {
+  const sent = Number(sentInLastHour);
+  if (!Number.isFinite(sent) || sent < 0) return true;
+  return sent < limit;
+}
+
+/** Quantas imagens já caíram na janela móvel de 60 minutos que termina em `at`. */
+export function sendsInRollingHour(sentAt: number[], at: number, windowMs = 60 * 60 * 1000): number {
+  return sentAt.filter((time) => time <= at && at - time < windowMs).length;
+}
+
+/**
+ * A janela fica no relógio do MySQL. `sent_at` nasce de CURRENT_TIMESTAMP e a sessão
+ * guarda TIMESTAMP em UTC. Um Date do Node, com TZ America/Sao_Paulo, viraria texto
+ * 3 horas atrás e a hora viraria cerca de 4.
+ */
+export const RECENT_GROUP_IMAGE_SENDS_SQL =
+  "SELECT COUNT(*) AS total FROM whatsapp_group_send_log WHERE sent_at > DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 60 MINUTE)";

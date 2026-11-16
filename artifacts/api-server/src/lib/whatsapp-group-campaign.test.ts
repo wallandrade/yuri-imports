@@ -13,6 +13,11 @@ import {
   customGroupDue,
   groupChatsSaveError,
   groupSlotDue,
+  groupImageSendAllowed,
+  GROUP_IMAGE_HOURLY_LIMIT,
+  GROUP_STAGGER_MINUTES,
+  sendsInRollingHour,
+  RECENT_GROUP_IMAGE_SENDS_SQL,
   peptideDailyCaption,
   peptideDailyDue,
   peptideDailyQueue,
@@ -44,10 +49,13 @@ test("a rodada escolhe foto https e pula esgotado", () => {
   assert.equal(productCaption("Lipoless", "d").includes("https://www.yury-imports.com/produto/d"), true);
 });
 
-test("cada grupo sai 3 minutos depois do anterior", () => {
+test("cada grupo sai 10 minutos depois do anterior", () => {
+  assert.equal(GROUP_STAGGER_MINUTES, 10);
   assert.equal(groupSlotDue(9, 0, 0), 9);
-  assert.equal(groupSlotDue(9, 3, 1), 9);
-  assert.equal(groupSlotDue(9, 2, 1), null);
+  assert.equal(groupSlotDue(9, 10, 1), 9);
+  assert.equal(groupSlotDue(9, 3, 1), null);
+  assert.equal(groupSlotDue(9, 50, 5), 9);
+  assert.equal(groupSlotDue(9, 52, 5), null);
   assert.equal(groupSlotDue(10, 0, 0), null);
   assert.equal("error" in groupChatsSaveError([{ name: "1", phone: "abc" }]), true);
   assert.equal("error" in groupChatsSaveError(Array.from({ length: 7 }, (_, index) => ({ name: String(index), phone: `551199999999${index}` }))), true);
@@ -127,7 +135,8 @@ test("a explicação diária só sai se tiver ficha e produto à venda", () => {
   assert.equal(warm.includes("Regeneração de tecidos"), false);
   assert.equal(warm.includes("Conhecimento e ciência"), false);
   assert.equal(peptideDailyDue(10, 0, 0, 10), true);
-  assert.equal(peptideDailyDue(10, 3, 1, 10), true);
+  assert.equal(peptideDailyDue(10, 10, 1, 10), true);
+  assert.equal(peptideDailyDue(10, 3, 1, 10), false);
   assert.equal(peptideDailyDue(9, 0, 0, 10), false);
   const same = [
     { id: "a", name: "BPC-157 5mg", image: "https://cdn.example/a.jpg", soldOut: false },
@@ -178,5 +187,39 @@ test("o aviso avulso respeita o intervalo do grupo", () => {
   const now = new Date("2026-10-12T12:00:30.000Z");
   assert.equal(customGroupDue("2026-10-12T09:00", now, 0), true);
   assert.equal(customGroupDue("2026-10-12T09:00", now, 1), false);
-  assert.equal(customGroupDue("2026-10-12T08:57", new Date("2026-10-12T12:00:30.000Z"), 1), true);
+  assert.equal(customGroupDue("2026-10-12T08:50", new Date("2026-10-12T12:00:30.000Z"), 1), true);
+});
+
+test("no máximo 6 imagens por hora, somando as campanhas", () => {
+  assert.equal(GROUP_IMAGE_HOURLY_LIMIT, 6);
+  assert.equal(groupImageSendAllowed(0), true);
+  assert.equal(groupImageSendAllowed(5), true);
+  assert.equal(groupImageSendAllowed(6), false);
+  assert.equal(groupImageSendAllowed(7), false);
+
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const round = (startHour: number) => Array.from({ length: 6 }, (_, group) => (startHour * 60 + group * GROUP_STAGGER_MINUTES) * minute);
+  const product = round(9);
+  const peptide = round(10);
+  const planned = [...product, ...peptide];
+  for (const at of planned) {
+    assert.ok(sendsInRollingHour(planned, at) <= 6, `janela em ${at} passou de 6`);
+  }
+  assert.equal(sendsInRollingHour(planned, peptide[0]), 6);
+  assert.equal(sendsInRollingHour(planned, peptide[0] - minute), 6);
+
+  const sameHour = [...round(9), ...round(9).map((time) => time + 1)];
+  let sent = 0;
+  let blocked = 0;
+  for (const at of sameHour) {
+    if (groupImageSendAllowed(sent)) sent += 1;
+    else blocked += 1;
+    assert.ok(sendsInRollingHour(sameHour.slice(0, sent), at) <= 6);
+  }
+  assert.equal(sent, 6);
+  assert.equal(blocked, 6);
+  assert.equal(sendsInRollingHour(product, product[0] + hour), 5);
+  assert.match(RECENT_GROUP_IMAGE_SENDS_SQL, /sent_at > DATE_SUB\(CURRENT_TIMESTAMP\(\), INTERVAL 60 MINUTE\)/);
+  assert.equal(RECENT_GROUP_IMAGE_SENDS_SQL.includes("?"), false);
 });
