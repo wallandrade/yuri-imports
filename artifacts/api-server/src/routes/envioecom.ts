@@ -57,11 +57,11 @@ import {
 import { closeOpenReshipmentIfLabelTracked } from "../lib/reshipment-label-tracked-apply";
 import { refreshShippingQueueForOrder } from "../lib/shipping-queue-allocator";
 import {
-  capQuoteProductPrice,
   carrierDeclaredLimitFromQuote,
   claimEnvioEcomCreateSlot,
   fitDeclaredShipmentItems,
   isJtCarrier,
+  quoteProductsForCarriers,
   releaseEnvioEcomCreateSlot,
 } from "../lib/envioecom-declared-cap";
 import {
@@ -892,12 +892,10 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
       return;
     }
 
-    const products = buildQuoteProductsFromOrder(order).map((product) => ({
-      ...product,
-      price: capQuoteProductPrice(product.price, carriers),
-    }));
     const carriers =
       parseCarriersInput(req.body?.carriers) || getDefaultCarriersFromEnv();
+    const quoted = quoteProductsForCarriers(buildQuoteProductsFromOrder(order), carriers, carriers);
+    const products = quoted.products;
     const { result: quote, accountId } = await withEnvioEcomAccount(readAccountId(req.body), async () =>
       quoteFreight({
         postal_code_destination: cep,

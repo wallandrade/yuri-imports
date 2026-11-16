@@ -136,6 +136,22 @@ export function capQuoteProductPrice(price: number, carriers: string[] | null | 
   return capJtDeclaredValue(price).value;
 }
 
+/** Monta os produtos da cotação depois de saber as transportadoras. J&T sozinha corta o preço; lista mista não. */
+export function quoteProductsForCarriers<T extends { price: number }>(
+  products: T[],
+  requested: string[] | null | undefined,
+  fallback: string[] | null | undefined,
+): { carriers: string[] | null; products: T[] } {
+  const carriers = (requested && requested.length > 0 ? requested : fallback) ?? null;
+  return {
+    carriers,
+    products: products.map((product) => ({
+      ...product,
+      price: capQuoteProductPrice(product.price, carriers),
+    })),
+  };
+}
+
 const envioecomCreateGuard = new Map<string, { inflight: boolean; until: number }>();
 
 /** Evita dois creates do mesmo pedido. Sucesso segura a trava por 15s. Falha solta na hora. */

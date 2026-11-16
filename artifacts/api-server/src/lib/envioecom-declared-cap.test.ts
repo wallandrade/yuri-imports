@@ -9,6 +9,7 @@ import {
   claimEnvioEcomCreateSlot,
   fitDeclaredShipmentItems,
   parseDeclaredLimitAmount,
+  quoteProductsForCarriers,
   releaseEnvioEcomCreateSlot,
 } from "./envioecom-declared-cap";
 
@@ -44,6 +45,18 @@ test("J&T corta em 1000 e PAC/Sedex ficam iguais", () => {
   assert.equal(capQuoteProductPrice(1800, ["J&T Express envioEcom"]), 1000);
   assert.equal(capQuoteProductPrice(1800, ["J&T Express envioEcom", "PAC"]), 1800);
   assert.equal(capJtDeclaredValue(89.9).capped, false);
+
+  const quoted = quoteProductsForCarriers(
+    [{ price: 1800, quantity: 1 }],
+    ["J&T Express envioEcom"],
+    ["PAC", "Sedex"],
+  );
+  assert.deepEqual(quoted.carriers, ["J&T Express envioEcom"]);
+  assert.equal(quoted.products[0]?.price, 1000);
+
+  const fallback = quoteProductsForCarriers([{ price: 1800, quantity: 1 }], undefined, ["PAC", "J&T Express envioEcom"]);
+  assert.equal(fallback.products[0]?.price, 1800);
+  assert.deepEqual(fallback.carriers, ["PAC", "J&T Express envioEcom"]);
 });
 
 test("limite da opção substitui o teto padrão da J&T", () => {
