@@ -781,20 +781,29 @@ export function extractCreatedShipment(created: {
   };
 }
 
-/** Erro de negócio dentro de shipping_create.results (HTTP 200, created 0). */
+/** Erro de negócio dentro de shipping_create (HTTP 200, sem envio criado). */
 export function envioEcomCreateResultError(created: {
+  message?: unknown;
+  error?: unknown;
   shipping_create?: {
+    success?: boolean;
+    created?: number;
     results?: Array<Record<string, unknown>>;
-  };
+  } | null;
 }): { code: string; message: string } | null {
-  const results = Array.isArray(created.shipping_create?.results)
-    ? created.shipping_create.results
-    : [];
+  const shipping = created.shipping_create;
+  const results = Array.isArray(shipping?.results) ? shipping.results : [];
   const first = (results[0] || {}) as Record<string, unknown>;
   const code = String(first.error_code || first.errorCode || "").trim();
   const message = String(first.error || first.message || "").trim();
-  if (!code && !message) return null;
-  return { code, message };
+  if (code || message) {
+    return { code: code || "CREATE_REJECTED", message: message || code };
+  }
+  if (!shipping) return null;
+  const refused = shipping.success === false || shipping.created === 0 || results.length === 0;
+  if (!refused) return null;
+  const top = String(created.message || created.error || "").trim();
+  return { code: "CREATE_REJECTED", message: top || "A EnvioEcom recusou o envio." };
 }
 
 /**
