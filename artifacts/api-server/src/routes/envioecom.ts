@@ -1261,10 +1261,10 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       }
       const rawMessage = createError?.message || "A EnvioEcom recusou o envio.";
       const message = rawMessage.startsWith("EnvioEcom") ? rawMessage : `EnvioEcom: ${rawMessage}`;
-      res.status(422).json({
+      res.status(422).json(await withDeliveryCorrection(order.id, {
         error: createError?.code || "CREATE_REJECTED",
         message,
-      });
+      }));
       return;
     }
 
@@ -1320,6 +1320,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         })
         .where(eq(ordersTable.id, order.id));
     }
+    createdShipment = true;
 
     // Se veio shipping_id, busca detalhe fresco (barcode definitivo / status pago)
     let finalBarcode = barcode;
@@ -1382,7 +1383,6 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       packages: packages.map(mapOrderShipmentPublic),
       createResponse: created,
     });
-    createdShipment = true;
   } finally {
     releaseEnvioEcomCreateSlot(guardKey, createdShipment);
   }
