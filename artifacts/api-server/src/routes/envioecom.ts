@@ -57,6 +57,14 @@ import {
 import { closeOpenReshipmentIfLabelTracked } from "../lib/reshipment-label-tracked-apply";
 import { refreshShippingQueueForOrder } from "../lib/shipping-queue-allocator";
 import {
+  carrierDeclaredLimitFromQuote,
+  claimEnvioEcomCreateSlot,
+  fitDeclaredShipmentItems,
+  isJtCarrier,
+  quoteProductsForCarriers,
+  releaseEnvioEcomCreateSlot,
+} from "../lib/envioecom-declared-cap";
+import {
   EnvioEcomApiError,
   appendStatusHistory,
   cancelShipment,
@@ -884,9 +892,10 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
       return;
     }
 
-    const products = buildQuoteProductsFromOrder(order);
     const carriers =
       parseCarriersInput(req.body?.carriers) || getDefaultCarriersFromEnv();
+    const quoted = quoteProductsForCarriers(buildQuoteProductsFromOrder(order), carriers, carriers);
+    const products = quoted.products;
     const { result: quote, accountId } = await withEnvioEcomAccount(readAccountId(req.body), async () =>
       quoteFreight({
         postal_code_destination: cep,
@@ -1039,6 +1048,15 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       return;
     }
 
+    const guardKey = `${order.id}:${targetPackage?.id || ""}`;
+    const blocked = claimEnvioEcomCreateSlot(guardKey);
+    if (blocked) {
+      res.status(409).json({ error: "CREATE_IN_PROGRESS", message: blocked });
+      return;
+    }
+    let createdShipment = false;
+    try {
+
     const shippingCompany = String(req.body?.shipping_company || "").trim();
     if (!shippingCompany) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe shipping_company (nome exato da cotação)." });
@@ -1126,6 +1144,18 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
 
     const labelProfile = await consumeShipmentLabelProfile();
     const labelItems = buildShipmentLabelItem(labelProfile);
+    const declaredTotal = labelProfile.quantity * labelProfile.declaredValue;
+    const jtLimit = isJtCarrier(shippingCompany) ? carrierDeclaredLimitFromQuote(req.body?.quote) : null;
+    const fitted = fitDeclaredShipmentItems(labelItems, declaredTotal, shippingCompany, jtLimit);
+    if (fitted.capped) {
+      console.log("[EnvioEcom] declared-cap", {
+        from: fitted.from,
+        to: fitted.declaredCost,
+        limit: fitted.limit,
+        carrier: shippingCompany,
+        accountId,
+      });
+    }
 
     const shipment: EnvioEcomCreateShipmentInput = {
       orderId: externalOrderNumber,
@@ -1138,7 +1168,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       width: formatDimString(pack.width),
       length: formatDimString(pack.length),
       weight: formatWeightString(pack.weight),
-      cost: formatMoneyString(labelProfile.quantity * labelProfile.declaredValue),
+      cost: formatMoneyString(fitted.declaredCost),
       name: String(order.clientName || "").trim().slice(0, 120) || "Cliente",
       document_number: document,
       phone_number: phone,
@@ -1149,7 +1179,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       localidade,
       uf,
       ...(order.addressComplement ? { complemento: String(order.addressComplement).trim().slice(0, 60) } : {}),
-      items: labelItems.map((item) => ({
+      items: fitted.items.map((item) => ({
         name: item.name,
         quantity: item.quantity,
         unit_cost: Number(formatMoneyString(item.unit_cost)),
@@ -1229,13 +1259,11 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       if (createError?.code === "DUPLICATE_ORDER") {
         await rememberBurnedOrderNumber(externalOrderNumber);
       }
-      const message = createError?.message
-        ? `EnvioEcom: ${createError.message}`
-        : "EnvioEcom não retornou barcode/shipping_id. Verifique saldo e resposta da API.";
-      res.status(502).json(await withDeliveryCorrection(order.id, {
-        error: createError?.code || "CREATE_INCOMPLETE",
+      const rawMessage = createError?.message || "A EnvioEcom recusou o envio.";
+      const message = rawMessage.startsWith("EnvioEcom") ? rawMessage : `EnvioEcom: ${rawMessage}`;
+      res.status(422).json(await withDeliveryCorrection(order.id, {
+        error: createError?.code || "CREATE_REJECTED",
         message,
-        createResponse: created,
       }));
       return;
     }
@@ -1292,6 +1320,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         })
         .where(eq(ordersTable.id, order.id));
     }
+    createdShipment = true;
 
     // Se veio shipping_id, busca detalhe fresco (barcode definitivo / status pago)
     let finalBarcode = barcode;
@@ -1354,6 +1383,9 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       packages: packages.map(mapOrderShipmentPublic),
       createResponse: created,
     });
+  } finally {
+    releaseEnvioEcomCreateSlot(guardKey, createdShipment);
+  }
   } catch (err) {
     await replyFreightError(err, res, String(req.params.id || ""));
   }

@@ -11261,6 +11261,7 @@ function OrdersPanel({
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [trackingUploading, setTrackingUploading] = useState<Record<string, boolean>>({});
   const [envioecomBusy, setEnvioecomBusy] = useState<Record<string, boolean>>({});
+  const envioecomCreateLock = useRef(new Set<string>());
   const [envioecomSelectedCarriers, setEnvioecomSelectedCarriers] = useState<string[]>([]);
   const [envioecomQuoteModal, setEnvioecomQuoteModal] = useState<null | {
     order: AdminOrder;
@@ -11276,6 +11277,7 @@ function OrdersPanel({
     accountId?: string | null;
     accountName?: string | null;
     packageId?: string | null;
+    createError?: string | null;
   }>(null);
   const [lossBlacklistModal, setLossBlacklistModal] = useState<null | {
     order: AdminOrder;
@@ -11859,10 +11861,12 @@ function OrdersPanel({
       toast.error("Cotação sem transportadora.");
       return;
     }
+    if (envioecomCreateLock.current.has(order.id) || envioecomBusy[order.id]) return;
     if (quote.lossAlert?.message) {
       const proceed = window.confirm(`${quote.lossAlert.message}\n\nGerar a etiqueta mesmo assim?`);
       if (!proceed) return;
     }
+    envioecomCreateLock.current.add(order.id);
     setEnvioecomBusy((prev) => ({ ...prev, [order.id]: true }));
     try {
       const cepOrigem = String(originZipcode || "").replace(/\D/g, "");
@@ -11873,32 +11877,40 @@ function OrdersPanel({
           shipping_company: shippingCompany,
           freight_cost: quote.price != null ? String(quote.price) : undefined,
           delivery_time: quote.delivery_time != null ? String(quote.delivery_time) : undefined,
+          quote,
           ...(cepOrigem.length === 8 ? { cep_origem: cepOrigem } : {}),
           ...(envioecomQuoteModal?.accountId ? { accountId: envioecomQuoteModal.accountId } : {}),
           ...(envioecomQuoteModal?.packageId ? { packageId: envioecomQuoteModal.packageId } : {}),
         }),
       });
-      const data = await res.json() as {
+      const raw = await res.text();
+      let data: {
         ok?: boolean;
         barcode?: string | null;
         shipmentId?: string | null;
         trackingKey?: string | null;
         status?: string;
         message?: string;
-        details?: unknown;
         error?: string;
         accountId?: string | null;
         packages?: unknown[];
         packageId?: string | null;
         deliveryCorrection?: DeliveryCorrectionNotice;
-      };
+      } = {};
+      try {
+        data = raw ? JSON.parse(raw) as typeof data : {};
+      } catch {
+        data = {};
+      }
+      const message = data.message && !data.message.includes("<")
+        ? data.message
+        : "Falha ao criar envio EnvioEcom.";
       if (!res.ok) {
         showDeliveryCorrection(order, data);
-        const extra =
-          data.details && typeof data.details === "object"
-            ? ` ${JSON.stringify(data.details)}`
-            : "";
-        toast.error((data.message || "Falha ao criar envio EnvioEcom.") + extra);
+        setEnvioecomQuoteModal((current) => current && current.order.id === order.id
+          ? { ...current, createError: message }
+          : current);
+        toast.error(message);
         return;
       }
       patchOrderLocal(order.id, {
@@ -11924,6 +11936,7 @@ function OrdersPanel({
     } catch {
       toast.error("Erro ao criar envio EnvioEcom.");
     } finally {
+      envioecomCreateLock.current.delete(order.id);
       setEnvioecomBusy((prev) => ({ ...prev, [order.id]: false }));
     }
   };
@@ -15393,6 +15406,11 @@ function OrdersPanel({
                 </div>
               </div>
               <div className="p-4 space-y-2 max-h-[50vh] overflow-y-auto">
+                {envioecomQuoteModal.createError ? (
+                  <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                    {envioecomQuoteModal.createError}
+                  </p>
+                ) : null}
                 {(() => {
                   const notes = envioecomQuoteModal.customerCarriers || [];
                   const inTransit = notes.filter((note) => note.inTransit).map((note) => note.carrier);

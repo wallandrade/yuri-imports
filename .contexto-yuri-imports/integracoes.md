@@ -1,6 +1,6 @@
 # Integrações — Yuri Import
 
-> **Última atualização:** 2026-11-15
+> **Última atualização:** 2026-11-16
 
 Providers externos **presentes no código**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ Providers externos **presentes no código**. Precedência: código > memória.
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Etiqueta EnvioEcom mais segura | J&T corta o valor declarado em R$ 1.000 (ou no teto da cotação). Recusa do lote volta 422 com a frase da EnvioEcom. Clique duplo não cria dois envios | Contas do seletor, prazo do checkout, PIX e PAC/Sedex iguais |
 | 2026-11-15 | Seletor de etiqueta esconde a conta do servidor | Com conta salva no admin, o modal não lista "São Paulo (servidor)". Sem conta salva, ela continua. O prazo do frete segue nessa conta | Preço, opções de frete, PIX e a emissão nas contas salvas iguais |
 | 2026-11-15 | Link de WhatsApp com texto preserva emoji | `whatsAppSendUrl` usa `https://api.whatsapp.com/send`. `wa.me` sem texto continua | Mensagens, PIX, estoque e compra iguais |
 | 2026-11-14 | Lembrete de número ou CPF sai uma vez a cada 2 horas | Em `await_lookup` e `await_problem`, a frase usa `last_unknown_prompt_at`. Não usa `last_cpf_prompt_at`. Falha no envio devolve só essa marca | Menu, Chave PIX, atendente e o pedido de CPF iguais |
