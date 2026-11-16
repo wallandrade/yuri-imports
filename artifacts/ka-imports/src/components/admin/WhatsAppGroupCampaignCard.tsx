@@ -266,7 +266,7 @@ export default function WhatsAppGroupCampaignCard() {
       <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
         <h2 className="text-sm font-semibold">Produtos nos grupos</h2>
         <p className="text-xs text-muted-foreground">
-          Sai pelo número de hoje, às 9h, 13h, 17h e 21h, com 3 minutos entre cada grupo. No máximo 6 grupos.
+          Sai pelo número de hoje, às 9h, 13h, 17h e 21h, com 10 minutos entre cada grupo. No máximo 6 grupos.
           Antes de ligar, desligue o fluxo Grupos tirzepatida no n8n, senão a mensagem sai duas vezes.
           Produto esgotado ou sem foto https fica de fora da rodada. O número da Poly não envia.
         </p>
@@ -319,7 +319,7 @@ export default function WhatsAppGroupCampaignCard() {
         <h2 className="text-sm font-semibold">Explicação diária</h2>
         <p className="text-xs text-muted-foreground">
           Até 4 horários. Cada horário manda uma explicação diferente. Em cada linha, marque os produtos dessa explicação.
-          Cada grupo recebe um produto marcado diferente, com 3 minutos entre eles. A rodada de 9h, 13h, 17h e 21h continua separada.
+          Cada grupo recebe um produto marcado diferente, com 10 minutos entre eles. A rodada de 9h, 13h, 17h e 21h continua separada.
         </p>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={peptideEnabled} onChange={(event) => setPeptideEnabled(event.target.checked)} />
@@ -409,7 +409,7 @@ export default function WhatsAppGroupCampaignCard() {
       <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
         <h2 className="text-sm font-semibold">Imagem e link avulso</h2>
         <p className="text-xs text-muted-foreground">
-          Carregue a foto e escreva o texto. Se o link https já estiver no texto, o outro campo pode ficar vazio. No horário escolhido, a mensagem vai para os mesmos grupos, com 3 minutos entre cada um. O horário é o de São Paulo.
+          Carregue a foto e escreva o texto. Se o link https já estiver no texto, o outro campo pode ficar vazio. No horário escolhido, a mensagem vai para os mesmos grupos, com 10 minutos entre cada um. O horário é o de São Paulo.
         </p>
         <input
           ref={fileRef}
@@ -484,7 +484,7 @@ export default function WhatsAppGroupCampaignCard() {
               <input type="number" min={1} max={30} value={durationDays} onChange={(event) => setDurationDays(Number(event.target.value) || 1)} className="h-10 w-20 px-3 rounded-xl border-2 border-border text-sm" />
               dias
             </label>
-            <p className="text-xs text-muted-foreground">Esses horários se repetem por esses dias, com 3 minutos entre os grupos. No máximo 12 horários e 30 dias.</p>
+            <p className="text-xs text-muted-foreground">Esses horários se repetem por esses dias, com 10 minutos entre os grupos. No máximo 12 horários e 30 dias.</p>
           </div>
         ) : scheduleMode === "interval" ? (
           <div className="space-y-2">
@@ -499,7 +499,7 @@ export default function WhatsAppGroupCampaignCard() {
               <input type="number" min={1} max={30} value={durationDays} onChange={(event) => setDurationDays(Number(event.target.value) || 1)} className="h-10 w-20 px-3 rounded-xl border-2 border-border text-sm" />
               dias
             </label>
-            <p className="text-xs text-muted-foreground">A partir desse horário, de {intervalHours} em {intervalHours} horas, por {durationDays} {durationDays === 1 ? "dia" : "dias"}. No máximo 30 dias, com 3 minutos entre os grupos.</p>
+            <p className="text-xs text-muted-foreground">A partir desse horário, de {intervalHours} em {intervalHours} horas, por {durationDays} {durationDays === 1 ? "dia" : "dias"}. No máximo 30 dias, com 10 minutos entre os grupos.</p>
           </div>
         ) : (
           <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="h-10 px-3 rounded-xl border-2 border-border text-sm" />
