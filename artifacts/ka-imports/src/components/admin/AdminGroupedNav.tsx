@@ -16,7 +16,7 @@ function visibleGroups(isPrimary: boolean): VisibleGroup[] {
   })).filter((group) => group.items.length > 0);
 }
 
-/** Menu do admin em cima do conteúdo: linha de grupos e, embaixo, as telas do grupo aberto. Os grupos vêm de adminNav.ts. */
+/** Menu do admin: linha de grupos e, embaixo, as telas do grupo aberto. Em Início e Pedidos fica abaixo dos cards. Os grupos vêm de adminNav.ts. */
 export function AdminGroupedNav({
   active,
   isPrimary,
