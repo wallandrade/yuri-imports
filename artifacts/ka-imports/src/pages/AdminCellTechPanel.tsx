@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "wouter";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { pathForTab } from "@/pages/admin/adminNav";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -13,16 +15,7 @@ function authHeaders(): HeadersInit {
 type Settings = {
   accessConfigured?: boolean;
   secretConfigured?: boolean;
-  accessHint?: string;
-  secretHint?: string;
-  webhookUrl?: string;
-  usuarioId?: string;
-  lojaId?: string;
   alertsEnabled?: boolean;
-  doneSituationIds?: string[];
-  workingSituationIds?: string[];
-  stalledMinDays?: number;
-  stalledSituationIds?: string[];
 };
 
 type OrderCard = {
@@ -40,13 +33,11 @@ type OrderCard = {
   statusLabel: string;
 };
 
-type Situation = { id: string; name: string };
 type Technician = { id: string; name: string };
 
 type Board = {
   orders: OrderCard[];
   counts: { open: number; overdue: number; dueToday: number; noDeadline: number; working: number; done: number };
-  situations: Situation[];
   technicians: Technician[];
   fetchedAt?: string;
 };
@@ -68,17 +59,9 @@ async function readError(res: Response): Promise<string> {
 }
 
 export default function AdminCellTechPanel() {
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [accessToken, setAccessToken] = useState("");
-  const [secretAccessToken, setSecretAccessToken] = useState("");
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [usuarioId, setUsuarioId] = useState("");
-  const [lojaId, setLojaId] = useState("");
+  const [, setLocation] = useLocation();
+  const [tokensReady, setTokensReady] = useState(false);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
-  const [doneIds, setDoneIds] = useState<string[]>([]);
-  const [workingIds, setWorkingIds] = useState<string[]>([]);
-  const [stalledIds, setStalledIds] = useState<string[]>([]);
-  const [stalledDays, setStalledDays] = useState("3");
   const [board, setBoard] = useState<Board | null>(null);
   const [technicianId, setTechnicianId] = useState("");
   const [client, setClient] = useState("");
@@ -100,15 +83,8 @@ export default function AdminCellTechPanel() {
         return;
       }
       const data = await res.json() as Settings;
-      setSettings(data);
-      setWebhookUrl(data.webhookUrl || "");
-      setUsuarioId(data.usuarioId || "");
-      setLojaId(data.lojaId || "");
+      setTokensReady(Boolean(data.accessConfigured && data.secretConfigured));
       setAlertsEnabled(data.alertsEnabled !== false);
-      setDoneIds(data.doneSituationIds || []);
-      setWorkingIds(data.workingSituationIds || []);
-      setStalledIds(data.stalledSituationIds || []);
-      setStalledDays(String(data.stalledMinDays ?? 3));
     } catch {
       toast.error("Erro ao carregar a Cell Tech.");
     } finally {
@@ -147,11 +123,11 @@ export default function AdminCellTechPanel() {
   }, [loadSettings]);
 
   useEffect(() => {
-    if (!settings?.accessConfigured || !settings.secretConfigured) return;
+    if (!tokensReady) return;
     void loadBoard(false);
     const timer = window.setInterval(() => void loadBoard(false), 60_000);
     return () => window.clearInterval(timer);
-  }, [settings?.accessConfigured, settings?.secretConfigured, loadBoard]);
+  }, [tokensReady, loadBoard]);
 
   async function saveSettings() {
     setSaving(true);
@@ -159,30 +135,16 @@ export default function AdminCellTechPanel() {
       const res = await fetch(`${BASE}/api/admin/cell-tech/settings`, {
         method: "PUT",
         headers: authHeaders(),
-        body: JSON.stringify({
-          accessToken,
-          secretAccessToken,
-          webhookUrl,
-          usuarioId,
-          lojaId,
-          alertsEnabled,
-          doneSituationIds: doneIds,
-          workingSituationIds: workingIds,
-          stalledSituationIds: stalledIds,
-          stalledMinDays: stalledDays,
-        }),
+        body: JSON.stringify({ alertsEnabled }),
       });
       if (!res.ok) {
         toast.error(await readError(res));
         return;
       }
       const data = await res.json() as Settings;
-      setSettings(data);
-      setStalledIds(data.stalledSituationIds || []);
-      setStalledDays(String(data.stalledMinDays ?? 3));
-      setAccessToken("");
-      setSecretAccessToken("");
-      toast.success("Cell Tech salva.");
+      setTokensReady(Boolean(data.accessConfigured && data.secretConfigured));
+      setAlertsEnabled(data.alertsEnabled !== false);
+      toast.success("Avisos salvos.");
       if (data.accessConfigured && data.secretConfigured) void loadBoard(true);
     } catch {
       toast.error("Erro ao salvar a Cell Tech.");
@@ -204,21 +166,12 @@ export default function AdminCellTechPanel() {
         toast.message("Esse relatório já foi para o grupo hoje.");
         return;
       }
-      if (name === "connection") {
-        toast.success(`Conectou. ${data.orders ?? 0} OS e ${data.situations ?? 0} situações.`);
-        void loadBoard(true);
-        return;
-      }
       toast.success(ok);
     } catch {
       toast.error("Erro na Cell Tech.");
     } finally {
       setBusy("");
     }
-  }
-
-  function toggle(list: string[], id: string, setList: (ids: string[]) => void) {
-    setList(list.includes(id) ? list.filter((item) => item !== id) : [...list, id]);
   }
 
   const counts = board?.counts;
@@ -233,46 +186,23 @@ export default function AdminCellTechPanel() {
       </div>
 
       <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
-        <h3 className="font-semibold text-sm">Conexão</h3>
+        <p className="text-sm text-muted-foreground">
+          Token e status da última chamada ficam em
+          <button type="button" className="mx-1 font-semibold text-primary" onClick={() => setLocation(pathForTab("cellTechConexao"))}>Conexão</button>
+          . O que conta como fechada fica em
+          <button type="button" className="mx-1 font-semibold text-primary" onClick={() => setLocation(pathForTab("cellTechSituacoes"))}>Situações</button>
+          .
+        </p>
         {loadingSettings ? <p className="text-sm text-muted-foreground">Carregando…</p> : (
           <>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-sm">
-                <span className="block mb-1 text-muted-foreground">Access token {settings?.accessHint ? `(${settings.accessHint})` : ""}</span>
-                <input type="password" value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder={settings?.accessConfigured ? "Em branco mantém o atual" : "Cole o access token"} className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
-              </label>
-              <label className="text-sm">
-                <span className="block mb-1 text-muted-foreground">Secret {settings?.secretHint ? `(${settings.secretHint})` : ""}</span>
-                <input type="password" value={secretAccessToken} onChange={(e) => setSecretAccessToken(e.target.value)} placeholder={settings?.secretConfigured ? "Em branco mantém o atual" : "Cole o secret"} className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
-              </label>
-              <label className="text-sm md:col-span-2">
-                <span className="block mb-1 text-muted-foreground">Webhook n8n (https)</span>
-                <input value={webhookUrl} onChange={(e) => setWebhookUrl(e.target.value)} placeholder="https://….app.n8n.cloud/webhook/…" className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
-              </label>
-              <label className="text-sm">
-                <span className="block mb-1 text-muted-foreground">usuario_id (se a conta tiver mais de um)</span>
-                <input value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)} className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
-              </label>
-              <label className="text-sm">
-                <span className="block mb-1 text-muted-foreground">loja_id (se tiver mais de uma loja)</span>
-                <input value={lojaId} onChange={(e) => setLojaId(e.target.value)} className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
-              </label>
-            </div>
+            {!tokensReady && <p className="text-sm">Salve o access token e o secret em Conexão para ver as ordens.</p>}
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={alertsEnabled} onChange={(e) => setAlertsEnabled(e.target.checked)} />
               Avisar o grupo: cadastro, prazo, lembrete, fila da manhã e OS parada. Relatório às 8h30 e no dia 1 o mensal. O automático só sai das 8h às 19h, horário de Brasília
             </label>
-            <label className="text-sm block max-w-xs">
-              <span className="block mb-1 text-muted-foreground">Dias na mesma situação para a OS parada</span>
-              <input type="number" min={1} max={365} value={stalledDays} onChange={(e) => setStalledDays(e.target.value)} className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
-            </label>
-            <p className="text-xs text-muted-foreground">No n8n, o HTTP Request lê o campo message e a Z-API manda no grupo. O token da Z-API fica no n8n.</p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => void saveSettings()} disabled={saving} className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60">
-                {saving ? "Salvando…" : "Salvar"}
-              </button>
-              <button type="button" onClick={() => void runAction("connection", "test-connection", "")} disabled={busy === "connection"} className="h-10 px-4 rounded-xl border-2 border-border text-sm font-medium">
-                {busy === "connection" ? "Testando…" : "Testar Gestão Click"}
+                {saving ? "Salvando…" : "Salvar avisos"}
               </button>
               <button type="button" onClick={() => void runAction("webhook", "test-webhook", "Teste enviado ao n8n.")} disabled={busy === "webhook"} className="h-10 px-4 rounded-xl border-2 border-border text-sm font-medium">
                 {busy === "webhook" ? "Enviando…" : "Testar grupo"}
@@ -324,35 +254,6 @@ export default function AdminCellTechPanel() {
       </section>
 
       <p className="text-xs text-muted-foreground">Verde no prazo, amarelo vence hoje, vermelho atrasado, cinza sem prazo. A lista atualiza a cada minuto e olha os últimos 120 dias.</p>
-
-      {board && board.situations.length > 0 && (
-        <section className="rounded-2xl border border-border bg-white p-4 space-y-2">
-          <h3 className="font-semibold text-sm">Situações do Gestão Click</h3>
-          <p className="text-xs text-muted-foreground">Marque o que conta como finalizada e o que conta como técnico trabalhando. OS parada sem nenhuma marca olha todas as abertas.</p>
-          <div className="space-y-2">
-            {board.situations.map((situation) => (
-              <div key={situation.id} className="flex flex-wrap items-center gap-4 text-sm">
-                <span className="min-w-40">{situation.name} <span className="text-muted-foreground">{situation.id}</span></span>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={doneIds.includes(situation.id)} onChange={() => toggle(doneIds, situation.id, setDoneIds)} />
-                  Finalizada
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={workingIds.includes(situation.id)} onChange={() => toggle(workingIds, situation.id, setWorkingIds)} />
-                  Trabalhando
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={stalledIds.includes(situation.id)} onChange={() => toggle(stalledIds, situation.id, setStalledIds)} />
-                  OS parada
-                </label>
-              </div>
-            ))}
-            </div>
-            <button type="button" onClick={() => void saveSettings()} disabled={saving} className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60">
-              {saving ? "Salvando…" : "Salvar situações"}
-            </button>
-          </section>
-        )}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {(board?.orders || []).map((order) => (

@@ -39,12 +39,14 @@ import {
   type CellTechListQuery,
   type CellTechOrder,
 } from "./cell-tech-logic";
-import { clearGestaoCache, GestaoClickError, loadCashDayReports, loadCashMonthReports, loadClosedCashBoxes, loadGestaoOrderDetail, loadGestaoOrders, ordersFromRows } from "./cell-tech-client";
+import { clearGestaoCache, GestaoClickError, loadCashDayReports, loadCashMonthReports, loadClosedCashBoxes, loadGestaoOrderDetail, loadGestaoOrders, loadGestaoSituations, ordersFromRows } from "./cell-tech-client";
+import { publicCellTechConnection, readCellTechConnectionState, recordCellTechWhatsapp } from "./cell-tech-status";
 import {
   claimCellTechAlert,
   publicCellTechSettings,
   readCellTechAlertIds,
   readCellTechSettings,
+  readCellTechSituationLabels,
   readCellTechSituationState,
   readSentCellTechAlerts,
   releaseCellTechAlert,
@@ -77,15 +79,22 @@ async function postCellTech(url: string, kind: string, message: string): Promise
     if (!cellTechAutomaticGroupSendOpen(saoPauloClock())) {
       throw new Error("O grupo da Cell Tech só recebe mensagem das 8h às 19h, horário de Brasília.");
     }
-    const { sendZapiMessage } = await import("./zapi-client");
-    const { cellTechZapiGroupId } = await import("./whatsapp-outbound-policy");
-    const sent = await sendZapiMessage({
-      instance: "main",
-      phone: cellTechZapiGroupId(),
-      kind: "text",
-      message,
-    });
-    if (!sent.ok) throw new Error(sent.error || "A Z-API não enviou o aviso da Cell Tech.");
+    try {
+      const { sendZapiMessage } = await import("./zapi-client");
+      const { cellTechZapiGroupId } = await import("./whatsapp-outbound-policy");
+      const sent = await sendZapiMessage({
+        instance: "main",
+        phone: cellTechZapiGroupId(),
+        kind: "text",
+        message,
+      });
+      if (!sent.ok) throw new Error(sent.error || "A Z-API não enviou a mensagem.");
+      recordCellTechWhatsapp(true, "");
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : "A Z-API não enviou a mensagem.";
+      recordCellTechWhatsapp(false, failure);
+      throw error instanceof Error ? error : new Error(failure);
+    }
     return;
   }
   const controller = new AbortController();
@@ -98,8 +107,13 @@ async function postCellTech(url: string, kind: string, message: string): Promise
       signal: controller.signal,
     });
     if (!cellTechWebhookAccepted(response.status)) throw new Error(`O n8n respondeu ${response.status}.`);
+    recordCellTechWhatsapp(true, "");
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") throw new Error("O n8n não respondeu a tempo.");
+    const failure = error instanceof Error && error.name === "AbortError"
+      ? "O n8n não respondeu a tempo."
+      : error instanceof Error ? error.message : "O n8n não recebeu a mensagem.";
+    recordCellTechWhatsapp(false, failure);
+    if (error instanceof Error && error.name === "AbortError") throw new Error(failure);
     throw error;
   } finally {
     clearTimeout(timer);
@@ -176,6 +190,41 @@ function techniciansFrom(orders: CellTechOrder[]) {
 
 export async function getCellTechSettingsView() {
   return publicCellTechSettings(await readCellTechSettings());
+}
+
+export async function getCellTechConnectionView() {
+  const settings = await readCellTechSettings();
+  const state = await readCellTechConnectionState();
+  return publicCellTechConnection(settings.accessToken, settings.secretAccessToken, state);
+}
+
+export async function listCellTechSituations() {
+  const settings = await readCellTechSettings();
+  const labels = await readCellTechSituationLabels().catch(() => ({}));
+  const base = {
+    doneSituationIds: settings.doneSituationIds,
+    workingSituationIds: settings.workingSituationIds,
+    stalledSituationIds: settings.stalledSituationIds,
+    stalledMinDays: settings.stalledMinDays,
+    labels,
+  };
+  if (!settings.accessToken || !settings.secretAccessToken) {
+    return {
+      ...base,
+      situations: [] as Array<{ id: string; name: string }>,
+      listed: false,
+      message: "Salve o access token e o secret do Gestão Click.",
+    };
+  }
+  try {
+    const situations = await loadGestaoSituations(settings);
+    return { ...base, situations, listed: true, message: "" };
+  } catch (error) {
+    const message = error instanceof GestaoClickError
+      ? error.message
+      : "Não foi possível listar as situações do Gestão Click.";
+    return { ...base, situations: [] as Array<{ id: string; name: string }>, listed: false, message };
+  }
 }
 
 export async function updateCellTechSettings(input: CellTechSettingsInput) {
