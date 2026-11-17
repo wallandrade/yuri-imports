@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { cellTechGestaoFailureCounts, recordCellTechGestao } from "./cell-tech-status";
 import {
   addDays,
   closedCashBoxes,
@@ -41,6 +42,7 @@ type CacheRow = {
 };
 
 const cache = new Map<string, CacheRow>();
+let situationsCache: { key: string; at: number; situations: CellTechSituation[] } | null = null;
 let nextRequestAt = 0;
 
 function cacheKey(creds: CellTechCredentials): string {
@@ -80,13 +82,19 @@ async function gestaoGet(
   }
   if (creds.usuarioId) url.searchParams.set("usuario_id", creds.usuarioId);
   if (creds.lojaId) url.searchParams.set("loja_id", creds.lojaId);
-  const response = await fetchImpl(url, {
-    headers: {
-      Accept: "application/json",
-      "access-token": creds.accessToken,
-      "secret-access-token": creds.secretAccessToken,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      headers: {
+        Accept: "application/json",
+        "access-token": creds.accessToken,
+        "secret-access-token": creds.secretAccessToken,
+      },
+    });
+  } catch (error) {
+    recordCellTechGestao(false, error instanceof Error ? error.message : "");
+    throw error;
+  }
   const text = await response.text();
   let body: unknown = null;
   try {
@@ -94,7 +102,12 @@ async function gestaoGet(
   } catch {
     body = null;
   }
-  if (!response.ok) throw new GestaoClickError(messageFrom(body, response.status), response.status);
+  if (!response.ok) {
+    const error = new GestaoClickError(messageFrom(body, response.status), response.status);
+    if (cellTechGestaoFailureCounts(response.status)) recordCellTechGestao(false, error.message);
+    throw error;
+  }
+  recordCellTechGestao(true, "");
   return body;
 }
 
@@ -193,8 +206,22 @@ export function ordersFromRows(rows: Record<string, unknown>[], flags: CellTechF
   return orders;
 }
 
+export async function loadGestaoSituations(
+  creds: CellTechCredentials,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CellTechSituation[]> {
+  const key = cacheKey(creds);
+  if (situationsCache && situationsCache.key === key && Date.now() - situationsCache.at < CACHE_MS) {
+    return situationsCache.situations;
+  }
+  const situations = situationsFrom(await gestaoGet(creds, "situacoes_ordens_servicos", { limite: "100" }, fetchImpl));
+  situationsCache = { key, at: Date.now(), situations };
+  return situations;
+}
+
 export function clearGestaoCache(): void {
   cache.clear();
+  situationsCache = null;
 }
 
 const SALES_REPORTS = ["vendas"];

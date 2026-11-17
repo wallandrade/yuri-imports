@@ -935,6 +935,8 @@ import AdminSuperfreteAccountsPanel, { type SuperfreteAccountPublic } from "@/pa
 import { superfreteServiceName } from "@/lib/superfrete-status";
 import AdminInventoryExitAccessPanel from "@/pages/AdminInventoryExitAccessPanel";
 import AdminCellTechPanel from "@/pages/AdminCellTechPanel";
+import AdminCellTechConnection from "@/pages/AdminCellTechConnection";
+import AdminCellTechSituations from "@/pages/AdminCellTechSituations";
 import { AdminSplitShipmentModal, type SplitPoolKind, type SplitShipmentItem, type SplitShipmentPackage } from "@/pages/AdminSplitShipmentModal";
 import { orderCanSplitShipment } from "@/lib/split-shipment-lines";
 import { CpfQuoteWarningModal, CpfRelatedShipmentsBlock } from "@/pages/AdminCpfRelatedShipments";
@@ -8454,6 +8456,10 @@ export default function Admin() {
           configPanel(["diagnostico"])
         ) : tab === "cellTech" ? (
           <AdminCellTechPanel />
+        ) : tab === "cellTechConexao" ? (
+          <AdminCellTechConnection />
+        ) : tab === "cellTechSituacoes" ? (
+          <AdminCellTechSituations />
         ) : tab === "configuracoes" ? (
           configPanel(["senhaBaixa", "acesso", "reportana", "ajuda"])
         ) : null}

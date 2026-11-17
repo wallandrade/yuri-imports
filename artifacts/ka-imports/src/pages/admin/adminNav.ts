@@ -36,6 +36,8 @@ export type TabType =
   | "checkout"
   | "seguro"
   | "cellTech"
+  | "cellTechConexao"
+  | "cellTechSituacoes"
   | "fornecedores"
   | "avisos"
   | "poly"
@@ -161,6 +163,8 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     icon: "Wrench",
     items: [
       { tab: "cellTech", slug: "cell-tech", label: "Cell Tech", icon: "Smartphone", primaryOnly: true },
+      { tab: "cellTechConexao", slug: "conexao", label: "Conexão", icon: "KeyRound", primaryOnly: true },
+      { tab: "cellTechSituacoes", slug: "situacoes", label: "Situações", icon: "ListChecks", primaryOnly: true },
     ],
   },
   {
