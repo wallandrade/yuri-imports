@@ -5295,7 +5295,7 @@ export default function Admin() {
           </div>
         </div>
 
-        <div className="lg:flex lg:items-start lg:gap-6">
+        <div>
         <AdminGroupedNav
           active={tab}
           isPrimary={isPrimary}
