@@ -1,4 +1,5 @@
 import { mysqlAffectedRows } from "./mysql-affected-rows";
+import { zapiCall, zapiCredentials } from "./zapi-client";
 
 /**
  * Moderação só dos grupos "Yuri imports 1" a "Yuri imports 7". Nasce desligada.
@@ -318,64 +319,20 @@ function storeMessage(groupId: string, phone: string, text: string, now: number)
   recentMessages.set(key, list.filter((item) => item.at >= cutoff).slice(-40));
 }
 
-type ZapiCreds = { instanceId: string; token: string; clientToken: string };
-
-function zapiCreds(): ZapiCreds | null {
-  const instanceId = cleanEnv("ZAPI_MAIN_INSTANCE_ID");
-  const token = cleanEnv("ZAPI_MAIN_TOKEN");
-  const clientToken = cleanEnv("ZAPI_CLIENT_TOKEN");
-  if (!instanceId || !token || !clientToken) return null;
-  if (/[/?#]/.test(instanceId) || /[/?#]/.test(token)) return null;
-  return { instanceId, token, clientToken };
+function zapiCreds(): boolean {
+  return zapiCredentials("main") != null;
 }
 
-function zapiAccepted(status: number, raw: string): boolean {
-  if (status < 200 || status >= 300) return false;
-  try {
-    const parsed = JSON.parse(raw) as { value?: unknown };
-    if (parsed && typeof parsed === "object" && "value" in parsed) return parsed.value === true;
-  } catch {
-    return true;
-  }
-  return true;
-}
-
-async function zapiCall(creds: ZapiCreds, method: string, path: string, body?: unknown): Promise<{ ok: boolean; json: unknown }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
-  try {
-    const response = await fetch(`https://api.z-api.io${path}`, {
-      method,
-      headers: {
-        "Client-Token": creds.clientToken,
-        ...(body ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-    const raw = await response.text();
-    let json: unknown = null;
-    try {
-      json = raw ? JSON.parse(raw) : null;
-    } catch {
-      json = null;
-    }
-    return { ok: zapiAccepted(response.status, raw), json };
-  } catch {
-    return { ok: false, json: null };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function groupFacts(creds: ZapiCreds, groupId: string, now: number): Promise<{ admins: string[]; name: string } | null> {
+async function groupFacts(groupId: string, now: number): Promise<{ admins: string[]; name: string } | null> {
   const cached = adminCache.get(groupId);
   if (cached && now - cached.at < ADMIN_CACHE_MS) return cached;
-  const loaded = await zapiCall(
-    creds,
-    "GET",
-    `/instances/${encodeURIComponent(creds.instanceId)}/token/${encodeURIComponent(creds.token)}/group-metadata/${encodeURIComponent(groupId)}`,
-  );
+  const loaded = await zapiCall({
+    instance: "main",
+    method: "GET",
+    suffix: `/group-metadata/${encodeURIComponent(groupId)}`,
+    timeoutMs: 15000,
+    accept: "action",
+  });
   const parsed = groupAdminPhones(loaded.json);
   if (!loaded.ok || !parsed) return null;
   const entry = { at: now, admins: parsed.admins, name: parsed.name };
@@ -476,7 +433,7 @@ export async function handleGroupModeration(body: unknown, now = Date.now()): Pr
   let facts: { admins: string[]; name: string } | null = null;
   if (needsFacts || named) {
     if (!creds) return result({ ok: true, skipped: true, reason: "not_configured", groupTail: tail });
-    facts = await groupFacts(creds, inbound.groupId, now);
+    facts = await groupFacts(inbound.groupId, now);
     if (!facts) return result({ ok: true, skipped: true, reason: "admins_unknown", groupTail: tail });
   }
   const groupName = inbound.groupName || facts?.name || "";
@@ -518,17 +475,21 @@ export async function handleGroupModeration(body: unknown, now = Date.now()): Pr
   if (claim === "duplicate") return result({ ok: true, skipped: true, reason: "duplicate", groupTail: tail });
   storeMessage(inbound.groupId, inbound.participantPhone, inbound.text, now);
 
-  const deleted = await zapiCall(
-    creds,
-    "DELETE",
-    `/instances/${encodeURIComponent(creds.instanceId)}/token/${encodeURIComponent(creds.token)}/messages?messageId=${encodeURIComponent(inbound.messageId)}&phone=${encodeURIComponent(inbound.groupId)}&owner=false`,
-  );
-  const removed = await zapiCall(
-    creds,
-    "POST",
-    `/instances/${encodeURIComponent(creds.instanceId)}/token/${encodeURIComponent(creds.token)}/remove-participant`,
-    { groupId: inbound.groupId, phones: [phoneDigits(inbound.participantPhone)] },
-  );
+  const deleted = await zapiCall({
+    instance: "main",
+    method: "DELETE",
+    suffix: `/messages?messageId=${encodeURIComponent(inbound.messageId)}&phone=${encodeURIComponent(inbound.groupId)}&owner=false`,
+    timeoutMs: 15000,
+    accept: "action",
+  });
+  const removed = await zapiCall({
+    instance: "main",
+    method: "POST",
+    suffix: "/remove-participant",
+    body: { groupId: inbound.groupId, phones: [phoneDigits(inbound.participantPhone)] },
+    timeoutMs: 15000,
+    accept: "action",
+  });
   const action = moderationActionLabel(deleted.ok, removed.ok);
   await finishLog(inbound.messageId, action);
   return result({

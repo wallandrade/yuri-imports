@@ -1,6 +1,6 @@
 # Segurança e performance — Yuri Import
 
-> **Última atualização:** 2026-11-12
+> **Última atualização:** 2026-11-17
 
 Controles de segurança/performance **no código** (`artifacts/api-server/src/app.ts` e afins).
 
@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Token da Z-API não entra no log nem na fila | O erro gravado tira URL da instância e trechos longos. A fila mostra só os 4 últimos dígitos. A entrada continua exigindo o token do atendimento | O checkout token e o token do Gestão Click iguais |
 | 2026-11-12 | Moderação de grupo usa o token do atendimento | `POST /api/whatsapp/groups/inbound` e o grupo que chega no webhook já existente exigem o mesmo token. Sem checkout token. Nasce desligada | O limite do atendimento 1:1 e o checkout token iguais |
 | 2026-11-10 | Limite do link de senha deixa de usar o IP do proxy | A chave é `X-Real-IP`, senão o primeiro de `X-Forwarded-For`. O log diz se estourou e-mail ou IP | O `Map` continua em memória. 3/hora no e-mail e 8/hora no IP iguais |
 | 2026-11-10 | Pedido de senha informa se a conta existe | O dono pediu a confirmação real. `sent` só com `messageId`. E-mail ausente, limite, e-mail inválido e falha de envio têm frases diferentes. O log mascara o e-mail | Hash do token, limite 3/8, PBKDF2 e checkout token iguais. Sem token nem senha no log |

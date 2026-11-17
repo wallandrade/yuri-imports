@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Tabela `whatsapp_outbound_queue` (+ runtime) | Fila do WhatsApp da Z-API. Job `whatsapp-outbound-job.ts` na subida. Sem token na tabela | Pedido, PIX e as tabelas de sessão do atendimento iguais. Sem `tenant_id` |
 | 2026-11-17 | Admin em grupos com URL `/admin/<grupo>/<item>` | Menu em `adminNav.ts` + `AdminGroupedNav`. `/admin` abre Pedidos. `/admin/fornecedores` redireciona | Chaves de setting, PIX, estoque e a senha de baixa iguais. `Admin.tsx` não foi fatiado |
 | 2026-11-16 | Tabelas `inventory_santa_catarina_balances` / `inventory_santa_catarina_movements` (+ runtime) | Quarto pool de estoque (Santa Catarina). Chave `santa_catarina` cabe em `inventory_pool` varchar(16) | Loja, Motoboy e Minas iguais |
 | 2026-11-13 | Front aponta `/api` para a DigitalOcean | Os dois `vercel.json` reescrevem para `https://yuri-imports-9483v.ondigitalocean.app/api/:path*`. O CSP troca o host Railway por esse e pelo R2 | Manutenção, PIX, esgotado e a moderação iguais |

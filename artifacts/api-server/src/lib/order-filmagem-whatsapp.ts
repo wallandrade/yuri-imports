@@ -1,11 +1,12 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { mysqlAffectedRows } from "./mysql-affected-rows";
 import { normalizeN8nWebhookUrl, toWhatsappPhone, type PaidWhatsappOrder } from "./order-paid-whatsapp";
+import { dispatchWhatsappNotice, whatsappNoticeConfigured } from "./whatsapp-dispatch";
+import { FILMAGEM_ZAPI_IMAGE_URL, whatsappInstanceForSeller } from "./whatsapp-outbound-policy";
 
 export const N8N_FILMAGEM_WEBHOOK_SETTING = "n8n_filmagem_webhook_url";
 /** Produção do nó Filmagem. Vale quando a Configuração está vazia. */
 export const DEFAULT_N8N_FILMAGEM_WEBHOOK_URL = "https://wallandrade.app.n8n.cloud/webhook/filmagem";
-const TIMEOUT_MS = 8000;
 
 /** Legenda longa com foto. O pagamento não manda mais isto. O aviso curto fica no texto do pedido pago. */
 export const FILMAGEM_PAID_CAPTION = [
@@ -70,14 +71,6 @@ async function webhookUrl(sellerCode?: string | null): Promise<string> {
   return normalizeN8nWebhookUrl(DEFAULT_N8N_FILMAGEM_WEBHOOK_URL);
 }
 
-function logHost(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return "invalid";
-  }
-}
-
 type FilmagemKind = "paid" | "delivery";
 
 async function claimSend(orderId: string, kind: FilmagemKind): Promise<boolean> {
@@ -98,28 +91,6 @@ async function releaseClaim(orderId: string, kind: FilmagemKind): Promise<void> 
     .where(eq(ordersTable.id, orderId));
 }
 
-async function postWebhook(url: string, body: { phone: string; caption: string }): Promise<{ ok: boolean; error?: string }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      return { ok: false, error: text.slice(0, 180) || `http_${response.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "request_failed" };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function sendFilmagem(orderId: string, kind: FilmagemKind): Promise<{ sent: boolean; error?: string }> {
   const id = String(orderId || "").trim();
   if (!id) return { sent: false, error: "missing_id" };
@@ -130,7 +101,7 @@ async function sendFilmagem(orderId: string, kind: FilmagemKind): Promise<{ sent
     if (!order) return { sent: false, error: "not_found" };
 
     const url = await webhookUrl(order.sellerCode);
-    if (!url) return { sent: false, error: "not_configured" };
+    if (!(await whatsappNoticeConfigured("filmagem", url))) return { sent: false, error: "not_configured" };
 
     const payload = orderFilmagemWhatsappPayload(
       order,
@@ -141,16 +112,21 @@ async function sendFilmagem(orderId: string, kind: FilmagemKind): Promise<{ sent
     const claimed = await claimSend(id, kind);
     if (!claimed) return { sent: false, error: "already_sent" };
 
-    let lastError = "request_failed";
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const result = await postWebhook(url, payload);
-      if (result.ok) return { sent: true };
-      lastError = result.error || lastError;
-    }
+    const result = await dispatchWhatsappNotice({
+      origin: "filmagem",
+      instance: whatsappInstanceForSeller(order.sellerCode),
+      phone: payload.phone,
+      kind: "image",
+      caption: payload.caption,
+      image: FILMAGEM_ZAPI_IMAGE_URL,
+      n8nUrl: url,
+      n8nBody: payload,
+    });
+    if (result.ok) return { sent: true };
 
     await releaseClaim(id, kind).catch(() => {});
-    console.warn("[WhatsApp filmagem] falha", kind, id, logHost(url), lastError);
-    return { sent: false, error: lastError };
+    console.warn("[WhatsApp filmagem] falha", kind, id, result.error || "request_failed");
+    return { sent: false, error: result.error || "request_failed" };
   } catch (err) {
     console.error("[WhatsApp filmagem] sync", kind, id, err instanceof Error ? err.message : err);
     return { sent: false, error: "exception" };

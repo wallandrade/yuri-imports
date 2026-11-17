@@ -1,6 +1,6 @@
 # Integrações — Yuri Import
 
-> **Última atualização:** 2026-11-16
+> **Última atualização:** 2026-11-17
 
 Providers externos **presentes no código**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ Providers externos **presentes no código**. Precedência: código > memória.
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Avisos saem direto pela Z-API | Cada aviso tem a chave `direto` ou `n8n` em WhatsApp → Avisos de pedido. Sem chave, vale direto. A fila fica em `whatsapp_outbound_queue`: 1 envio a cada 6 minutos e no máximo 10 por hora, por instância. Poly só usa `ZAPI_POLY_*`. O menu da Poly continua desligado. Resposta do atendimento nasce na fila; `na_hora` manda na hora. Cell Tech fala com o grupo `553591710559-1525960254` das 8h às 19h. A entrada já é `POST /api/whatsapp/support/inbound?token=` | As URLs `n8n_*` continuam salvas. PIX, esgotado, senha de baixa e a cópia 48h iguais |
 | 2026-11-16 | Grupos saem mais devagar | 10 minutos entre cada grupo. No máximo 6 imagens por hora, somando produtos, peptídeo, aviso avulso e o modo de X em X horas. A conta está em `whatsapp_group_send_log`, comparada com `CURRENT_TIMESTAMP` para a sessão UTC não esticar a hora | Moderação, Cell Tech, PIX, checkout e aviso de pedido iguais |
 | 2026-11-16 | Snapshot e baixa do espelho incluem Santa Catarina | `GET .../inventory/snapshot` ganha `santaCatarina[]`. `POST .../exit` aceita `pool: santa_catarina`. Webhook manda `balances.santaCatarina` | Foz Guaçu continua fora. Motoboy e Minas iguais. Baixa do espelho segue sem senha |
 | 2026-11-16 | Etiqueta EnvioEcom mais segura | J&T corta o valor declarado em R$ 1.000 (ou no teto da cotação). Recusa do lote volta 422 com a frase da EnvioEcom. Clique duplo não cria dois envios | Contas do seletor, prazo do checkout, PIX e PAC/Sedex iguais |

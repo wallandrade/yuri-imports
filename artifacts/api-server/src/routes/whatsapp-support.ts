@@ -4,6 +4,7 @@ import { supportAiEnabled, setSupportAiEnabled } from "../lib/whatsapp-support-a
 import { startWhatsappHistoryImport, supportExampleTotal, whatsappHistoryImportStatus } from "../lib/whatsapp-history-import";
 import { handleGroupModeration, isGroupModerationCandidate } from "../lib/whatsapp-group-moderation";
 import { handleSupportInbound, supportInboundLog, supportToken, supportTokensMatch } from "../lib/whatsapp-support";
+import { listWhatsappOutboundQueue } from "../lib/whatsapp-outbound-queue";
 
 const router: IRouter = Router();
 
@@ -58,6 +59,15 @@ router.post("/whatsapp/groups/inbound", async (req, res) => {
   } catch (err) {
     console.error("[WhatsApp grupos]", err instanceof Error ? err.message : err);
     res.status(200).json({ ok: false, error: "exception" });
+  }
+});
+
+router.get("/admin/whatsapp/outbound-queue", requirePrimaryAdmin, async (_req, res) => {
+  try {
+    res.json(await listWhatsappOutboundQueue());
+  } catch (err) {
+    console.error("[WhatsApp fila] painel", err instanceof Error ? err.message.slice(0, 160) : "falha");
+    res.status(500).json({ error: "QUEUE_UNAVAILABLE" });
   }
 });
 

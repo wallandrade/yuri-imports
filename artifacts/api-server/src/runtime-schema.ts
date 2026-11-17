@@ -1605,6 +1605,33 @@ async function ensureAdminImagesTable(databaseName: string): Promise<void> {
   `);
 }
 
+async function ensureWhatsappOutboundQueueTable(databaseName: string): Promise<void> {
+  if (await tableExists("whatsapp_outbound_queue", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE whatsapp_outbound_queue (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      instance VARCHAR(16) NOT NULL,
+      phone VARCHAR(64) NOT NULL,
+      kind VARCHAR(16) NOT NULL,
+      message TEXT NULL,
+      caption TEXT NULL,
+      image TEXT NULL,
+      option_list TEXT NULL,
+      origin VARCHAR(40) NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(400) NULL,
+      next_attempt_at TIMESTAMP NULL DEFAULT NULL,
+      sent_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY whatsapp_outbound_queue_instance_status (instance, status, created_at),
+      KEY whatsapp_outbound_queue_instance_sent (instance, sent_at)
+    )
+  `);
+  console.log("[RuntimeSchema] Created table whatsapp_outbound_queue");
+}
+
 async function ensureCellTechAlertsTable(databaseName: string): Promise<void> {
   if (await tableExists("cell_tech_alerts", databaseName)) return;
   await pool.query(`
@@ -1827,6 +1854,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureAdminImagesTable(databaseName);
     await ensureFlashOfferTables(databaseName);
     await ensureCellTechAlertsTable(databaseName);
+    await ensureWhatsappOutboundQueueTable(databaseName);
     await ensureCellTechSituationStateTable(databaseName);
     await ensurePixSecretBinding(databaseName);
     await ensureSupplierPriceTables(databaseName);
