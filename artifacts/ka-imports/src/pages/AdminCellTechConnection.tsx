@@ -83,6 +83,7 @@ export default function AdminCellTechConnection() {
   const [usuarioId, setUsuarioId] = useState("");
   const [lojaId, setLojaId] = useState("");
   const [loading, setLoading] = useState(true);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState("");
 
@@ -104,13 +105,22 @@ export default function AdminCellTechConnection() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try {
-      await Promise.all([loadSettings(), loadStatus()]);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Erro ao carregar a conexão.");
-    } finally {
-      setLoading(false);
+    const [settingsResult, statusResult] = await Promise.allSettled([loadSettings(), loadStatus()]);
+    if (settingsResult.status === "fulfilled") {
+      setSettingsLoaded(true);
+    } else {
+      setSettingsLoaded(false);
+      setWebhookUrl("");
+      setUsuarioId("");
+      setLojaId("");
+      const reason = settingsResult.reason;
+      toast.error(reason instanceof Error ? reason.message : "Erro ao carregar a conexão.");
     }
+    if (statusResult.status === "rejected") {
+      const reason = statusResult.reason;
+      toast.error(reason instanceof Error ? reason.message : "Erro ao carregar o status.");
+    }
+    setLoading(false);
   }, [loadSettings, loadStatus]);
 
   useEffect(() => {
@@ -118,6 +128,10 @@ export default function AdminCellTechConnection() {
   }, [load]);
 
   async function saveSettings() {
+    if (!settingsLoaded) {
+      toast.error("Recarregue a conexão antes de salvar. O webhook não foi lido.");
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch(`${BASE}/api/admin/cell-tech/settings`, {
@@ -199,6 +213,7 @@ export default function AdminCellTechConnection() {
           </section>
 
           <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
+            {settingsLoaded ? (
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-sm">
                 <span className="block mb-1 text-muted-foreground">Access token {accessHint ? `(${accessHint})` : ""}</span>
@@ -221,10 +236,16 @@ export default function AdminCellTechConnection() {
                 <input value={lojaId} onChange={(e) => setLojaId(e.target.value)} className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
               </label>
             </div>
+            ) : (
+              <p className="text-sm">Não deu para ler o webhook. Salvar fica desligado para não apagar a URL do n8n.</p>
+            )}
             <p className="text-xs text-muted-foreground">No n8n, o HTTP Request lê o campo message e a Z-API manda no grupo. O token da Z-API fica no n8n. Atualizar status só lê o que já foi gravado.</p>
             <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => void saveSettings()} disabled={saving} className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60">
+              <button type="button" onClick={() => void saveSettings()} disabled={saving || !settingsLoaded} className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60">
                 {saving ? "Salvando…" : "Salvar"}
+              </button>
+              <button type="button" onClick={() => void load()} className="h-10 px-4 rounded-xl border-2 border-border text-sm font-medium">
+                Recarregar
               </button>
               <button type="button" onClick={() => void testGestao()} disabled={busy === "connection"} className="h-10 px-4 rounded-xl border-2 border-border text-sm font-medium">
                 {busy === "connection" ? "Testando…" : "Testar Gestão Click"}

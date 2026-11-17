@@ -10,6 +10,7 @@ import {
 } from "./cell-tech-logic";
 import type { CellTechCredentials } from "./cell-tech-client";
 import {
+  mergeCellTechConnection,
   parseCellTechConnectionState,
   parseSituationLabels,
   serializeSituationLabels,
@@ -168,7 +169,8 @@ export async function readCellTechConnectionStored(): Promise<CellTechConnection
 }
 
 export async function writeCellTechConnectionStored(state: CellTechConnectionState): Promise<void> {
-  const safe = parseCellTechConnectionState(state);
+  const stored = await readCellTechConnectionStored();
+  const safe = parseCellTechConnectionState(mergeCellTechConnection(state, stored));
   await putSetting(CONNECTION_STATUS, JSON.stringify({ gestao: safe.gestao, whatsapp: safe.whatsapp }));
 }
 
