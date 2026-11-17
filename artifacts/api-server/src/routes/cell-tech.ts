@@ -3,7 +3,9 @@ import { requirePrimaryAdmin } from "./admin-auth";
 import { GestaoClickError } from "../lib/cell-tech-service";
 import {
   cellTechBoard,
+  getCellTechConnectionView,
   getCellTechSettingsView,
+  listCellTechSituations,
   sendCellTechReport,
   sendCellTechTestWebhook,
   testCellTechConnection,
@@ -30,6 +32,22 @@ function fail(res: { status: (code: number) => { json: (body: unknown) => void }
   console.error("[Cell Tech]", error instanceof Error ? error.message : error);
   res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao consultar a Cell Tech." });
 }
+
+router.get("/admin/cell-tech/connection", requirePrimaryAdmin, async (_req, res) => {
+  try {
+    res.json(await getCellTechConnectionView());
+  } catch (error) {
+    fail(res, error);
+  }
+});
+
+router.get("/admin/cell-tech/situations", requirePrimaryAdmin, async (_req, res) => {
+  try {
+    res.json(await listCellTechSituations());
+  } catch (error) {
+    fail(res, error);
+  }
+});
 
 router.get("/admin/cell-tech/settings", requirePrimaryAdmin, async (_req, res) => {
   try {

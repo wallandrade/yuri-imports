@@ -9,6 +9,12 @@ import {
   type CellTechSituationSince,
 } from "./cell-tech-logic";
 import type { CellTechCredentials } from "./cell-tech-client";
+import {
+  parseCellTechConnectionState,
+  parseSituationLabels,
+  serializeSituationLabels,
+  type CellTechConnectionState,
+} from "./cell-tech-status";
 
 const ACCESS = "cell_tech_access_token";
 const SECRET = "cell_tech_secret_access_token";
@@ -20,6 +26,8 @@ const DONE = "cell_tech_done_situation_ids";
 const WORKING = "cell_tech_working_situation_ids";
 const STALLED_DAYS = "cell_tech_stalled_min_days";
 const STALLED = "cell_tech_stalled_situation_ids";
+const CONNECTION_STATUS = "cell_tech_connection_status";
+const SITUATION_LABELS = "cell_tech_situation_labels";
 const KEYS = [ACCESS, SECRET, WEBHOOK, USUARIO, LOJA, ALERTS, DONE, WORKING, STALLED_DAYS, STALLED];
 
 export type CellTechSettings = CellTechCredentials & CellTechFlags & {
@@ -55,6 +63,7 @@ export type CellTechSettingsInput = {
   workingSituationIds?: unknown;
   stalledMinDays?: unknown;
   stalledSituationIds?: unknown;
+  situationLabels?: unknown;
 };
 
 async function database() {
@@ -141,7 +150,26 @@ export async function saveCellTechSettings(input: CellTechSettingsInput): Promis
   if ("workingSituationIds" in input) await putSetting(WORKING, joinIdList(input.workingSituationIds));
   if ("stalledMinDays" in input) await putSetting(STALLED_DAYS, String(cellTechStalledMinDays(input.stalledMinDays)));
   if ("stalledSituationIds" in input) await putSetting(STALLED, joinIdList(input.stalledSituationIds));
+  if ("situationLabels" in input) await putSetting(SITUATION_LABELS, serializeSituationLabels(input.situationLabels));
   return readCellTechSettings();
+}
+
+export async function readCellTechSituationLabels(): Promise<Record<string, string>> {
+  const { db, siteSettingsTable } = await database();
+  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, SITUATION_LABELS)).limit(1);
+  return parseSituationLabels(rows[0]?.value);
+}
+
+export async function readCellTechConnectionStored(): Promise<CellTechConnectionState | null> {
+  const { db, siteSettingsTable } = await database();
+  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, CONNECTION_STATUS)).limit(1);
+  if (!rows[0]) return null;
+  return parseCellTechConnectionState(rows[0].value);
+}
+
+export async function writeCellTechConnectionStored(state: CellTechConnectionState): Promise<void> {
+  const safe = parseCellTechConnectionState(state);
+  await putSetting(CONNECTION_STATUS, JSON.stringify({ gestao: safe.gestao, whatsapp: safe.whatsapp }));
 }
 
 export async function readSentCellTechAlerts(): Promise<Map<string, { created: boolean; deadline: boolean; finished: boolean }>> {
