@@ -73,7 +73,8 @@ test("filmagem usa a foto do n8n e a legenda da loja", () => {
 test("Cell Tech fala com o grupo do fluxo", () => {
   assert.equal(CELL_TECH_ZAPI_GROUP_ID, "553591710559-1525960254");
   assert.equal(cellTechZapiGroupId(""), CELL_TECH_ZAPI_GROUP_ID);
-  assert.equal(cellTechZapiGroupId("123"), CELL_TECH_ZAPI_GROUP_ID);
   assert.equal(cellTechZapiGroupId("553591710559-1525960254"), CELL_TECH_ZAPI_GROUP_ID);
+  assert.equal(cellTechZapiGroupId("120363012345678901@g.us"), "120363012345678901@g.us");
+  assert.throws(() => cellTechZapiGroupId("123"), /inválido/);
   assert.equal(maskWhatsappPhone("5500000000000"), "••••0000");
 });

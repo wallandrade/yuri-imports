@@ -159,6 +159,31 @@ export async function zapiCall(input: {
   }
 }
 
+/** Lista que a Z-API recusa vira o texto simples, no mesmo envio. */
+export async function sendZapiMessageWithFallback(input: {
+  instance: ZapiInstanceName;
+  phone: string;
+  kind: ZapiOutboundKind;
+  message?: string;
+  caption?: string;
+  image?: string;
+  optionList?: unknown;
+  fallbackMessage?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<{ ok: boolean; error?: string; usedFallback?: boolean }> {
+  const sent = await sendZapiMessage(input);
+  const fallback = String(input.fallbackMessage || "").trim();
+  if (sent.ok || input.kind !== "option_list" || !fallback) return sent;
+  const text = await sendZapiMessage({
+    instance: input.instance,
+    phone: input.phone,
+    kind: "text",
+    message: fallback,
+    fetchImpl: input.fetchImpl,
+  });
+  return text.ok ? { ok: true, usedFallback: true } : text;
+}
+
 export async function sendZapiMessage(input: {
   instance: ZapiInstanceName;
   phone: string;

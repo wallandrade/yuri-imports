@@ -76,10 +76,18 @@ export function supportLineCanReply(line: WhatsappLine): boolean {
   return line !== "poly";
 }
 
+function cellTechGroupIdShape(value: string): boolean {
+  if (value.length < 8 || value.length > 80) return false;
+  if (/[/?#\s]/.test(value) || /https?:/i.test(value)) return false;
+  return /^[0-9A-Za-z@._-]+$/.test(value);
+}
+
+/** Vazio usa o grupo do fluxo. Valor preenchido e inválido não cai no grupo antigo. */
 export function cellTechZapiGroupId(raw = process.env.ZAPI_CELL_TECH_GROUP_ID): string {
   const value = String(raw || "").trim();
-  if (/^\d{6,20}-\d{6,20}$/.test(value)) return value;
-  return CELL_TECH_ZAPI_GROUP_ID;
+  if (!value) return CELL_TECH_ZAPI_GROUP_ID;
+  if (!cellTechGroupIdShape(value)) throw new Error("ZAPI_CELL_TECH_GROUP_ID inválido.");
+  return value;
 }
 
 export function whatsappBackoffMs(attempts: number): number {

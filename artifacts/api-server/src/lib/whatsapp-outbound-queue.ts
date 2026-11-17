@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { mysqlAffectedRows } from "./mysql-affected-rows";
-import { sendZapiMessage } from "./zapi-client";
+import { sendZapiMessageWithFallback } from "./zapi-client";
 import {
   WHATSAPP_MAX_ATTEMPTS,
   maskWhatsappPhone,
@@ -18,6 +18,8 @@ export type WhatsappOutboundDraft = {
   caption?: string;
   image?: string;
   optionList?: unknown;
+  /** Texto simples se a lista do menu for recusada. */
+  fallbackMessage?: string;
   origin: string;
 };
 
@@ -101,7 +103,7 @@ export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Pro
         phone.slice(0, 64),
         draft.kind,
         clip(draft.message, 20000),
-        clip(draft.caption, 20000),
+        clip(draft.caption || draft.fallbackMessage, 20000),
         clip(draft.image, 1000),
         optionListText(draft.optionList),
         String(draft.origin || "aviso").slice(0, 40),
@@ -115,8 +117,11 @@ export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Pro
 }
 
 export async function sendWhatsappImmediately(draft: WhatsappOutboundDraft): Promise<{ ok: boolean; error?: string }> {
-  const sent = await sendZapiMessage(draft);
-  await rememberImmediate(draft, sent).catch(() => undefined);
+  const sent = await sendZapiMessageWithFallback(draft);
+  const recorded = sent.usedFallback
+    ? { ...draft, kind: "text" as const, message: draft.fallbackMessage, optionList: undefined }
+    : draft;
+  await rememberImmediate(recorded, sent).catch(() => undefined);
   return sent;
 }
 
@@ -236,15 +241,27 @@ async function sendNextForInstance(instance: WhatsappZapiInstance): Promise<void
       optionList = row.option_list;
     }
   }
-  const sent = await sendZapiMessage({
+  const fallback = row.kind === "option_list" ? String(row.caption || "").trim() : "";
+  const sent = await sendZapiMessageWithFallback({
     instance,
     phone: row.phone,
     kind: row.kind === "image" || row.kind === "option_list" ? row.kind : "text",
     message: row.message || "",
-    caption: row.caption || "",
+    caption: row.kind === "option_list" ? "" : (row.caption || ""),
     image: row.image || "",
     optionList,
+    fallbackMessage: fallback,
   });
+  if (sent.usedFallback || (!sent.ok && fallback)) {
+    await (await database()).query(
+      `UPDATE whatsapp_outbound_queue
+       SET kind = 'text', message = ?, option_list = NULL, caption = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [fallback, row.id],
+    );
+    row.kind = "text";
+    row.message = fallback;
+  }
   await markResult(row, sent);
   if (!sent.ok) {
     console.warn("[WhatsApp fila]", instance, row.origin, "falha", (sent.error || "").slice(0, 120));

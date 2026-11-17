@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   redactZapiSecret,
   sendZapiMessage,
+  sendZapiMessageWithFallback,
   zapiCredentials,
   zapiMessageAccepted,
   zapiOutboundRequest,
@@ -93,5 +94,35 @@ test("envio usa a instância pedida e não devolve o token", async () => {
     assert.equal(sent.error?.includes(TOKEN), false);
     assert.equal(sent.error?.includes(CLIENT), false);
     assert.equal(redactZapiSecret(TOKEN).includes(TOKEN), false);
+  });
+});
+
+test("lista recusada manda o texto simples no mesmo número", async () => {
+  await withEnv(async () => {
+    process.env.ZAPI_MAIN_INSTANCE_ID = "instanciaMain1";
+    process.env.ZAPI_MAIN_TOKEN = TOKEN;
+    process.env.ZAPI_CLIENT_TOKEN = CLIENT;
+    const paths: string[] = [];
+    const sent = await sendZapiMessageWithFallback({
+      instance: "main",
+      phone: PHONE,
+      kind: "option_list",
+      message: "escolha",
+      optionList: { title: "Menu", buttonLabel: "Ver", options: [] },
+      fallbackMessage: "1. Pedido",
+      fetchImpl: async (input, init) => {
+        paths.push(String(input));
+        if (String(input).endsWith("/send-option-list")) {
+          return new Response(JSON.stringify({ error: "lista recusada" }), { status: 400 });
+        }
+        assert.equal(JSON.parse(String(init?.body)).message, "1. Pedido");
+        assert.equal(JSON.parse(String(init?.body)).phone, PHONE);
+        return new Response(JSON.stringify({ messageId: "m1" }), { status: 200 });
+      },
+    });
+    assert.equal(sent.ok, true);
+    assert.equal(sent.usedFallback, true);
+    assert.equal(paths.some((path) => path.endsWith("/send-option-list")), true);
+    assert.equal(paths.some((path) => path.endsWith("/send-text")), true);
   });
 });

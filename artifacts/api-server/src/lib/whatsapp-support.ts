@@ -1282,6 +1282,8 @@ async function sendList(phone: string, turn: Extract<SupportTurn, { kind: "list"
     buttonLabel: turn.buttonLabel,
     options: turn.options,
   };
+  const { withWhatsappSellerStoreLink } = await import("./whatsapp-line");
+  const fallbackMessage = withWhatsappSellerStoreLink(supportListText(turn), line);
   const result = await dispatchWhatsappNotice({
     origin: "atendimento_menu",
     instance: line === "poly" ? "poly" : "main",
@@ -1289,6 +1291,7 @@ async function sendList(phone: string, turn: Extract<SupportTurn, { kind: "list"
     kind: "option_list",
     message: turn.message,
     optionList,
+    fallbackMessage,
     n8nUrl: url,
     n8nBody: { phone, message: turn.message, optionList },
   });

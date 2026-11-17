@@ -6,6 +6,7 @@ import {
   pickWhatsappWebhookUrl,
   polyInstanceIdSaveError,
   whatsappLineForInstance,
+  whatsappLineForInstances,
   withWhatsappSellerStoreLink,
 } from "./whatsapp-line";
 
@@ -44,6 +45,12 @@ test("menu da Poly não volta pelo número de hoje", () => {
   assert.equal(pickSupportWebhookUrl("poly", main, poly), poly);
   assert.equal(pickSupportWebhookUrl("poly", main, ""), "");
   assert.equal(pickSupportWebhookUrl("main", main, poly), main);
+});
+
+test("a entrada da Poly também reconhece o ID da Z-API", () => {
+  assert.equal(whatsappLineForInstances("polyZapiId1", ["", "polyzapiid1"]), "poly");
+  assert.equal(whatsappLineForInstances("n8nPolyId1", ["n8npolyid1", "outra"]), "poly");
+  assert.equal(whatsappLineForInstances("instanciaMain1", ["polyZapiId1"]), "main");
 });
 
 test("instância da Poly é o ID, sem token", () => {

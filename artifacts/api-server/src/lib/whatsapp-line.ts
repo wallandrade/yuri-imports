@@ -57,10 +57,21 @@ export function whatsappLineForInstance(
   instanceId: string | null | undefined,
   polyInstanceId: string | null | undefined,
 ): WhatsappLine {
+  return whatsappLineForInstances(instanceId, [polyInstanceId]);
+}
+
+/** Qualquer ID conhecido da Poly (n8n ou Z-API) marca a conversa como Poly. */
+export function whatsappLineForInstances(
+  instanceId: string | null | undefined,
+  polyInstanceIds: Array<string | null | undefined>,
+): WhatsappLine {
   const got = String(instanceId || "").trim().toLowerCase();
-  const expected = String(polyInstanceId || "").trim().toLowerCase();
-  if (!got || !expected || got !== expected) return "main";
-  return "poly";
+  if (!got) return "main";
+  for (const raw of polyInstanceIds) {
+    const expected = String(raw || "").trim().toLowerCase();
+    if (expected && got === expected) return "poly";
+  }
+  return "main";
 }
 
 /** Pedido da Poly ou da Bruna usa a URL da Poly. Sem essa URL, segue a URL de hoje. Os outros vendedores nunca usam a URL da Poly. */
@@ -123,7 +134,8 @@ export async function resolveSupportWebhookUrl(input: {
 }
 
 export async function resolveWhatsappLine(instanceId: string | null | undefined): Promise<WhatsappLine> {
-  const fromEnv = String(process.env.N8N_POLY_INSTANCE_ID || "").trim();
-  const configured = fromEnv || await readSetting(N8N_POLY_INSTANCE_SETTING);
-  return whatsappLineForInstance(instanceId, configured);
+  const fromN8n = String(process.env.N8N_POLY_INSTANCE_ID || "").trim();
+  const fromZapi = String(process.env.ZAPI_POLY_INSTANCE_ID || "").trim();
+  const configured = fromN8n || await readSetting(N8N_POLY_INSTANCE_SETTING);
+  return whatsappLineForInstances(instanceId, [fromN8n, fromZapi, configured]);
 }

@@ -83,6 +83,7 @@ export async function dispatchWhatsappNotice(input: {
   caption?: string;
   image?: string;
   optionList?: unknown;
+  fallbackMessage?: string;
   n8nUrl?: string;
   n8nBody?: unknown;
   immediate?: boolean;
@@ -111,6 +112,7 @@ export async function dispatchWhatsappNotice(input: {
     caption: input.caption,
     image: input.image,
     optionList: input.optionList,
+    fallbackMessage: input.fallbackMessage,
     origin: input.origin,
   };
   const support = input.origin === "atendimento" || input.origin === "atendimento_menu";
