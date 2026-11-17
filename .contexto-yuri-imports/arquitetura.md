@@ -1,6 +1,6 @@
 # Arquitetura — Yuri Import
 
-> **Última atualização:** 2026-11-16
+> **Última atualização:** 2026-11-17
 
 Stack, pastas e deploy **como existem no código**. Precedência: código > memória > tipagens.
 
@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Admin em grupos com URL `/admin/<grupo>/<item>` | Menu em `adminNav.ts` + `AdminGroupedNav`. `/admin` abre Pedidos. `/admin/fornecedores` redireciona | Chaves de setting, PIX, estoque e a senha de baixa iguais. `Admin.tsx` não foi fatiado |
 | 2026-11-16 | Tabelas `inventory_santa_catarina_balances` / `inventory_santa_catarina_movements` (+ runtime) | Quarto pool de estoque (Santa Catarina). Chave `santa_catarina` cabe em `inventory_pool` varchar(16) | Loja, Motoboy e Minas iguais |
 | 2026-11-13 | Front aponta `/api` para a DigitalOcean | Os dois `vercel.json` reescrevem para `https://yuri-imports-9483v.ondigitalocean.app/api/:path*`. O CSP troca o host Railway por esse e pelo R2 | Manutenção, PIX, esgotado e a moderação iguais |
 | 2026-11-12 | Tabela `whatsapp_group_moderation_log` (+ runtime) | Guarda a mensagem moderada no grupo para poder desfazer. Chave é o id da mensagem | Campanha dos grupos, atendimento e pedido iguais. Sem `tenant_id` |
@@ -78,6 +79,7 @@ Workspace: `pnpm-workspace.yaml` (`artifacts/*`, `lib/*`, `scripts`).
 ## Stack (evidência)
 
 - **FE:** React 19.1, Vite 7, Tailwind 4, Wouter, Zustand, TanStack Query, Framer Motion — `artifacts/ka-imports/package.json`, catalog no `pnpm-workspace.yaml`.
+- **Admin:** rotas Wouter `/admin`, `/admin/:group` e `/admin/:group/:item` renderizam `pages/Admin.tsx`. O mapa (grupo, slug, aba, `primaryOnly`) está em `pages/admin/adminNav.ts`. O menu visual é `components/admin/AdminGroupedNav.tsx` (lateral no desktop, gaveta no celular). `/admin` cai em Pedidos (`/admin/vendas/pedidos`). `/admin/fornecedores` vai para `/admin/catalogo/fornecedores`.
 - **BE:** Express `^5` — `artifacts/api-server/package.json`; entry `src/index.ts`, app `src/app.ts`, rotas `src/routes/`.
 - **DB:** **MySQL** — `drizzle.config.ts` (`dialect: "mysql"`), `lib/db/src/index.ts` (`drizzle-orm/mysql2`), schemas com `mysqlTable`.
 - **Validação:** Zod (incl. `zod/v4` em schemas DB); muita validação manual nas rotas.

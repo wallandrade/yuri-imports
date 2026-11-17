@@ -1,6 +1,6 @@
 # Auth e permissões — Yuri Import
 
-> **Última atualização:** 2026-11-16
+> **Última atualização:** 2026-11-17
 
 RBAC/admin e auth de cliente **como implementados**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Menu esconde Conciliação, DRE, Despesas e Webhook do PIX de quem não é primário | `PRIMARY_ONLY_TABS` em `adminNav.ts`. O restante do que já era só primário continua | API de extrato, depósitos, DRE e despesas segue `requireAdminAuth`. Webhook PIX público não foi mexido |
 | 2026-11-16 | Senha de baixa vale para Santa Catarina | Dar baixa agora desse pool pede a mesma senha de Motoboy/Minas. O espelho baixa `santa_catarina` só com o token | Foz Guaçu continua sem senha. Janela de 30 min igual |
 | 2026-11-10 | Aba Entrar sem CPF | A tela `/login` pede só e-mail e senha. O pedido sem conta continua ligando pelo e-mail. CPF já gravado na conta continua valendo | API de login ainda aceita `document`. Aba Criar conta, pharma e o claim iguais |
 | 2026-11-10 | Pedido de senha diz o que aconteceu | `POST /api/auth/forgot-password` devolve `sent`, `unknown_email`, `rate_limited`, `invalid_email`, `not_configured` ou `failed`. Sucesso só com `messageId` do Brevo. Log do e-mail ausente sai mascarado | Token SHA-256, 1 h, uso único, limite 3/e-mail e 8/IP, PBKDF2 e `set-password` iguais |
@@ -51,6 +52,7 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 - Aba **Promoções** (oferta relâmpago): `PRIMARY_ONLY_TABS`. `GET/POST/PATCH/DELETE /api/admin/flash-campaigns` = `requirePrimaryAdmin`.
 - Aba **Seguro**: `PRIMARY_ONLY_TABS`. `GET/POST /api/admin/store-credits*` = `requirePrimaryAdmin`. `POST /api/admin/orders/:id/insurance-claim` = `requireAdminAuth`.
 - Aba **Clientes**: listagem `GET /api/admin/customers` = `requireAdminAuth`. Ajuste de carteira `POST /api/admin/customers/:id/store-credit` = admin primário (`hasGlobalAccess`), igual senha/impersonate.
+- Menu: `primaryOnly` no `adminNav.ts` esconde a tela para quem não é primário e o efeito manda de volta para Pedidos. Além do que a barra antiga já escondia, Conciliação (Extrato e Depósitos), DRE, Despesas e Webhook do PIX agora também ficam só no menu do primário. As rotas `GET/POST /api/admin/bank-statement/*`, `GET /api/admin/bank-deposits`, `GET /api/admin/financial-dre` e `/api/admin/expenses` continuam `requireAdminAuth`. O POST público `/api/webhook/pix` não tem sessão admin.
 
 ## Portal Motoboy (link secreto)
 

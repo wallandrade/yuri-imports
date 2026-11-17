@@ -920,6 +920,8 @@ import {
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import type { AdminOrder, AdminProduct, AdminUser, Coupon, CustomCharge, KycDocument, KycListItem } from "@/lib/admin-page-types";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { AdminGroupedNav } from "@/components/admin/AdminGroupedNav";
+import { navItemByTab, pathForTab, PRIMARY_ONLY_TABS, resolveAdminPath, type TabType } from "@/pages/admin/adminNav";
 import AdminEnvioEcomTrackingPanel from "@/pages/AdminEnvioEcomTrackingPanel";
 import LossBlacklistBoard from "@/components/admin/LossBlacklistBoard";
 import { SupplierPriceBoard } from "@/components/admin/SupplierPriceBoard";
@@ -1484,7 +1486,24 @@ interface ShippingOption { id: string; name: string; description: string | null;
 interface MotoboyNeighborhood { id: string; neighborhoodName: string; city: string | null; price: number; sortOrder: number; isActive: boolean; notes: string | null; createdAt: string; }
 interface MotoboyCepRange { id: string; label: string; city: string; cepStart: number; cepEnd: number; price: number; intervalHours: number; isActive: boolean; sortOrder: number; notes: string | null; }
 
-type TabType = "orders" | "charges" | "commissions" | "expenses" | "dre" | "sellers" | "coupons" | "flashCampaigns" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "biblioteca" | "inventory" | "rastreios" | "listaNegra" | "extrato" | "depositos" | "webhook" | "configuracoes" | "atendimento" | "automacao" | "imagens" | "socialProof" | "raffles" | "checkout" | "seguro" | "cellTech" | "fornecedores";
+type ConfigSection =
+  | "senhaBaixa"
+  | "freteContas"
+  | "prazoPostagem"
+  | "prazoTransportadora"
+  | "identidade"
+  | "promo"
+  | "taxas"
+  | "pagamentosLoja"
+  | "pagamentosRifa"
+  | "acesso"
+  | "pushcut"
+  | "avisos"
+  | "poly"
+  | "reportana"
+  | "brevo"
+  | "diagnostico"
+  | "ajuda";
 
 interface CommissionPendingOrder {
   id: string;
@@ -1536,25 +1555,6 @@ interface ExpenseEntry {
   createdAt: string;
   updatedAt: string;
 }
-
-const PRIMARY_ONLY_TABS = new Set<TabType>([
-  "users",
-  "coupons",
-  "flashCampaigns",
-  "products",
-  "fretes",
-  "orderBumps",
-  "inventory",
-  "socialProof",
-  "raffles",
-  "configuracoes",
-  "atendimento",
-  "automacao",
-  "checkout",
-  "seguro",
-  "listaNegra",
-  "cellTech",
-]);
 
 interface AdminRaffle {
   id: string; title: string; description: string | null; imageUrl: string | null;
@@ -1775,7 +1775,8 @@ export default function Admin() {
   }>(null);
   const [financialSummaryLoading, setFinancialSummaryLoading] = React.useState(false);
   const [location, setLocation] = useLocation();
-  const [tab, setTab] = useState<TabType>(location.startsWith("/admin/fornecedores") ? "fornecedores" : "orders");
+  const adminRoute = resolveAdminPath(location);
+  const tab = adminRoute.tab;
   const [ordersKind, setOrdersKind] = useState<AdminOrdersKind>("normal");
   const [pendingOrdersKindOrderId, setPendingOrdersKindOrderId] = useState<string | null>(null);
   const [orders, setOrders] = useState<AdminOrder[]>([]);
@@ -2117,6 +2118,10 @@ export default function Admin() {
     setLocation("/admin/login");
   }, [setLocation]);
 
+  const setTab = useCallback((next: TabType) => {
+    setLocation(pathForTab(next));
+  }, [setLocation]);
+
   /** Abre pedido na aba Pedidos ampliando o filtro de data (API filtra por intervalo). */
   const goToOrder = useCallback((orderId: string, orderCreatedAt?: string | null, searchText?: string | null) => {
     const id = String(orderId || "").trim();
@@ -2139,7 +2144,7 @@ export default function Admin() {
     setPendingOrdersKindOrderId(id);
     pendingScrollOrderIdRef.current = id;
     setScrollOrderNonce((current) => current + 1);
-  }, []);
+  }, [setTab]);
 
   useEffect(() => {
     if (!pendingOrdersKindOrderId) return;
@@ -3385,7 +3390,15 @@ export default function Admin() {
 
   const fetchAll = useCallback(() => {
     fetchStatsData();
+    const loadSettingsScreen = () => {
+      fetchSettings();
+      fetchProducts();
+      fetchClientErrors();
+      fetchBrevoStatus();
+      setLoading(false);
+    };
     if (tab === "orders")          { fetchOrders(); fetchProducts(); fetchInventoryOverview(); }
+    else if (tab === "inicio")     { fetchKycList(); fetchSupportTickets(); if (isPrimary) fetchInventoryOverview(); setLoading(false); }
     else if (tab === "charges")    fetchCharges();
     else if (tab === "users")      fetchUsers();
     else if (tab === "customers")  fetchCustomers();
@@ -3394,7 +3407,7 @@ export default function Admin() {
     else if (tab === "inventory")  { fetchInventoryOverview(); fetchProducts(); }
     else if (tab === "coupons")    { fetchCoupons(); fetchProducts(); }
     else if (tab === "products")   fetchProducts();
-    else if (tab === "configuracoes") { fetchSettings(); fetchProducts(); fetchClientErrors(); fetchBrevoStatus(); }
+    else if (tab === "configuracoes" || tab === "avisos" || tab === "poly" || tab === "identidade" || tab === "imagens" || tab === "taxas" || tab === "pagamentos" || tab === "pushcut" || tab === "email" || tab === "diagnostico") loadSettingsScreen();
     else if (tab === "atendimento") { fetchSettings(); setLoading(false); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
     else if (tab === "commissions") fetchCommissions();
@@ -3404,11 +3417,13 @@ export default function Admin() {
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
-    else if (tab === "raffles")    fetchRaffles();
+    else if (tab === "raffles")    { fetchRaffles(); fetchSettings(); }
+    else if (tab === "flashCampaigns") { fetchSettings(); setLoading(false); }
     else if (tab === "checkout")   { fetchSettings(); fetchProducts(); setLoading(false); }
     else if (tab === "seguro")     { fetchSettings(); fetchProducts(); setLoading(false); }
+    else if (tab === "conciliacao" || tab === "extrato" || tab === "depositos" || tab === "webhook") setLoading(false);
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchCommissions, fetchExpenses, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchCepRanges, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
+  }, [tab, isPrimary, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchBrevoStatus, fetchSellers, fetchSellerData, fetchCommissions, fetchExpenses, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchCepRanges, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -3643,10 +3658,16 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
+    if (!adminRoute.redirect) return;
+    const current = location.split("?")[0].split("#")[0].replace(/\/+$/, "") || "/admin";
+    if (current !== adminRoute.redirect) setLocation(adminRoute.redirect, { replace: true });
+  }, [adminRoute.redirect, location, setLocation]);
+
+  useEffect(() => {
     if (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab]);
+  }, [isPrimary, tab, setTab]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -5157,18 +5178,74 @@ export default function Admin() {
   ));
   const availableWhatsappGroups = Array.from(new Set([...ORDER_WHATSAPP_GROUP_OPTIONS, ...orderGroups]));
 
+  const currentNav = navItemByTab(tab);
+  const navCounts: Partial<Record<TabType, number>> = {
+    orders: orders.length || undefined,
+    inventory: pendingReshipments.length || undefined,
+    products: products.length || undefined,
+    fretes: shippingOptions.length || undefined,
+    charges: charges.length || undefined,
+    commissions: commissionSummary.pendingCount || undefined,
+    customers: customerUsers.length || undefined,
+    recurringCustomers: recurringCustomers.length || undefined,
+    expenses: expenses.length || undefined,
+    kyc: kycList.filter((item) => item.status === "submitted").length || undefined,
+    support: supportTickets.filter((item) => item.status === "open").length || undefined,
+    coupons: coupons.length || undefined,
+    raffles: rafflesList.length || undefined,
+  };
+  const pixAwaitingCount = statsOrdersData.filter((order) => order.status === "awaiting_payment").length;
+  const kycAwaitingCount = kycList.filter((item) => item.status === "submitted").length;
+  const openTicketCount = supportTickets.filter((item) => item.status === "open").length;
+  const configPanel = (sections: ConfigSection[]) => (
+    <ConfiguracoesPanel
+      sections={sections}
+      settings={settings}
+      loading={settingsLoading}
+      products={(Array.isArray(products) ? products : []).map((product) => ({
+        id: product.id,
+        name: product.name,
+        image: product.image ?? null,
+        isActive: product.isActive !== false,
+      }))}
+      productsLoading={productsLoading}
+      clientErrors={clientErrors}
+      clientErrorsLoading={clientErrorsLoading}
+      onRefreshClientErrors={fetchClientErrors}
+      onTestOutboundWebhook={testOutboundWebhook}
+      onSave={saveSetting}
+      onDelete={deleteSetting}
+      brevoApiKey={brevoApiKey}
+      setBrevoApiKey={setBrevoApiKey}
+      brevoConfigured={brevoConfigured}
+      brevoTesting={brevoTesting}
+      onTestBrevoConnection={testBrevoConnection}
+      brevoSenderEmail={brevoSenderEmail}
+      setBrevoSenderEmail={setBrevoSenderEmail}
+      brevoSenderName={brevoSenderName}
+      setBrevoSenderName={setBrevoSenderName}
+      brevoResetBaseUrl={brevoResetBaseUrl}
+      setBrevoResetBaseUrl={setBrevoResetBaseUrl}
+      brevoSenderLoaded={brevoSenderLoaded}
+      brevoSenderSaving={brevoSenderSaving}
+      onSaveBrevoSender={saveBrevoSender}
+    />
+  );
+
   // =========================================================================
   // RENDER
   // =========================================================================
   return (
     <AdminLayout>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
 
         {/* Admin panel header bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Painel Administrativo</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">Gerencie pedidos, vendas e configurações</p>
+            <h1 className="text-2xl font-bold text-foreground">{currentNav?.item.label ?? "Painel Administrativo"}</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              {currentNav ? currentNav.group.label : "Gerencie pedidos, vendas e configurações"}
+            </p>
           </div>
           <div className="flex gap-2 flex-wrap self-start sm:self-auto items-center">
             <AdminLiveVisitorStats enabled={authChecked} baseUrl={BASE} authHeaders={authHeaders} />
@@ -5216,6 +5293,37 @@ export default function Admin() {
           </div>
         </div>
 
+        <div className="lg:flex lg:items-start lg:gap-6">
+        <AdminGroupedNav
+          active={tab}
+          isPrimary={isPrimary}
+          counts={navCounts}
+          onSelect={setTab}
+        />
+        <div className="min-w-0 flex-1">
+
+        {(tab === "inicio" || tab === "orders") && (
+        <>
+        {tab === "inicio" && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            {([
+              ["PIX aguardando", pixAwaitingCount, "orders" as TabType],
+              ["KYC", kycAwaitingCount, "kyc" as TabType],
+              ["Tickets abertos", openTicketCount, "support" as TabType],
+              ...(isPrimary ? [["Reenvios", pendingReshipments.length, "inventory" as TabType] as const] : []),
+            ] as Array<[string, number, TabType]>).map(([label, count, target]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setTab(target)}
+                className="rounded-xl border border-border bg-white p-4 text-left hover:border-primary/40"
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                <p className="mt-1 text-2xl font-bold text-foreground">{count}</p>
+              </button>
+            ))}
+          </div>
+        )}
         {/* ── Dashboard Stats ─────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-5 mb-6">
           {/* Filter row */}
@@ -5547,70 +5655,9 @@ export default function Admin() {
           </AnimatePresence>,
           document.body,
         )}
+        </>
+        )}
 
-        {/* Tabs */}
-        <div className="flex gap-0 mb-6 border-b border-border overflow-x-auto bg-white rounded-t-xl">
-          {([
-            { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
-            ...(isPrimary ? [
-              { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
-              { key: "products",      label: "Produtos",         icon: "ShoppingBag", count: products.length },
-            ] : []),
-            { key: "rastreios",     label: "Rastreios",        icon: "Truck" },
-            { key: "fornecedores",  label: "Fornecedores",     icon: "Store" },
-            ...(isPrimary ? [
-              { key: "listaNegra",   label: "Lista negra",      icon: "ShieldAlert" },
-            ] : []),
-            ...(isPrimary ? [
-              { key: "configuracoes", label: "Configuração",     icon: "Settings" },
-              { key: "atendimento",   label: "Atendimento",      icon: "MessageCircle" },
-              { key: "automacao",     label: "Automação",        icon: "Send" },
-              { key: "imagens",       label: "Imagem",           icon: "Image" },
-              { key: "fretes",        label: "Fretes",           icon: "Truck",       count: shippingOptions.length },
-            ] : []),
-            { key: "extrato",       label: "Extrato",          icon: "Landmark" },
-            { key: "depositos",     label: "Depósitos",        icon: "CheckCircle" },
-            { key: "sellers",       label: "Vendedores",       icon: "Tag" },
-            { key: "commissions",   label: "Comissões",        icon: "DollarSign",  count: commissionSummary.pendingCount || undefined },
-            { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
-            { key: "recurringCustomers", label: "Clientes recorrentes", icon: "RefreshCw", count: recurringCustomers.length || undefined },
-            { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
-            { key: "expenses",      label: "Despesas",         icon: "AlertTriangle", count: expenses.length || undefined },
-            { key: "dre",           label: "DRE",              icon: "PieChart" },
-            { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
-            { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
-            { key: "biblioteca",    label: "Biblioteca",       icon: "BookOpen" },
-            ...(isPrimary ? [
-              { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
-              { key: "flashCampaigns", label: "Promoções",       icon: "Zap" },
-              { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
-              { key: "users",         label: "Usuários",         icon: "User" },
-              { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
-              { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
-              { key: "checkout",      label: "Checkout",         icon: "ShoppingBag" },
-              { key: "seguro",        label: "Seguro",           icon: "ShieldCheck" },
-            ] : []),
-            ...(isPrimary ? [
-              { key: "cellTech",      label: "Cell Tech",        icon: "Smartphone" },
-            ] : []),
-            { key: "webhook",       label: "Webhook",          icon: "Link" },
-          ] as Array<{ key: TabType; label: string; icon: string; count?: number }>).map(({ key, label, icon, count }) => (
-            <button key={key}
-              onClick={() => {
-                setTab(key);
-                if (key === "fornecedores") setLocation("/admin/fornecedores");
-                else if (location.startsWith("/admin/fornecedores")) setLocation("/admin");
-              }}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-            >
-              <IconLucide name={icon} className="w-4 h-4" />
-              {label}
-              {count !== undefined && (
-                <span className="ml-1 bg-primary/10 text-primary text-xs px-1.5 py-0.5 rounded-full">{count}</span>
-              )}
-            </button>
-          ))}
-        </div>
 
         {tab === "fornecedores" ? (
           <SupplierPriceBoard headers={authHeaders()} />
@@ -5860,18 +5907,19 @@ export default function Admin() {
             onUnauthorized={handleUnauthorized}
             onGoToOrder={goToOrder}
           />
-        ) : tab === "extrato" ? (
-          <AdminBankStatementPanel
-            authHeaders={authHeaders}
-            onUnauthorized={handleUnauthorized}
-            onGoToOrder={goToOrder}
-          />
-        ) : tab === "depositos" ? (
-          <AdminBankDepositsPanel
-            authHeaders={authHeaders}
-            onUnauthorized={handleUnauthorized}
-            onGoToOrder={goToOrder}
-          />
+        ) : (tab === "extrato" || tab === "depositos" || tab === "conciliacao") ? (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            <AdminBankStatementPanel
+              authHeaders={authHeaders}
+              onUnauthorized={handleUnauthorized}
+              onGoToOrder={goToOrder}
+            />
+            <AdminBankDepositsPanel
+              authHeaders={authHeaders}
+              onUnauthorized={handleUnauthorized}
+              onGoToOrder={goToOrder}
+            />
+          </div>
         ) : tab === "commissions" ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-2">
@@ -6234,7 +6282,10 @@ export default function Admin() {
             ) : null}
           </div>
         ) : tab === "flashCampaigns" ? (
-          <FlashCampaignsPanel onUnauthorized={handleUnauthorized} />
+          <div className="space-y-8">
+            {configPanel(["promo"])}
+            <FlashCampaignsPanel onUnauthorized={handleUnauthorized} />
+          </div>
         ) : tab === "coupons" ? (
           <CouponsPanel
             coupons={coupons}
@@ -6758,6 +6809,8 @@ export default function Admin() {
             sellers={sellers}
           />
         ) : tab === "fretes" ? (
+          <>
+          {configPanel(["freteContas", "prazoPostagem", "prazoTransportadora"])}
           <FretePanel
             options={shippingOptions}
             form={shippingForm}
@@ -6895,6 +6948,7 @@ export default function Admin() {
             onSaveSetting={saveSetting}
             onDeleteSetting={deleteSetting}
           />
+          </>
         ) : tab === "orderBumps" ? (
           <OrderBumpsPanel
             bumps={orderBumps}
@@ -8271,6 +8325,7 @@ export default function Admin() {
                 )}
               </>
             )}
+            {configPanel(["pagamentosRifa"])}
           </div>
         ) : tab === "webhook" ? (
           <WebhookPanel
@@ -8369,45 +8424,38 @@ export default function Admin() {
             <WhatsAppSupportAiCard />
           </div>
         ) : tab === "automacao" ? (
-          <WhatsAppGroupCampaignCard />
-        ) : tab === "imagens" ? (
-          <AdminImagesPanel />
+          <div className="space-y-4">
+            <WhatsAppGroupCampaignCard />
+            <p className="text-sm text-muted-foreground">
+              O envio para o grupo da Cell Tech continua no painel de Assistência.
+              <button type="button" className="ml-2 font-semibold text-primary" onClick={() => setTab("cellTech")}>
+                Abrir Cell Tech
+              </button>
+            </p>
+          </div>
+        ) : (tab === "imagens" || tab === "identidade") ? (
+          <div className="space-y-8">
+            {configPanel(["identidade"])}
+            <AdminImagesPanel />
+          </div>
+        ) : tab === "avisos" ? (
+          configPanel(["avisos"])
+        ) : tab === "poly" ? (
+          configPanel(["poly"])
+        ) : tab === "taxas" ? (
+          configPanel(["taxas"])
+        ) : tab === "pagamentos" ? (
+          configPanel(["pagamentosLoja"])
+        ) : tab === "pushcut" ? (
+          configPanel(["pushcut"])
+        ) : tab === "email" ? (
+          configPanel(["brevo"])
+        ) : tab === "diagnostico" ? (
+          configPanel(["diagnostico"])
         ) : tab === "cellTech" ? (
           <AdminCellTechPanel />
         ) : tab === "configuracoes" ? (
-          <div className="space-y-6">
-            <ConfiguracoesPanel
-              settings={settings}
-              loading={settingsLoading}
-              products={(Array.isArray(products) ? products : []).map((product) => ({
-                id: product.id,
-                name: product.name,
-                image: product.image ?? null,
-                isActive: product.isActive !== false,
-              }))}
-              productsLoading={productsLoading}
-              clientErrors={clientErrors}
-              clientErrorsLoading={clientErrorsLoading}
-              onRefreshClientErrors={fetchClientErrors}
-              onTestOutboundWebhook={testOutboundWebhook}
-              onSave={saveSetting}
-              onDelete={deleteSetting}
-              brevoApiKey={brevoApiKey}
-              setBrevoApiKey={setBrevoApiKey}
-              brevoConfigured={brevoConfigured}
-              brevoTesting={brevoTesting}
-              onTestBrevoConnection={testBrevoConnection}
-              brevoSenderEmail={brevoSenderEmail}
-              setBrevoSenderEmail={setBrevoSenderEmail}
-              brevoSenderName={brevoSenderName}
-              setBrevoSenderName={setBrevoSenderName}
-              brevoResetBaseUrl={brevoResetBaseUrl}
-              setBrevoResetBaseUrl={setBrevoResetBaseUrl}
-              brevoSenderLoaded={brevoSenderLoaded}
-              brevoSenderSaving={brevoSenderSaving}
-              onSaveBrevoSender={saveBrevoSender}
-            />
-          </div>
+          configPanel(["senhaBaixa", "acesso", "reportana", "ajuda"])
         ) : null}
 
         {/* Raffle delete confirmation modal */}
@@ -9306,6 +9354,8 @@ export default function Admin() {
             </motion.div>
           )}
         </AnimatePresence>
+      </div>
+      </div>
       </div>
     </AdminLayout>
   );
@@ -20405,7 +20455,8 @@ function ReportanaSettingsCard() {
   );
 }
 
-function ConfiguracoesPanel({ settings, loading, products, productsLoading, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection, brevoSenderEmail, setBrevoSenderEmail, brevoSenderName, setBrevoSenderName, brevoResetBaseUrl, setBrevoResetBaseUrl, brevoSenderLoaded, brevoSenderSaving, onSaveBrevoSender }: {
+function ConfiguracoesPanel({ sections, settings, loading, products, productsLoading, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection, brevoSenderEmail, setBrevoSenderEmail, brevoSenderName, setBrevoSenderName, brevoResetBaseUrl, setBrevoResetBaseUrl, brevoSenderLoaded, brevoSenderSaving, onSaveBrevoSender }: {
+  sections?: ConfigSection[];
   settings: Record<string, string>;
   loading: Record<string, boolean>;
   products: BannerLinkProduct[];
@@ -20431,6 +20482,7 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
   brevoSenderSaving: boolean;
   onSaveBrevoSender: () => void;
 }) {
+  const show = (id: ConfigSection) => !sections || sections.includes(id);
   const [sitePw, setSitePw] = useState(settings["site_password"] ?? "");
   const [paymentPw, setPaymentPw] = useState(settings["payment_password"] ?? "");
   const [outboundUrl, setOutboundUrl] = useState(settings["outbound_webhook_url"] ?? "");
@@ -20537,11 +20589,15 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
 
   return (
     <div className="space-y-8">
-      {/* ── APIs EnvioEcom ──────────────────────────────────────────────── */}
-      <AdminEnvioEcomAccountsPanel />
-      <AdminSuperfreteAccountsPanel />
-      <AdminInventoryExitAccessPanel />
+      {show("freteContas") && (
+        <>
+          <AdminEnvioEcomAccountsPanel />
+          <AdminSuperfreteAccountsPanel />
+        </>
+      )}
+      {show("senhaBaixa") && <AdminInventoryExitAccessPanel />}
 
+      {show("prazoPostagem") && (
       <div className="max-w-3xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
           <Clock className="w-5 h-5 text-primary" />
@@ -20603,6 +20659,9 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      )}
+
+      {show("prazoTransportadora") && (
       <div className="max-w-3xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
           <Truck className="w-5 h-5 text-primary" />
@@ -20692,6 +20751,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      )}
+
+      {show("identidade") && (
+      <>
       {/* ── Identidade Visual ─────────────────────────────────────────────── */}
       <div>
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -20882,6 +20945,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("promo") && (
+      <>
       {/* ── Cronograma de Promoção no Topo ─────────────────────────────── */}
       <div className="max-w-3xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -20982,6 +21050,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("taxas") && (
+      <>
       {/* ── Taxas do Gateway ─────────────────────────────────────────────── */}
       <div className="max-w-2xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -21063,7 +21136,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
-      {/* ── Pagamentos por Canal ─────────────────────────────────────────── */}
+      </>
+      )}
+
+      {show("pagamentosLoja") && (
       <div className="max-w-3xl space-y-6">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
           <CreditCard className="w-5 h-5 text-primary" />
@@ -21196,7 +21272,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
             </div>
           )}
         </div>
+      </div>
+      )}
 
+      {show("pagamentosRifa") && (
+      <div className="max-w-3xl">
         <div className="bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
           <h3 className="font-semibold flex items-center gap-2"><Ticket className="w-4 h-4 text-primary" />Rifa</h3>
           <p className="text-xs text-muted-foreground">Essas opções afetam apenas o pagamento das reservas de rifa.</p>
@@ -21281,7 +21361,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
           </div>
         </div>
       </div>
+      )}
 
+      {show("acesso") && (
+      <>
       {/* ── Controle de Acesso ────────────────────────────────────────────── */}
       <div className="max-w-2xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -21345,6 +21428,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("pushcut") && (
+      <>
       {/* ── Webhook de Saída (Pushcut/Automations) ───────────────────────── */}
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
@@ -21494,6 +21582,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </p>
       </div>
 
+      </>
+      )}
+
+      {show("avisos") && (
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
           <h2 className="text-lg font-bold mb-1">WhatsApp do pedido pago</h2>
@@ -21760,6 +21852,9 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </p>
       </div>
 
+      )}
+
+      {show("poly") && (
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
           <h2 className="text-lg font-bold mb-1">WhatsApp da Poly</h2>
@@ -21808,8 +21903,14 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </p>
       </div>
 
-      <ReportanaSettingsCard />
+      )}
 
+      {show("reportana") && (
+        <ReportanaSettingsCard />
+      )}
+
+      {show("brevo") && (
+      <>
       {/* ── Integração Brevo ─────────────────────────────────────────────── */}
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
@@ -21895,6 +21996,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("diagnostico") && (
+      <>
       {/* ── Info ──────────────────────────────────────────────────────────── */}
       <div className="max-w-5xl bg-white border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -21948,6 +22054,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         )}
       </div>
 
+      </>
+      )}
+
+      {show("ajuda") && (
       <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-sm text-blue-800 max-w-2xl">
         <p className="font-semibold mb-1">Como funciona?</p>
         <ul className="list-disc list-inside space-y-1 text-blue-700">
@@ -21958,6 +22068,8 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
           <li>As senhas de acesso ficam em vigor até você as remover.</li>
         </ul>
       </div>
+
+      )}
     </div>
   );
 }

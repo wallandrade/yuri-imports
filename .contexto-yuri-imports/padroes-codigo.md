@@ -1,6 +1,6 @@
 # Padrões de código — Yuri Import
 
-> **Última atualização:** 2026-11-08
+> **Última atualização:** 2026-11-17
 
 Convenções **observadas no repo** + anti-padrões + **manutenção da memória viva**.
 
@@ -8,6 +8,7 @@ Convenções **observadas no repo** + anti-padrões + **manutenção da memória
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Menu do admin sai de `adminNav.ts` | Nova tela entra no mapa (grupo, slug, ícone, `primaryOnly`). O visual fica em `AdminGroupedNav`. Não voltar a barra horizontal de abas | Conteúdo de cada painel e as chaves de setting iguais |
 | 2026-11-08 | `pnpm run typecheck` emite as declarações com `tsc --build --force` e não versiona `*.tsbuildinfo` | Checkout limpo, sem `dist`, passa no typecheck e no build da raiz | Compra de produto esgotado igual. A API só recusa produto inativo |
 | 2026-10-16 | Aba Imagem no admin principal | Painel separado `AdminImagesPanel`. Lista, copiar URL e tirar da lista | Biblioteca de peptídeos e o upload de produto iguais |
 | 2026-10-03 | Página do produto em duas colunas a partir de `md` (768px) | Foto inteira (`object-contain`) à esquerda; compra à direita; descrição embaixo | Preço, variantes e carrinho iguais. Celular continua uma coluna |
@@ -44,7 +45,8 @@ Se memória ≠ código → seguir o código e **atualizar a memória na mesma t
 - UI: Tailwind 4 + componentes estilo Radix/shadcn em `src/components`.
 - Páginas em `src/pages`; store em `src/store`; hooks/lib em `src/hooks`, `src/lib`.
 - Detalhe do produto (`ProductDetail.tsx`): duas colunas a partir de `md` (768px), no tema padrão e na Farmácia Compacta. Foto com `object-contain` na esquerda; título, preço, variantes e botão na direita; descrição abaixo da grade. No tema compacto, não voltar a `max-w-lg` numa coluna só no computador. Não voltar o corte para `lg` (1024px).
-- Busca Admin pedidos/cobranças: estado no filho (`AdminOrdersChargesSearchShell` + `AdminDebouncedSearchInput`); pai só manda `seedSearch` (`goToOrder`). Sub-abas + barra de copiar (`copyActions` / `AdminOrdersCopyBar`) no shell. Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5 s fora do pai). Clientes/recorrentes: busca interna do painel. Aba **Imagem** (admin principal) é o painel `AdminImagesPanel`: envia a foto, lista e copia a URL. Não misturar com a aba Biblioteca.
+- Busca Admin pedidos/cobranças: estado no filho (`AdminOrdersChargesSearchShell` + `AdminDebouncedSearchInput`); pai só manda `seedSearch` (`goToOrder`). Sub-abas + barra de copiar (`copyActions` / `AdminOrdersCopyBar`) no shell. Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5 s fora do pai). Clientes/recorrentes: busca interna do painel. Aba **Imagem** (admin principal) é o painel `AdminImagesPanel`: envia a foto, lista e copia a URL. Não misturar com a aba Biblioteca. O menu do admin não é mais a barra horizontal: grupos e URLs ficam em `src/pages/admin/adminNav.ts`; o desenho (lateral e gaveta) fica em `AdminGroupedNav`. Ícone do Lucide passa por `IconLucide`, que aceita o componente `forwardRef`.
+
 - Card da aba Pedidos: `OrdersPanel` é componente **separado** — state/handlers do pai (`storeCreditApplying`, `applyCustomerStoreCredit`, etc.) entram por **props**. Referência solta no filho vira `ReferenceError` e tela `Algo deu errado`. Helpers extraídos para `shipping-copy-list.ts` precisam **continuar exportados** se o card split ainda os chama (`findOrderProductForShipmentItem`). Menus do card (`Gerenciar EE`, `Copiar`) ficam em `AdminOrderCardActionMenus.tsx` — não reespalhar Etiqueta EE / Sync / Desvincular / Cancelar EE nem os três Copiar no wrap. **Copiar** no celular abre folha branca embaixo (`Sheet`); no desktop é dropdown opaco. Pedido **cancelado** esconde EnvioEcom, Vincular, etiqueta OCR, baixa e abater saldo; **Marcar Pago** e comprovante ficam. WhatsApp / copiar / detalhes / PDF já vinculado continuam.
 - Lazy routes / chunks manuais no Vite quando já existirem — preservar o padrão local.
 - Nome do package e tags SW (`ka-imports-admin`) são legado; UI fala **Yury**.
