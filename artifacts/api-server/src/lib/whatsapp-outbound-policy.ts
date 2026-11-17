@@ -104,6 +104,26 @@ export function whatsappInstanceCanSend(input: {
   return { ok: true };
 }
 
+/** Tentativa que falhou também ocupa a trava. Sem isso, a próxima mensagem sai no ciclo de 30s. */
+export function whatsappAttemptCountsForPace(row: {
+  status: string;
+  attempts: number;
+  sentAt: number | null;
+  updatedAt: number;
+}, now: number): { hour: boolean; gap: boolean } {
+  const hourAgo = now - 60 * 60 * 1000;
+  const gapAgo = now - WHATSAPP_SEND_GAP_MS;
+  const sentInHour = row.sentAt != null && row.sentAt >= hourAgo;
+  const sentInGap = row.sentAt != null && row.sentAt >= gapAgo;
+  const triedInHour = row.attempts > 0 && row.updatedAt >= hourAgo && !sentInHour;
+  const triedInGap = row.attempts > 0 && row.updatedAt >= gapAgo;
+  const sendingInGap = row.status === "sending" && row.updatedAt >= gapAgo;
+  return {
+    hour: sentInHour || triedInHour,
+    gap: sentInGap || triedInGap || sendingInGap,
+  };
+}
+
 export function maskWhatsappPhone(phone: string): string {
   const digits = String(phone || "").replace(/\D/g, "");
   const tail = (digits || String(phone || "")).slice(-4);

@@ -10,6 +10,7 @@ import {
   parseSupportDelivery,
   parseWhatsappChannel,
   supportLineCanReply,
+  whatsappAttemptCountsForPace,
   whatsappBackoffMs,
   whatsappInstanceCanSend,
   whatsappInstanceForSeller,
@@ -39,6 +40,19 @@ test("fila segura 6 minutos e 10 por hora", () => {
     whatsappInstanceCanSend({ sentInLastHour: WHATSAPP_HOURLY_CAP, sentInLastGap: false }),
     { ok: false, reason: "hourly" },
   );
+  const now = Date.parse("2026-11-17T18:00:00.000Z");
+  assert.deepEqual(whatsappAttemptCountsForPace({
+    status: "pending",
+    attempts: 1,
+    sentAt: null,
+    updatedAt: now - 60 * 1000,
+  }, now), { hour: true, gap: true });
+  assert.deepEqual(whatsappAttemptCountsForPace({
+    status: "pending",
+    attempts: 0,
+    sentAt: null,
+    updatedAt: now,
+  }, now), { hour: false, gap: false });
   assert.equal(whatsappBackoffMs(1), 6 * 60 * 1000);
   assert.equal(whatsappBackoffMs(2), 12 * 60 * 1000);
   assert.equal(whatsappBackoffMs(8), 60 * 60 * 1000);

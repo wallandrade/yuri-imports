@@ -153,9 +153,19 @@ async function pace(instance: WhatsappZapiInstance): Promise<{ ok: true } | { ok
   const [rows] = await pool.query(
     `SELECT
        (SELECT COUNT(*) FROM whatsapp_outbound_queue
-         WHERE instance = ? AND status = 'sent' AND sent_at >= CURRENT_TIMESTAMP - INTERVAL 1 HOUR) AS sent_hour,
+         WHERE instance = ?
+           AND (
+             (sent_at IS NOT NULL AND sent_at >= CURRENT_TIMESTAMP - INTERVAL 1 HOUR)
+             OR (attempts > 0 AND updated_at >= CURRENT_TIMESTAMP - INTERVAL 1 HOUR
+                 AND (sent_at IS NULL OR sent_at < CURRENT_TIMESTAMP - INTERVAL 1 HOUR))
+           )) AS sent_hour,
        (SELECT COUNT(*) FROM whatsapp_outbound_queue
-         WHERE instance = ? AND status = 'sent' AND sent_at >= CURRENT_TIMESTAMP - INTERVAL 6 MINUTE) AS sent_gap`,
+         WHERE instance = ?
+           AND (
+             (sent_at IS NOT NULL AND sent_at >= CURRENT_TIMESTAMP - INTERVAL 6 MINUTE)
+             OR (attempts > 0 AND updated_at >= CURRENT_TIMESTAMP - INTERVAL 6 MINUTE)
+             OR (status = 'sending' AND updated_at >= CURRENT_TIMESTAMP - INTERVAL 6 MINUTE)
+           )) AS sent_gap`,
     [instance, instance],
   );
   const row = Array.isArray(rows) ? rows[0] as { sent_hour?: number; sent_gap?: number } : {};
