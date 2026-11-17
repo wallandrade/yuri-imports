@@ -9,7 +9,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen flex flex-col bg-slate-50">
       {/* Admin header */}
       <header className="sticky top-0 z-40 bg-white border-b border-border/60 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center gap-3">
+        <div className="px-4 sm:px-6 h-14 flex items-center gap-3">
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
             <ShieldCheck className="w-4 h-4 text-white" />
           </div>
@@ -35,7 +35,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
 
       {/* Admin footer */}
       <footer className="bg-white border-t border-border/50 py-3">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-muted-foreground">
+        <div className="px-4 text-center text-xs text-muted-foreground">
           © {new Date().getFullYear()} Yury &middot; Painel Administrativo &middot; Área restrita
         </div>
       </footer>
