@@ -5295,15 +5295,6 @@ export default function Admin() {
           </div>
         </div>
 
-        <div>
-        <AdminGroupedNav
-          active={tab}
-          isPrimary={isPrimary}
-          counts={navCounts}
-          onSelect={setTab}
-        />
-        <div className="min-w-0 flex-1">
-
         {(tab === "inicio" || tab === "orders") && (
         <>
         {tab === "inicio" && (
@@ -5660,6 +5651,14 @@ export default function Admin() {
         </>
         )}
 
+        <div>
+        <AdminGroupedNav
+          active={tab}
+          isPrimary={isPrimary}
+          counts={navCounts}
+          onSelect={setTab}
+        />
+        <div className="min-w-0 flex-1">
 
         {tab === "fornecedores" ? (
           <SupplierPriceBoard headers={authHeaders()} />

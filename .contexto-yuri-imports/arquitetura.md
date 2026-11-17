@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Menu do admin abaixo do painel em Início e Pedidos | Em `Admin.tsx`, os cards (incluindo Produtos mais vendidos) fecham antes do `<div>` com `AdminGroupedNav` | Desenho horizontal, grupos e rotas iguais. Nas outras telas o menu continua no topo do conteúdo |
 | 2026-11-17 | Menu do admin em cima do conteúdo | `AdminGroupedNav`: linha de grupos e, embaixo, as telas do grupo aberto. No celular a linha rola para o lado. Sem lateral e sem gaveta | Grupos, rotas `/admin/<grupo>/<tela>`, chaves de setting e admin primário iguais |
 | 2026-11-17 | Status da Cell Tech em `site_settings` | Chave `cell_tech_connection_status`. Sem tabela nova. A memória do processo vale junto com essa chave | `cell_tech_alerts`, `cell_tech_situation_state`, pedido e PIX iguais |
 | 2026-11-17 | Admin em grupos com URL `/admin/<grupo>/<item>` | Menu em `adminNav.ts` + `AdminGroupedNav`. `/admin` abre Pedidos. `/admin/fornecedores` redireciona | Chaves de setting, PIX, estoque e a senha de baixa iguais. `Admin.tsx` não foi fatiado |
@@ -81,7 +82,7 @@ Workspace: `pnpm-workspace.yaml` (`artifacts/*`, `lib/*`, `scripts`).
 ## Stack (evidência)
 
 - **FE:** React 19.1, Vite 7, Tailwind 4, Wouter, Zustand, TanStack Query, Framer Motion — `artifacts/ka-imports/package.json`, catalog no `pnpm-workspace.yaml`.
-- **Admin:** rotas Wouter `/admin`, `/admin/:group` e `/admin/:group/:item` renderizam `pages/Admin.tsx`. O mapa (grupo, slug, aba, `primaryOnly`) está em `pages/admin/adminNav.ts`. O menu visual é `components/admin/AdminGroupedNav.tsx` (em cima do conteúdo: linha de grupos e linha das telas do grupo aberto; no celular as linhas rolam para o lado). Não voltar o menu lateral nem a gaveta. `/admin` cai em Pedidos (`/admin/vendas/pedidos`). `/admin/fornecedores` vai para `/admin/catalogo/fornecedores`.
+- **Admin:** rotas Wouter `/admin`, `/admin/:group` e `/admin/:group/:item` renderizam `pages/Admin.tsx`. O mapa (grupo, slug, aba, `primaryOnly`) está em `pages/admin/adminNav.ts`. O menu visual é `components/admin/AdminGroupedNav.tsx` (linha de grupos e linha das telas do grupo aberto; no celular as linhas rolam para o lado). Em Início e Pedidos ele fica abaixo dos cards do painel, depois de Produtos mais vendidos. Nas outras telas fica no topo do conteúdo. Não voltar o menu lateral nem a gaveta. Não subir o menu para cima dos cards. `/admin` cai em Pedidos (`/admin/vendas/pedidos`). `/admin/fornecedores` vai para `/admin/catalogo/fornecedores`.
 - **BE:** Express `^5` — `artifacts/api-server/package.json`; entry `src/index.ts`, app `src/app.ts`, rotas `src/routes/`.
 - **DB:** **MySQL** — `drizzle.config.ts` (`dialect: "mysql"`), `lib/db/src/index.ts` (`drizzle-orm/mysql2`), schemas com `mysqlTable`.
 - **Validação:** Zod (incl. `zod/v4` em schemas DB); muita validação manual nas rotas.
