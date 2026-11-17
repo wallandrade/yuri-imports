@@ -31,6 +31,8 @@ Pedido **sai** da cópia 48h / Outros / POSTAR ATÉ / lista de compra se **qualq
 
 ## Card Pedidos para Enviar (painel)
 
+O painel (cards de venda, filas de envio, Produtos mais vendidos e os portais de foto) aparece em todas as telas do admin, acima do menu. Os atalhos PIX aguardando, KYC, Tickets e Reenvios ficam só no Início.
+
 Não usa a função da cópia. Lê o mesmo `orders` da aba Pedidos (`dateFrom`/`dateTo`, status, vendedor, método, grupo). O pin desse GET (`pinReshipments` ligado, padrão) traz, fora do período, o reenvio aberto e também quem `isOnSendCard` ainda mostra (`isOpenShippingListOrder`). A Visão Geral pede `pinReshipments=0` e segue só o período.
 
 Entra se está `paid`/`completed`, sem `enviado` e sem etiqueta pronta da tela, **ou** se o reenvio está aberto (`reshipment.id` e status fora de `reenvio_enviado`, `reenvio_resolvido_sem_entrada`, `reenvio_cancelado`). Reenvio aberto fica mesmo enviado ou cancelado. `aguardando_estoque` não tira do card. Motoboy com PIX pendente não entra no card normal; entra no card Motoboy. Etiqueta da tela: `enviado`, `envioecomLabelUrl` ou status sem acento contendo etiqueta emitida/gerada, pronto para envio, processando envio, aguardando expedicao, aguardando coleta, dc-e/dce emitida, coletado, em transito, postado, expedido, saiu para entrega, entregue, objeto entregue. "Aguardando ser coletado" contém `coletado` e sai. "Aguardando postagem" fica. `trackingLabelUrl` não conta. SuperFrete `released`, `posted`, `delivered` e a URL do PDF saem do card. `pending` fica. Cancelado fica. Dividido (2+ pacotes) só sai quando todos estão prontos.
@@ -47,6 +49,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Painel (cards, filas, mais vendidos) em todas as telas do admin | O bloco deixa de depender de Início ou Pedidos. O menu continua abaixo de Produtos mais vendidos | Quem entra na fila, o GET de pedidos (mesmo De/até, pin de reenvio) e os atalhos do Início iguais |
 | 2026-11-17 | Cell Tech ganha Conexão e Situações | O admin principal vê se o token está salvo (só o final), a última chamada ao Gestão Click e o último envio ao grupo. As fechadas continuam em `doneSituationIds` | A janela das 8h às 19h, PIX, pedido, estoque e a senha de baixa iguais |
 | 2026-11-16 | Estoque Santa Catarina: pool independente (`inventory_pool=santa_catarina`) + aba Admin + botão no card | Saldo, entrada, saída, resumo, compra de fornecedor, divisão e vitrine (Motoboy+Minas+SC). Baixa só em Dar baixa agora, com senha. Conta EE com esse nome sugere o pool | Foz, Motoboy e Minas iguais. Conta EE sem esse nome continua Motoboy (SP) ou Minas |
 | 2026-11-14 | Card Pedidos para Enviar ganha coluna Envio Shopee | A seta grava `orders.shipping_via`. Cada lado tem selo e Copiar TXT. Etiqueta pronta ou enviado tira das duas colunas | Status, PIX, estoque, Cell Tech, WhatsApp e a cópia 48h iguais |
