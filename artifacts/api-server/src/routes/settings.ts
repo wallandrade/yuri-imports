@@ -15,6 +15,14 @@ import {
 import { MOTOBOY_SLOT_HOURS_KEY, motoboySlotHoursSaveError } from "../lib/motoboy-slot-window";
 import { supportMenuSaveError, WHATSAPP_SUPPORT_MENU_SETTING } from "../lib/whatsapp-support-menu";
 import { N8N_POLY_INSTANCE_SETTING, POLY_N8N_SETTING_KEYS, polyInstanceIdSaveError } from "../lib/whatsapp-line";
+import {
+  WHATSAPP_CHANNEL_SETTING_KEYS,
+  WHATSAPP_SUPPORT_DELIVERY_SETTING,
+  normalizeSupportDelivery,
+  normalizeWhatsappChannel,
+  whatsappChannelSaveError,
+  whatsappSupportDeliverySaveError,
+} from "../lib/whatsapp-outbound-policy";
 
 const router: IRouter = Router();
 
@@ -95,6 +103,7 @@ const ALLOWED_KEYS = [
   "supplier_price_sales_window_days",
   "n8n_whatsapp_support_token",
   ...POLY_N8N_SETTING_KEYS,
+  ...WHATSAPP_CHANNEL_SETTING_KEYS,
   WHATSAPP_SUPPORT_MENU_SETTING,
   // Admin helpers
   "admin_saved_brands",
@@ -208,6 +217,22 @@ router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
       await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
     } else {
       let storedValue = themeColor ?? value;
+      if ((WHATSAPP_CHANNEL_SETTING_KEYS as readonly string[]).includes(key) && key !== WHATSAPP_SUPPORT_DELIVERY_SETTING) {
+        const message = whatsappChannelSaveError(String(value ?? ""));
+        if (message) {
+          res.status(400).json({ error: "INVALID_VALUE", message });
+          return;
+        }
+        storedValue = normalizeWhatsappChannel(String(value));
+      }
+      if (key === WHATSAPP_SUPPORT_DELIVERY_SETTING) {
+        const message = whatsappSupportDeliverySaveError(String(value ?? ""));
+        if (message) {
+          res.status(400).json({ error: "INVALID_VALUE", message });
+          return;
+        }
+        storedValue = normalizeSupportDelivery(String(value));
+      }
       if (key === "logo_scale_pct") {
         const parsed = Number(value);
         if (!Number.isFinite(parsed)) {

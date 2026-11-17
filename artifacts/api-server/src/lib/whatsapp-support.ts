@@ -23,7 +23,6 @@ import {
 export const N8N_SUPPORT_WEBHOOK_SETTING = "n8n_support_webhook_url";
 export const N8N_SUPPORT_MENU_WEBHOOK_SETTING = "n8n_support_menu_webhook_url";
 export const N8N_SUPPORT_TOKEN_SETTING = "n8n_whatsapp_support_token";
-const TIMEOUT_MS = 8000;
 const MAX_ORDERS = 3;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_MAX = 20;
@@ -1252,45 +1251,51 @@ export async function findSupportOrders(intent: SupportIntent): Promise<{ orders
   };
 }
 
-async function postWebhook(url: string, body: Record<string, unknown>): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch (err) {
-    console.warn("[WhatsApp atendimento] falha", err instanceof Error ? err.message : err);
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function sendText(phone: string, message: string, line: "poly" | "main"): Promise<boolean> {
+  const { supportLineCanReply } = await import("./whatsapp-outbound-policy");
+  if (!supportLineCanReply(line)) return false;
+  const { dispatchWhatsappNotice } = await import("./whatsapp-dispatch");
   const url = await supportWebhookUrl(line);
-  if (!url) return false;
   const { withWhatsappSellerStoreLink } = await import("./whatsapp-line");
-  return postWebhook(url, { phone, message: withWhatsappSellerStoreLink(message, line) });
+  const text = withWhatsappSellerStoreLink(message, line);
+  const result = await dispatchWhatsappNotice({
+    origin: "atendimento",
+    instance: "main",
+    phone,
+    kind: "text",
+    message: text,
+    n8nUrl: url,
+    n8nBody: { phone, message: text },
+  });
+  return result.ok;
 }
 
 async function sendList(phone: string, turn: Extract<SupportTurn, { kind: "list" }>, line: "poly" | "main"): Promise<boolean> {
+  const { supportLineCanReply } = await import("./whatsapp-outbound-policy");
+  if (!supportLineCanReply(line)) return false;
+  const { dispatchWhatsappNotice, readWhatsappChannel } = await import("./whatsapp-dispatch");
+  const channel = await readWhatsappChannel("atendimento_menu");
   const url = await supportMenuWebhookUrl(line);
-  if (!url) return sendText(phone, supportListText(turn), line);
-  const sent = await postWebhook(url, {
+  if (channel === "n8n" && !url) return sendText(phone, supportListText(turn), line);
+  const optionList = {
+    title: turn.title,
+    buttonLabel: turn.buttonLabel,
+    options: turn.options,
+  };
+  const { withWhatsappSellerStoreLink } = await import("./whatsapp-line");
+  const fallbackMessage = withWhatsappSellerStoreLink(supportListText(turn), line);
+  const result = await dispatchWhatsappNotice({
+    origin: "atendimento_menu",
+    instance: line === "poly" ? "poly" : "main",
     phone,
+    kind: "option_list",
     message: turn.message,
-    optionList: {
-      title: turn.title,
-      buttonLabel: turn.buttonLabel,
-      options: turn.options,
-    },
+    optionList,
+    fallbackMessage,
+    n8nUrl: url,
+    n8nBody: { phone, message: turn.message, optionList },
   });
-  if (sent) return true;
+  if (result.ok) return true;
   return sendText(phone, supportListText(turn), line);
 }
 
@@ -1316,7 +1321,9 @@ export async function handleSupportInbound(body: unknown): Promise<{ ok: boolean
   if (inbound.skip || !inbound.phone || isSupportFloodText(inbound.text)) return { ok: true, skipped: true };
   if (isStoreLinePhone(inbound.phone, await storeLinePhones())) return { ok: true, skipped: true };
   const { resolveWhatsappLine } = await import("./whatsapp-line");
+  const { supportLineCanReply } = await import("./whatsapp-outbound-policy");
   const line = await resolveWhatsappLine(inbound.instanceId);
+  if (!supportLineCanReply(line)) return { ok: true, skipped: true, silenced: true, line };
   const rate = supportRateDecision(inbound.phone);
   if (rate === "block") return { ok: true, skipped: true };
   if (rate === "warn") {

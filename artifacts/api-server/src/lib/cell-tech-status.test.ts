@@ -66,6 +66,20 @@ test("envio ao grupo com HTTP 500 fica como falhou", () => {
   assert.equal(JSON.stringify(state).includes("webhook"), false);
 });
 
+test("envio direto pela Z-API também fica no último envio ao grupo", () => {
+  resetCellTechConnectionMemory();
+  recordCellTechWhatsapp(true, "", "2026-11-17T18:00:00.000Z");
+  const state = peekCellTechConnectionMemory();
+  resetCellTechConnectionMemory();
+  const view = publicCellTechConnection("", "", state);
+  assert.equal(view.whatsapp.outcome, "ok");
+  assert.equal(view.whatsapp.message, "");
+  assert.equal(view.whatsapp.at, "2026-11-17T18:00:00.000Z");
+  const failed = noteCellTechCall(emptyCellTechConnectionState(), "whatsapp", false, "A Z-API não enviou a mensagem.", "2026-11-17T18:05:00.000Z");
+  assert.equal(publicCellTechConnection("", "", failed).whatsapp.outcome, "falhou");
+  assert.match(publicCellTechConnection("", "", failed).whatsapp.message, /Z-API/);
+});
+
 test("sucesso do grupo zera a mensagem de erro", () => {
   const failed = noteCellTechCall(emptyCellTechConnectionState(), "whatsapp", false, "O n8n respondeu 500.", "2026-11-17T10:00:00.000Z");
   const ok = noteCellTechCall(failed, "whatsapp", true, "não usar", "2026-11-17T11:00:00.000Z");

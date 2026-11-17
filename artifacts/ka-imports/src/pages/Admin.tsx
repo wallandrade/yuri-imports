@@ -929,6 +929,7 @@ import AdminImagesPanel from "@/components/admin/AdminImagesPanel";
 import WhatsAppGroupCampaignCard from "@/components/admin/WhatsAppGroupCampaignCard";
 import WhatsAppSupportAiCard from "@/components/admin/WhatsAppSupportAiCard";
 import WhatsAppSupportMenuCard from "@/components/admin/WhatsAppSupportMenuCard";
+import WhatsappDispatchCard from "@/components/admin/WhatsappDispatchCard";
 import AdminEnvioEcomAccountsPanel, { type EnvioEcomAccountPublic } from "@/pages/AdminEnvioEcomAccountsPanel";
 import { envioecomAccountsForLabelPicker } from "@/lib/envioecom-label-accounts";
 import AdminSuperfreteAccountsPanel, { type SuperfreteAccountPublic } from "@/pages/AdminSuperfreteAccountsPanel";
@@ -21591,11 +21592,12 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
       {show("avisos") && (
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
-          <h2 className="text-lg font-bold mb-1">WhatsApp do pedido pago</h2>
+          <h2 className="text-lg font-bold mb-1">Avisos de pedido</h2>
           <p className="text-muted-foreground text-sm">
-            Quando o pedido fica pago pela primeira vez, a loja manda o telefone do cliente e o texto do pós-pagamento para o n8n. O n8n envia pela Z-API. Sem essa URL, nada sai.
+            Cada aviso sai direto pela Z-API, na fila de 6 minutos. A URL do n8n só vale se a chave daquele aviso estiver em n8n. Sem chave salva, vale direto.
           </p>
         </div>
+        <WhatsappDispatchCard settings={settings} loading={loading} onSave={onSave} />
         <div>
           <label className="block text-xs font-medium mb-1">URL de produção do webhook</label>
           <div className="flex gap-2">
@@ -21672,7 +21674,7 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Quando a EnvioEcom marca saiu para entrega, a loja manda o telefone e a legenda para o webhook Filmagem. A imagem fica no n8n. No pagamento, o aviso da filmagem entra no texto do pedido pago, sem esta foto. No HTTP Request, o campo caption precisa ser expressão: {`{{ $json.body.caption }}`}. Com o campo vazio, vale https://wallandrade.app.n8n.cloud/webhook/filmagem. O texto de parabéns continua no webhook de cima.
+          No modo direto, a foto sai pela Z-API com a imagem que já estava no n8n e com a legenda que a loja monta: o comunicado no envio antigo, ou o lembrete quando a EnvioEcom marca saiu para entrega. No pagamento, o aviso curto continua dentro do texto do pedido pago, sem esta foto. No modo n8n, o POST segue com phone e caption. Com a URL vazia, vale https://wallandrade.app.n8n.cloud/webhook/filmagem.
         </p>
         <div>
           <label className="block text-xs font-medium mb-1">URL do rastreio</label>
@@ -21851,7 +21853,7 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
           </div>
         </div>
         <p className="text-xs text-muted-foreground break-all">
-          Meu pedido: o cliente manda o número ou o CPF e recebe situação, produtos e rastreio. No n8n, o webhook atendimento fica igual aos outros, com phone e message em expressão. Na Z-API, em Ao receber, cole {n8nSupportToken.trim().length >= 8 ? `https://api.yury-imports.com/api/whatsapp/support/inbound?token=${n8nSupportToken.trim()}` : "https://api.yury-imports.com/api/whatsapp/support/inbound?token=SEU_TOKEN"}.
+          Meu pedido: o cliente manda o número ou o CPF e recebe situação, produtos e rastreio. A Z-API, em Ao receber, aponta direto para a API, sem n8n. Cole {n8nSupportToken.trim().length >= 8 ? `https://api.yury-imports.com/api/whatsapp/support/inbound?token=${n8nSupportToken.trim()}` : "https://api.yury-imports.com/api/whatsapp/support/inbound?token=SEU_TOKEN"}. O menu da Poly continua desligado.
         </p>
       </div>
 
@@ -21862,7 +21864,7 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
         <div>
           <h2 className="text-lg font-bold mb-1">WhatsApp da Poly</h2>
           <p className="text-muted-foreground text-sm">
-            Pedido da Poly e da Bruna (código 123) sai só por estas URLs. Yuri e os outros continuam no card de cima. O mesmo aviso não sai pelos dois números. Sem a URL da Poly, o pedido delas ainda sai pelo número de hoje.
+            No modo direto, pedido da Poly e da Bruna (código 123) sai só pela instância da Poly. Não cai no número de hoje. As URLs abaixo só valem se o aviso estiver em n8n. Nesse caso, sem a URL da Poly, o aviso ainda sai pelo número de hoje. O menu de atendimento da Poly continua desligado.
           </p>
         </div>
         {([

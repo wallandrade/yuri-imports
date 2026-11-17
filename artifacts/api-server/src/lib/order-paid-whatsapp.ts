@@ -1,6 +1,8 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { postPaymentInsuranceNotice } from "./checkout-insurance";
 import { mysqlAffectedRows } from "./mysql-affected-rows";
+import { dispatchWhatsappNotice, whatsappNoticeConfigured } from "./whatsapp-dispatch";
+import { whatsappInstanceForSeller } from "./whatsapp-outbound-policy";
 
 async function database() {
   const { db, ordersTable } = await import("@workspace/db");
@@ -8,7 +10,6 @@ async function database() {
 }
 
 export const N8N_ORDER_PAID_WEBHOOK_SETTING = "n8n_order_paid_webhook_url";
-const TIMEOUT_MS = 8000;
 
 export type PaidWhatsappOrder = {
   id?: string | null;
@@ -166,14 +167,6 @@ async function webhookUrl(sellerCode?: string | null): Promise<string> {
   });
 }
 
-function logHost(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return "invalid";
-  }
-}
-
 async function claimSend(orderId: string): Promise<boolean> {
   const { db, ordersTable } = await database();
   const result = await db
@@ -191,28 +184,6 @@ async function releaseClaim(orderId: string): Promise<void> {
     .where(eq(ordersTable.id, orderId));
 }
 
-async function postWebhook(url: string, body: { phone: string; message: string }): Promise<{ ok: boolean; error?: string }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      return { ok: false, error: text.slice(0, 180) || `http_${response.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "request_failed" };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 /** Manda o WhatsApp do pedido pago uma vez. A filmagem vai no próprio texto. Falha não segura checkout, PIX nem o admin. */
 export async function sendOrderPaidWhatsapp(orderId: string): Promise<{ sent: boolean; error?: string }> {
   const id = String(orderId || "").trim();
@@ -224,7 +195,7 @@ export async function sendOrderPaidWhatsapp(orderId: string): Promise<{ sent: bo
     if (!order) return { sent: false, error: "not_found" };
 
     const url = await webhookUrl(order.sellerCode);
-    if (!url) return { sent: false, error: "not_configured" };
+    if (!(await whatsappNoticeConfigured("pedido_pago", url))) return { sent: false, error: "not_configured" };
 
     const payload = orderPaidWhatsappPayload(order);
     if (!payload) return { sent: false, error: "missing_phone" };
@@ -232,16 +203,20 @@ export async function sendOrderPaidWhatsapp(orderId: string): Promise<{ sent: bo
     const claimed = await claimSend(id);
     if (!claimed) return { sent: false, error: "already_sent" };
 
-    let lastError = "request_failed";
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const result = await postWebhook(url, payload);
-      if (result.ok) return { sent: true };
-      lastError = result.error || lastError;
-    }
+    const result = await dispatchWhatsappNotice({
+      origin: "pedido_pago",
+      instance: whatsappInstanceForSeller(order.sellerCode),
+      phone: payload.phone,
+      kind: "text",
+      message: payload.message,
+      n8nUrl: url,
+      n8nBody: payload,
+    });
+    if (result.ok) return { sent: true };
 
     await releaseClaim(id).catch(() => {});
-    console.warn("[WhatsApp pago] falha", id, logHost(url), lastError);
-    return { sent: false, error: lastError };
+    console.warn("[WhatsApp pago] falha", id, result.error || "request_failed");
+    return { sent: false, error: result.error || "request_failed" };
   } catch (err) {
     console.error("[WhatsApp pago] sync", id, err instanceof Error ? err.message : err);
     return { sent: false, error: "exception" };

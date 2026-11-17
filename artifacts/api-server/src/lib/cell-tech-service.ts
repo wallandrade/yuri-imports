@@ -58,7 +58,45 @@ import {
 
 const ALERT_CAP = 20;
 
+async function cellTechChannel(): Promise<"direto" | "n8n"> {
+  const { readWhatsappChannel } = await import("./whatsapp-dispatch");
+  return readWhatsappChannel("cell_tech");
+}
+
+async function assertCellTechTransport(settings: CellTechSettings): Promise<void> {
+  if ((await cellTechChannel()) === "n8n") {
+    if (!settings.webhookUrl) throw new Error("Salve a URL https do webhook do n8n.");
+    return;
+  }
+  const { zapiCredentials } = await import("./zapi-client");
+  if (!zapiCredentials("main")) {
+    throw new Error("Faltam ZAPI_MAIN_INSTANCE_ID, ZAPI_MAIN_TOKEN e ZAPI_CLIENT_TOKEN no servidor.");
+  }
+}
+
 async function postCellTech(url: string, kind: string, message: string): Promise<void> {
+  if ((await cellTechChannel()) !== "n8n") {
+    if (!cellTechAutomaticGroupSendOpen(saoPauloClock())) {
+      throw new Error("O grupo da Cell Tech só recebe mensagem das 8h às 19h, horário de Brasília.");
+    }
+    try {
+      const { sendZapiMessage } = await import("./zapi-client");
+      const { cellTechZapiGroupId } = await import("./whatsapp-outbound-policy");
+      const sent = await sendZapiMessage({
+        instance: "main",
+        phone: cellTechZapiGroupId(),
+        kind: "text",
+        message,
+      });
+      if (!sent.ok) throw new Error(sent.error || "A Z-API não enviou a mensagem.");
+      recordCellTechWhatsapp(true, "");
+    } catch (error) {
+      const failure = error instanceof Error ? error.message : "A Z-API não enviou a mensagem.";
+      recordCellTechWhatsapp(false, failure);
+      throw error instanceof Error ? error : new Error(failure);
+    }
+    return;
+  }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
@@ -83,7 +121,7 @@ async function postCellTech(url: string, kind: string, message: string): Promise
 }
 
 async function sendClaimed(settings: CellTechSettings, kind: string, osId: string, periodKey: string, message: string): Promise<boolean> {
-  if (!settings.webhookUrl) throw new Error("Salve a URL https do webhook do n8n.");
+  await assertCellTechTransport(settings);
   const claim = await claimCellTechAlert(kind, osId, periodKey);
   if (!claim) return false;
   try {
@@ -107,7 +145,7 @@ async function sendAutomaticClaimed(
   readNow: () => Date,
 ): Promise<AutomaticSend> {
   if (!cellTechAutomaticGroupSendOpen(saoPauloClock(readNow()))) return "closed";
-  if (!settings.webhookUrl) throw new Error("Salve a URL https do webhook do n8n.");
+  await assertCellTechTransport(settings);
   const claim = await claimCellTechAlert(kind, osId, periodKey);
   if (!claim) return "idle";
   try {
@@ -223,7 +261,7 @@ function assertGroupSendOpen(now = new Date()): void {
 export async function sendCellTechTestWebhook() {
   assertGroupSendOpen();
   const settings = await readCellTechSettings();
-  if (!settings.webhookUrl) throw new Error("Salve a URL https do webhook do n8n.");
+  await assertCellTechTransport(settings);
   await postCellTech(settings.webhookUrl, "test", "*Cell Tech* conectado. Este aviso é só um teste do grupo da loja.");
 }
 
@@ -349,7 +387,12 @@ export async function runCellTechTick(
   readNow: () => Date = () => new Date(),
 ): Promise<{ noticesSent: number; dailySent: boolean; monthlySent: boolean; cashSent: number; queueSent: boolean; stalledSent: boolean }> {
   const settings = await readCellTechSettings();
-  if (!settings.alertsEnabled || !settings.webhookUrl || !settings.accessToken || !settings.secretAccessToken) {
+  const channel = await cellTechChannel();
+  if (channel === "direto") {
+    const { zapiCredentials } = await import("./zapi-client");
+    if (!zapiCredentials("main")) return EMPTY_TICK;
+  }
+  if (!settings.alertsEnabled || (channel === "n8n" && !settings.webhookUrl) || !settings.accessToken || !settings.secretAccessToken) {
     return EMPTY_TICK;
   }
   const clock = saoPauloClock(now);

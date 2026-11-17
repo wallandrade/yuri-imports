@@ -239,7 +239,7 @@ export default function AdminCellTechConnection() {
             ) : (
               <p className="text-sm">Não deu para ler o webhook. Salvar fica desligado para não apagar a URL do n8n.</p>
             )}
-            <p className="text-xs text-muted-foreground">No n8n, o HTTP Request lê o campo message e a Z-API manda no grupo. O token da Z-API fica no n8n. Atualizar status só lê o que já foi gravado.</p>
+            <p className="text-xs text-muted-foreground">No modo direto, a Z-API manda no grupo e o último envio aparece no card acima. No modo n8n, o POST continua nesta URL. Atualizar status só lê o que já foi gravado.</p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => void saveSettings()} disabled={saving || !settingsLoaded} className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60">
                 {saving ? "Salvando…" : "Salvar"}

@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Token da Z-API não entra no log nem na fila | O erro gravado tira URL da instância e trechos longos. A fila mostra só os 4 últimos dígitos. A entrada continua exigindo o token do atendimento | O checkout token e o token do Gestão Click iguais |
 | 2026-11-17 | Status da Cell Tech não leva o token | `GET /api/admin/cell-tech/connection` e `GET /api/admin/cell-tech/situations` exigem admin principal (`requirePrimaryAdmin`). A resposta mostra no máximo os 4 últimos caracteres. A chave `cell_tech_connection_status` não entra em `PUBLIC_KEYS` | O GET de settings da Cell Tech e o checkout token iguais |
 | 2026-11-12 | Moderação de grupo usa o token do atendimento | `POST /api/whatsapp/groups/inbound` e o grupo que chega no webhook já existente exigem o mesmo token. Sem checkout token. Nasce desligada | O limite do atendimento 1:1 e o checkout token iguais |
 | 2026-11-10 | Limite do link de senha deixa de usar o IP do proxy | A chave é `X-Real-IP`, senão o primeiro de `X-Forwarded-For`. O log diz se estourou e-mail ou IP | O `Map` continua em memória. 3/hora no e-mail e 8/hora no IP iguais |
