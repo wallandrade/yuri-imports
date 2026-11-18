@@ -46,6 +46,19 @@ function foldSearch(value: string): string {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
+function productPhoto(products: Array<{ id: string; name: string; image?: string | null }>, productId: string, label: string): string {
+  const id = productId.trim().toLowerCase();
+  if (id) {
+    const byId = products.find((product) => product.id.trim().toLowerCase() === id);
+    const src = String(byId?.image || "").trim();
+    if (src) return src;
+  }
+  const name = foldSearch(label);
+  if (!name) return "";
+  const named = products.filter((product) => foldSearch(product.name) === name && String(product.image || "").trim());
+  return named.length === 1 ? String(named[0]?.image || "").trim() : "";
+}
+
 function rowMatchesSearch(row: QueueRow, query: string): boolean {
   const needle = foldSearch(query);
   if (!needle) return true;
@@ -61,7 +74,7 @@ export function LabelDebitQueuePanel({
   santaCatarinaBalances,
   onRefresh,
 }: {
-  products: Array<{ id: string; name: string }>;
+  products: Array<{ id: string; name: string; image?: string | null }>;
   motoboyBalances: Balance[];
   minasBalances: Balance[];
   santaCatarinaBalances: Balance[];
@@ -72,6 +85,7 @@ export function LabelDebitQueuePanel({
   const [loading, setLoading] = useState(true);
   const [password, setPassword] = useState("");
   const [query, setQuery] = useState("");
+  const [preview, setPreview] = useState<{ src: string; name: string } | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const catalogNames = useMemo(() => {
@@ -227,20 +241,37 @@ export function LabelDebitQueuePanel({
                     </Button>
                   </div>
                 </div>
-                <div className="mt-2 space-y-0.5">
+                <div className="mt-2 space-y-1.5">
                   {lines.length === 0 ? (
                     <p className="text-xs text-slate-500">Sem produto nesta etiqueta</p>
                   ) : lines.map((line) => {
                     const short = line.available < line.needed;
                     const text = line.available <= 0
-                      ? `${line.label}: sem estoque`
+                      ? "sem estoque"
                       : short
-                        ? `${line.label}: tem ${line.available}, precisa ${line.needed}`
-                        : `${line.label}: ${line.available} em estoque`;
+                        ? `tem ${line.available}, precisa ${line.needed}`
+                        : `${line.available} em estoque`;
+                    const photo = productPhoto(products, line.productId, line.label);
                     return (
-                      <p key={`${key}-${line.label}`} className={`text-xs ${short ? "text-red-700" : "text-emerald-800"}`}>
-                        {text}
-                      </p>
+                      <div key={`${key}-${line.productId || line.label}`} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className={`h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-border bg-white ${photo ? "cursor-zoom-in" : "cursor-default"}`}
+                          onClick={() => { if (photo) setPreview({ src: photo, name: line.label }); }}
+                          aria-label={photo ? `Ver foto de ${line.label}` : line.label}
+                        >
+                          {photo ? (
+                            <img src={photo} alt="" className="h-full w-full object-cover" loading="lazy" />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center text-[9px] text-slate-400">foto</span>
+                          )}
+                        </button>
+                        <p className={`min-w-0 text-xs ${short ? "text-red-700" : "text-emerald-800"}`}>
+                          <span className="font-medium">{line.label}</span>
+                          {": "}
+                          {text}
+                        </p>
+                      </div>
                     );
                   })}
                 </div>
@@ -249,6 +280,16 @@ export function LabelDebitQueuePanel({
           })}
         </div>
       )}
+      {preview ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+          onClick={() => setPreview(null)}
+          aria-label="Fechar foto"
+        >
+          <img src={preview.src} alt={preview.name} className="max-h-[80vh] max-w-full rounded-xl bg-white object-contain" />
+        </button>
+      ) : null}
     </div>
   );
 }

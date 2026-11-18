@@ -157,7 +157,7 @@ test("medida mostra quantas unidades o depósito tem, mesmo acima do pedido", ()
     balances: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 4 }],
     catalogNames: { "sku-1": "Tirzepatida 10mg" },
   });
-  assert.deepEqual(lines, [{ label: "Tirzepatida 10mg", needed: 1, available: 4 }]);
+  assert.deepEqual(lines, [{ label: "Tirzepatida 10mg", productId: "sku-1", needed: 1, available: 4 }]);
 });
 
 test("quantidade insuficiente em todos os depósitos não lista nenhum", () => {

@@ -158,6 +158,7 @@ function remapLine(
 
 export type OrderItemStockLine = {
   label: string;
+  productId: string;
   needed: number;
   available: number;
 };
@@ -209,7 +210,12 @@ export function measureOrderItemStock(params: {
       catalog,
       params.balances,
     );
-    return { label: item.label, needed: item.qty, available: picked.available };
+    return {
+      label: item.label,
+      productId: picked.productId || item.productId,
+      needed: item.qty,
+      available: picked.available,
+    };
   });
 }
 
