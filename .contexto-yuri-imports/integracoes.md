@@ -1,6 +1,6 @@
 # Integrações — Yuri Import
 
-> **Última atualização:** 2026-11-17
+> **Última atualização:** 2026-11-18
 
 Providers externos **presentes no código**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ Providers externos **presentes no código**. Precedência: código > memória.
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-18 | Baixa de etiqueta também lista a KA | Com `LABEL_STOCK_PEER_BASE_URL` e `LABEL_STOCK_SYNC_TOKEN`, o admin principal vê a etiqueta pendente da KA em Motoboy, Minas ou Santa Catarina. Dar baixa desconta o saldo da Yuri e avisa `baixou_estoque`. Sem abater avisa `saiu_sem_abater` e não mexe no saldo. A mesma etiqueta não desconta duas vezes | Sem as duas variáveis a fila da Yuri segue sozinha. Pedidos não ganha linha da KA. São Paulo da Yuri continua no saldo Motoboy. A KA não manda depósito São Paulo |
 | 2026-11-17 | Falha na Z-API também segura a fila | A trava de 6 minutos e a de 10 por hora contam a tentativa que falhou. A próxima mensagem não sai no ciclo de 30s | O texto e o destino de cada aviso iguais |
 | 2026-11-17 | Entrada da Poly lê o ID da Z-API | `ZAPI_POLY_INSTANCE_ID` também marca a conversa como Poly, então o menu dela continua calado. Lista recusada vira texto. ID de grupo inválido não cai no grupo antigo | O restante da fila igual |
 | 2026-11-17 | Avisos saem direto pela Z-API | Cada aviso tem a chave `direto` ou `n8n` em WhatsApp → Avisos de pedido. Sem chave, vale direto. A fila fica em `whatsapp_outbound_queue`: 1 envio a cada 6 minutos e no máximo 10 por hora, por instância. Poly só usa `ZAPI_POLY_*`. O menu da Poly continua desligado. Resposta do atendimento nasce na fila; `na_hora` manda na hora. Cell Tech fala com o grupo `553591710559-1525960254` das 8h às 19h. A entrada já é `POST /api/whatsapp/support/inbound?token=` | As URLs `n8n_*` continuam salvas. PIX, esgotado, senha de baixa e a cópia 48h iguais |
@@ -339,6 +340,7 @@ Yury = **fonte da verdade**. Snapshot é leitura. Baixa do espelho entra **sem s
 - **Liberar:** `POST /api/integrations/inventory/unlock` `{ password }` continua na API. Certo → 30 minutos. Errado → 403 `INVALID_PASSWORD`. O `POST .../exit` **não** usa essa janela.
 - **Baixa:** `POST /api/integrations/inventory/exit` — mesmo token, **sem senha**. Body: `{ pool: "motoboy"|"minas"|"santa_catarina", productId, quantity }` ou `{ pool, items[] }` ou `{ pool, orderId }`. Hash em `site_settings` (`inventory_exit_password`); janela em `inventory_exit_unlocked_until` ficam para o Admin. Primeira vez: hash a partir de `INVENTORY_EXIT_PASSWORD` (env) se ainda não houver registro. Admin Configurações: **Liberar 30 min** (`POST /api/admin/integrations/inventory/unlock`) e troca (`PUT .../exit-password`). **Dar baixa agora** Motoboy/Minas/Santa Catarina no card do Admin ainda pede a senha. **Não** aceita pool `loja` (Foz Guaçu). Trocar a senha zera a janela do Admin.
 - **Push (opcional):** env `INVENTORY_SYNC_WEBHOOK_URL` + `INVENTORY_SYNC_WEBHOOK_SECRET` (secret cai no `MOTOBOY_SYNC_WEBHOOK_SECRET` se vazio). Sem URL = no-op. Evento `inventory.changed` em entrada/saída Motoboy, Minas ou Santa Catarina (Admin **e** baixa do espelho), fire-and-forget (3 tentativas). Payload inclui `pool`, `productId`, `quantityDelta` e `balances.motoboy` + `balances.minas` + `balances.santaCatarina` do mesmo produto.
+- **Etiqueta da KA na baixa:** a Yuri puxa `GET {LABEL_STOCK_PEER_BASE_URL}/api/integrations/labels/pending-stock` com `Authorization: Bearer LABEL_STOCK_SYNC_TOKEN`. O depósito `motoboy` cai na aba Motoboy, `minas` em Minas e `santa_catarina` em Santa Catarina. A baixa grava o movimento com `referenceId` `ka-label:<labelId>` e depois `POST .../labels/<labelId>/stock-result` com `baixou_estoque` ou `saiu_sem_abater`. Sem as duas variáveis, a lista da KA fica vazia e a fila local continua. Não cria pedido.
 - **Headers webhook:** iguais à cobertura (`X-Yury-Signature: sha256=<hmac_body>`, `X-Yury-Event-Id`, `X-Yury-Timestamp`).
 - Lib: `lib/inventory-sync.ts`, `lib/inventory-exit-access.ts`; rota: `routes/inventory-sync.ts`.
 

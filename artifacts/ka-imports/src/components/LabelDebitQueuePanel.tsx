@@ -19,6 +19,7 @@ type QueueItem = { id: string; name: string; quantity: number };
 
 type QueueRow = {
   lane: Lane;
+  source?: "yury" | "ka";
   orderId: string;
   orderNumber: number | null;
   clientName: string;
@@ -38,7 +39,7 @@ const LANES: Array<{ id: Lane; label: string }> = [
 ];
 
 function rowKey(row: QueueRow): string {
-  return `${row.orderId}:${row.packageId || "pedido"}`;
+  return `${row.source || "yury"}:${row.orderId}:${row.packageId || "pedido"}`;
 }
 
 export function LabelDebitQueuePanel({
@@ -102,6 +103,7 @@ export function LabelDebitQueuePanel({
           orderId: row.orderId,
           packageId: row.packageId,
           lane: row.lane,
+          ...(row.source === "ka" ? { source: "ka" } : {}),
           mode,
           ...(password.trim() ? { password: password.trim() } : {}),
         }),
@@ -123,7 +125,7 @@ export function LabelDebitQueuePanel({
       <div>
         <p className="text-sm font-semibold">Baixa de etiqueta</p>
         <p className="text-xs text-muted-foreground mt-1">
-          Etiquetas que ainda não baixaram estoque. São Paulo usa o saldo Motoboy. Santa Catarina usa o próprio saldo. Sem saldo, a baixa que abate fica bloqueada.
+          Etiquetas que ainda não baixaram estoque. São Paulo usa o saldo Motoboy. Santa Catarina usa o próprio saldo. Sem saldo, a baixa que abate fica bloqueada. Etiqueta da KA entra na mesma aba e não vira pedido aqui.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -173,7 +175,7 @@ export function LabelDebitQueuePanel({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold">
-                      Pedido #{row.orderNumber || row.orderId} · {row.clientName}
+                      {row.source === "ka" ? "KA · " : ""}Pedido #{row.orderNumber || row.orderId} · {row.clientName}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {row.statusLabel}{row.code ? ` · ${row.code}` : ""}

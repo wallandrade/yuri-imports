@@ -5,7 +5,14 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { inventoryPoolForEnvioEcomAccount } from "../lib/envioecom";
 import { listEnvioEcomAccountsPublic } from "../lib/envioecom-accounts";
 import { labelDebitAccountPool, labelDebitLane, labelDebitStockPool, type LabelDebitCandidate, type LabelDebitLane } from "../lib/label-debit-queue";
-import { ensureOrderInventoryDebited } from "../lib/order-inventory-debit";
+import { applyOrderInventoryDelta, ensureOrderInventoryDebited, pickOrderInventoryDebit } from "../lib/order-inventory-debit";
+import {
+  fetchKaPendingLabels,
+  kaLabelAlreadyDebited,
+  kaLabelReferenceId,
+  postKaLabelStockResult,
+  type KaPendingLabel,
+} from "../lib/ka-label-stock";
 import { ensurePackageInventoryDebited, getOrderShipment, updateOrderShipment } from "../lib/order-shipments";
 import { authorizeInventoryExit } from "../lib/inventory-exit-access";
 import { inventoryExitPasswordApplies, readPasswordFromBody } from "../lib/inventory-exit-access-logic";
@@ -146,6 +153,7 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
 
     const rows: Array<{
       lane: LabelDebitLane;
+      source: "yury" | "ka";
       orderId: string;
       orderNumber: number | null;
       clientName: string;
@@ -155,9 +163,9 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
       items: ItemLine[];
     }> = [];
 
-    const push = (lane: LabelDebitLane | null, row: (typeof rows)[number]) => {
+    const push = (lane: LabelDebitLane | null, row: Omit<(typeof rows)[number], "source">) => {
       if (!lane) return;
-      rows.push({ ...row, lane });
+      rows.push({ ...row, lane, source: "yury" });
     };
 
     for (const order of orders) {
@@ -233,21 +241,134 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
     }
 
     const coveredByPackage = new Set(rows.filter((row) => row.packageId).map((row) => row.orderId));
-    res.json({
-      rows: rows.filter((row) => row.packageId || !coveredByPackage.has(row.orderId)),
-    });
+    const localRows = rows.filter((row) => row.packageId || !coveredByPackage.has(row.orderId));
+    const kaRows = scope.hasGlobalAccess ? await kaQueueRows() : [];
+    res.json({ rows: [...localRows, ...kaRows] });
   } catch (err) {
     console.error("List label debits error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar etiquetas sem baixa." });
   }
 });
 
+function kaQueueRow(label: KaPendingLabel): {
+  lane: LabelDebitLane;
+  source: "ka";
+  orderId: string;
+  orderNumber: number | null;
+  clientName: string;
+  packageId: null;
+  statusLabel: string;
+  code: string;
+  items: ItemLine[];
+} {
+  return {
+    lane: label.warehouse,
+    source: "ka",
+    orderId: label.labelId,
+    orderNumber: label.orderNumber,
+    clientName: label.customerName,
+    packageId: null,
+    statusLabel: label.status,
+    code: label.code,
+    items: label.products.map((item) => ({
+      id: item.productId,
+      name: item.name,
+      quantity: item.quantity,
+    })),
+  };
+}
+
+async function kaQueueRows(): Promise<ReturnType<typeof kaQueueRow>[]> {
+  const labels = await fetchKaPendingLabels();
+  return labels.map(kaQueueRow);
+}
+
 router.post("/admin/inventory/label-debits", requireAdminAuth, async (req, res) => {
   try {
     const scope = scopeOf(req, res);
     if (!scope) return;
 
-    const body = req.body as { orderId?: string; packageId?: string; mode?: string; password?: string; senha?: string };
+    const body = req.body as { orderId?: string; packageId?: string; mode?: string; password?: string; senha?: string; source?: string };
+    if (body.source === "ka") {
+      if (!scope.hasGlobalAccess) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Só o admin principal baixa etiqueta da KA." });
+        return;
+      }
+      const labelId = String(body.orderId || "").trim();
+      const mode = body.mode === "waive" ? "waive" : body.mode === "debit" ? "debit" : "";
+      const lane = (req.body as { lane?: LabelDebitLane }).lane;
+      if (!labelId || (mode !== "debit" && mode !== "waive") || (lane !== "motoboy" && lane !== "minas" && lane !== "santa_catarina")) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "Informe a etiqueta da KA e se a baixa abate o estoque." });
+        return;
+      }
+      const labels = await fetchKaPendingLabels();
+      const label = labels.find((item) => item.labelId === labelId);
+      if (!label || label.warehouse !== lane) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Etiqueta da KA não está mais nesta fila." });
+        return;
+      }
+      if (mode === "waive") {
+        const told = await postKaLabelStockResult(labelId, "saiu_sem_abater");
+        if (!told.ok) {
+          res.status(502).json({ error: "KA_RESULT_FAILED", message: "A KA não tirou a etiqueta da lista." });
+          return;
+        }
+        res.json({ ok: true, waived: true, source: "ka" });
+        return;
+      }
+      if (inventoryExitPasswordApplies(label.warehouse)) {
+        const access = await authorizeInventoryExit(readPasswordFromBody(body));
+        if (!access.ok) {
+          res.status(403).json({
+            error: access.error,
+            message: access.message,
+            passwordRequired: true,
+          });
+          return;
+        }
+      }
+      if (label.products.length === 0) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "Esta etiqueta da KA não tem produto para abater." });
+        return;
+      }
+      const already = await kaLabelAlreadyDebited(label.warehouse, labelId);
+      if (!already) {
+        const picked = await pickOrderInventoryDebit(label.warehouse, label.products.map((item) => ({
+          productId: item.productId,
+          productName: item.name,
+          quantity: item.quantity,
+          fallbackProductId: null,
+        })));
+        if (!picked.ok) {
+          res.status(400).json({
+            error: "INSUFFICIENT_STOCK",
+            message: picked.details || "Não há estoque suficiente para esta baixa.",
+          });
+          return;
+        }
+        await applyOrderInventoryDelta({
+          pool: label.warehouse,
+          items: picked.items,
+          orderId: labelId,
+          orderNumber: label.orderNumber,
+          clientName: label.customerName,
+          kind: "reserve",
+          reasonOverride: `Baixa etiqueta KA #${label.orderNumber || labelId}`,
+          referenceId: kaLabelReferenceId(labelId),
+        });
+      }
+      const told = await postKaLabelStockResult(labelId, "baixou_estoque");
+      if (!told.ok) {
+        res.status(502).json({
+          error: "KA_RESULT_FAILED",
+          message: "O estoque já foi abatido. A KA não confirmou. Tente de novo: não desconta outra vez.",
+        });
+        return;
+      }
+      res.json({ ok: true, reserved: true, source: "ka" });
+      return;
+    }
+
     const orderId = String(body.orderId || "").trim();
     const packageId = String(body.packageId || "").trim();
     const mode = body.mode === "waive" ? "waive" : body.mode === "debit" ? "debit" : "";
