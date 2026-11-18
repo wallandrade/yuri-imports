@@ -13,7 +13,7 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
-type Lane = "motoboy" | "sao_paulo" | "minas";
+type Lane = "motoboy" | "sao_paulo" | "minas" | "santa_catarina";
 
 type QueueItem = { id: string; name: string; quantity: number };
 
@@ -34,6 +34,7 @@ const LANES: Array<{ id: Lane; label: string }> = [
   { id: "motoboy", label: "Motoboy" },
   { id: "sao_paulo", label: "São Paulo" },
   { id: "minas", label: "Minas" },
+  { id: "santa_catarina", label: "Santa Catarina" },
 ];
 
 function rowKey(row: QueueRow): string {
@@ -44,11 +45,13 @@ export function LabelDebitQueuePanel({
   products,
   motoboyBalances,
   minasBalances,
+  santaCatarinaBalances,
   onRefresh,
 }: {
   products: Array<{ id: string; name: string }>;
   motoboyBalances: Balance[];
   minasBalances: Balance[];
+  santaCatarinaBalances: Balance[];
   onRefresh: () => void;
 }) {
   const [lane, setLane] = useState<Lane>("motoboy");
@@ -82,7 +85,11 @@ export function LabelDebitQueuePanel({
   useEffect(() => { void load(); }, [load]);
 
   const visible = rows.filter((row) => row.lane === lane);
-  const balances = lane === "minas" ? minasBalances : motoboyBalances;
+  const balances = lane === "minas"
+    ? minasBalances
+    : lane === "santa_catarina"
+      ? santaCatarinaBalances
+      : motoboyBalances;
 
   const act = async (row: QueueRow, mode: "debit" | "waive") => {
     const key = rowKey(row);
@@ -116,7 +123,7 @@ export function LabelDebitQueuePanel({
       <div>
         <p className="text-sm font-semibold">Baixa de etiqueta</p>
         <p className="text-xs text-muted-foreground mt-1">
-          Etiquetas que ainda não baixaram estoque. São Paulo usa o saldo Motoboy. Sem saldo, a baixa que abate fica bloqueada.
+          Etiquetas que ainda não baixaram estoque. São Paulo usa o saldo Motoboy. Santa Catarina usa o próprio saldo. Sem saldo, a baixa que abate fica bloqueada.
         </p>
       </div>
       <div className="flex flex-wrap gap-2">

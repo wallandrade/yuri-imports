@@ -4,7 +4,7 @@ import { db, ordersTable, orderShipmentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { inventoryPoolForEnvioEcomAccount } from "../lib/envioecom";
 import { listEnvioEcomAccountsPublic } from "../lib/envioecom-accounts";
-import { labelDebitLane, labelDebitStockPool, type LabelDebitCandidate, type LabelDebitLane } from "../lib/label-debit-queue";
+import { labelDebitAccountPool, labelDebitLane, labelDebitStockPool, type LabelDebitCandidate, type LabelDebitLane } from "../lib/label-debit-queue";
 import { ensureOrderInventoryDebited } from "../lib/order-inventory-debit";
 import { ensurePackageInventoryDebited, getOrderShipment, updateOrderShipment } from "../lib/order-shipments";
 import { authorizeInventoryExit } from "../lib/inventory-exit-access";
@@ -66,6 +66,7 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
         shippingType: ordersTable.shippingType,
         enviado: ordersTable.enviado,
         inventoryReserved: ordersTable.inventoryReserved,
+        inventoryPool: ordersTable.inventoryPool,
         labelDebitWaived: ordersTable.labelDebitWaived,
         envioecomAccountId: ordersTable.envioecomAccountId,
         envioecomStatus: ordersTable.envioecomStatus,
@@ -162,6 +163,7 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
     for (const order of orders) {
       if (!sellerMatches(scope, order.sellerCode)) continue;
       const accountId = String(order.envioecomAccountId || "");
+      const accountLabel = accountName.get(accountId);
       const candidate: LabelDebitCandidate = {
         cancelled: CANCELLED.has(String(order.status || "").toLowerCase()),
         inventoryReserved: !!order.inventoryReserved,
@@ -170,7 +172,11 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
         packageCount: countByOrder.get(order.id) || 0,
         shippingType: order.shippingType,
         enviado: order.enviado,
-        accountPool: inventoryPoolForEnvioEcomAccount(accountId, accountName.get(accountId)),
+        accountPool: labelDebitAccountPool({
+          accountPool: inventoryPoolForEnvioEcomAccount(accountId, accountLabel),
+          savedPool: order.inventoryPool,
+          accountName: accountLabel,
+        }),
         envioecomStatus: order.envioecomStatus,
         envioecomLabelUrl: order.envioecomLabelUrl,
         trackingLabelUrl: order.trackingLabelUrl,
@@ -193,6 +199,7 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
       const order = orderById.get(pkg.orderId);
       if (!order || !sellerMatches(scope, order.sellerCode)) continue;
       const accountId = String(pkg.envioecomAccountId || order.envioecomAccountId || "");
+      const accountLabel = accountName.get(accountId);
       const candidate: LabelDebitCandidate = {
         cancelled: CANCELLED.has(String(order.status || "").toLowerCase()),
         inventoryReserved: !!pkg.inventoryReserved,
@@ -201,7 +208,11 @@ router.get("/admin/inventory/label-debits", requireAdminAuth, async (req, res) =
         packageCount: countByOrder.get(pkg.orderId) || 1,
         shippingType: order.shippingType,
         enviado: pkg.enviado || order.enviado,
-        accountPool: inventoryPoolForEnvioEcomAccount(accountId, accountName.get(accountId)),
+        accountPool: labelDebitAccountPool({
+          accountPool: inventoryPoolForEnvioEcomAccount(accountId, accountLabel),
+          savedPool: pkg.inventoryPool,
+          accountName: accountLabel,
+        }),
         packagePool: pkg.inventoryPool,
         envioecomStatus: pkg.envioecomStatus,
         envioecomLabelUrl: pkg.envioecomLabelUrl,
@@ -241,7 +252,7 @@ router.post("/admin/inventory/label-debits", requireAdminAuth, async (req, res) 
     const packageId = String(body.packageId || "").trim();
     const mode = body.mode === "waive" ? "waive" : body.mode === "debit" ? "debit" : "";
     const lane = body && (req.body as { lane?: LabelDebitLane }).lane;
-    if (!orderId || (mode !== "debit" && mode !== "waive") || (lane !== "motoboy" && lane !== "sao_paulo" && lane !== "minas")) {
+    if (!orderId || (mode !== "debit" && mode !== "waive") || (lane !== "motoboy" && lane !== "sao_paulo" && lane !== "minas" && lane !== "santa_catarina")) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe o pedido, a aba e se a baixa abate o estoque." });
       return;
     }

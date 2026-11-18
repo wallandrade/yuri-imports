@@ -10524,6 +10524,7 @@ function InventoryPanel({
           products={products}
           motoboyBalances={motoboyBalances}
           minasBalances={minasBalances}
+          santaCatarinaBalances={santaCatarinaBalances}
           onRefresh={onRefresh}
         />
       ) : stockTab === "resumo" ? (

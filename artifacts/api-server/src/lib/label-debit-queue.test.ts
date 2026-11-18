@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { hasShippingLabel, labelDebitLane, labelDebitStockPool } from "./label-debit-queue";
+import { hasShippingLabel, labelDebitAccountPool, labelDebitLane, labelDebitStockPool } from "./label-debit-queue";
 
 const base = {
   cancelled: false,
@@ -62,11 +62,40 @@ test("envio criado sem PDF não entra", () => {
   assert.equal(labelDebitLane({ ...base, accountPool: "minas", envioecomStatus: "Envio criado" }), null);
 });
 
-test("já baixado, dispensado, cancelado ou Santa Catarina ficam de fora", () => {
+test("Santa Catarina com etiqueta entra na aba e o saldo é Santa Catarina", () => {
+  const lane = labelDebitLane({
+    ...base,
+    accountPool: "santa_catarina",
+    envioecomLabelUrl: "https://x",
+  });
+  assert.equal(lane, "santa_catarina");
+  assert.equal(labelDebitStockPool("santa_catarina"), "santa_catarina");
+  assert.equal(labelDebitLane({
+    ...base,
+    isPackage: true,
+    packagePool: "santa_catarina",
+    envioecomStatus: "Aguardando coleta",
+  }), "santa_catarina");
+});
+
+test("depósito Santa Catarina sem nome na conta não cai em Minas", () => {
+  assert.equal(labelDebitAccountPool({
+    accountPool: "minas",
+    savedPool: "santa_catarina",
+    accountName: "conta-sc",
+  }), "santa_catarina");
+  assert.equal(labelDebitAccountPool({
+    accountPool: "minas",
+    savedPool: "santa_catarina",
+    accountName: "Minas",
+  }), "minas");
+});
+
+test("já baixado, dispensado ou cancelado fica de fora", () => {
   assert.equal(labelDebitLane({ ...base, accountPool: "minas", envioecomLabelUrl: "https://x", inventoryReserved: true }), null);
   assert.equal(labelDebitLane({ ...base, accountPool: "minas", envioecomLabelUrl: "https://x", waived: true }), null);
-  assert.equal(labelDebitLane({ ...base, accountPool: "minas", envioecomLabelUrl: "https://x", cancelled: true }), null);
-  assert.equal(labelDebitLane({ ...base, accountPool: "santa_catarina", envioecomLabelUrl: "https://x" }), null);
+  assert.equal(labelDebitLane({ ...base, accountPool: "santa_catarina", envioecomLabelUrl: "https://x", cancelled: true }), null);
+  assert.equal(labelDebitLane({ ...base, accountPool: "santa_catarina", envioecomStatus: "Envio criado" }), null);
 });
 
 test("pedido dividido não entra inteiro; o pacote Minas entra", () => {
