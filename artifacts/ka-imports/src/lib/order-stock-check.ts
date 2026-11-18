@@ -222,3 +222,32 @@ export function checkOrderItemsHaveStock(params: {
 
   return { hasStock: true, message: "", missingItems: [] };
 }
+
+export const ORDER_INVENTORY_POOLS = ["loja", "motoboy", "minas", "santa_catarina"] as const;
+export type OrderInventoryPool = (typeof ORDER_INVENTORY_POOLS)[number];
+
+/** Depósitos em que o pedido inteiro cabe. Lista vazia de saldo não entra (ainda carregando ou depósito sem linhas). */
+export function poolsCoveringOrderStock(params: {
+  items: OrderStockCheckItem[];
+  balancesByPool: Partial<Record<OrderInventoryPool, OrderStockBalanceRow[] | null | undefined>>;
+  catalogNames?: Record<string, string>;
+}): OrderInventoryPool[] {
+  const hasQty = params.items.some((item) => {
+    const qty = Number(item.quantity || 0);
+    return Number.isFinite(qty) && qty > 0;
+  });
+  if (!hasQty) return [];
+
+  const found: OrderInventoryPool[] = [];
+  for (const pool of ORDER_INVENTORY_POOLS) {
+    const balances = params.balancesByPool[pool];
+    if (!balances || balances.length === 0) continue;
+    const result = checkOrderItemsHaveStock({
+      items: params.items,
+      balances,
+      catalogNames: params.catalogNames,
+    });
+    if (result.hasStock) found.push(pool);
+  }
+  return found;
+}

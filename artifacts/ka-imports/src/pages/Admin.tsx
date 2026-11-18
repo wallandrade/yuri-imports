@@ -963,7 +963,7 @@ import {
   type AdminOrdersKind,
 } from "@/lib/admin-orders-kind";
 import { estimateOrderCardProfit, extraQuantityForItem, qtyByProductId, summarizeReshipmentExtra } from "@/lib/reshipment-profit";
-import { checkOrderItemsHaveStock } from "@/lib/order-stock-check";
+import { checkOrderItemsHaveStock, poolsCoveringOrderStock } from "@/lib/order-stock-check";
 import { sortCustomersByWalletDesc } from "@/lib/customer-list-sort";
 import { AdminDebouncedSearchInput } from "@/components/AdminDebouncedSearchInput";
 import { AdminLiveVisitorStats } from "@/components/AdminLiveVisitorStats";
@@ -10090,6 +10090,16 @@ function inventoryPoolLabel(pool: InventoryPoolKind): string {
   return "Foz Guaçu";
 }
 
+function inventoryPoolChipClass(pool: InventoryPoolKind, selected: boolean, hasStock: boolean): string {
+  const base = "h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60";
+  if (selected && pool === "loja") return `${base} bg-slate-800 text-white border-slate-800`;
+  if (selected && pool === "motoboy") return `${base} bg-orange-600 text-white border-orange-600`;
+  if (selected && pool === "minas") return `${base} bg-indigo-700 text-white border-indigo-700`;
+  if (selected && pool === "santa_catarina") return `${base} bg-sky-700 text-white border-sky-700`;
+  if (hasStock) return `${base} bg-emerald-50 text-emerald-900 border-emerald-500 hover:bg-emerald-100`;
+  return `${base} bg-white text-slate-700 border-amber-200 hover:bg-amber-100`;
+}
+
 function inventoryPoolForEnvioEcomAccount(
   accountId?: string | null,
   accountName?: string | null,
@@ -13801,11 +13811,27 @@ function OrdersPanel({
           const isExpanded = expandedOrder === order.id;
           // Estoque no card mesmo com enviado/EE (alerta visual). Lista "para enviar" continua só com !enviado.
           const selectedInventoryPool = resolveInventoryPoolForOrder(order.id);
-          const poolInventoryReady = balancesForInventoryPool(selectedInventoryPool).length > 0;
-          const orderStockCheck = !poolInventoryReady
+          const orderProducts = getOrderProducts(order.products);
+          const inventorySnapshotReady = inventoryBalances.length > 0
+            || motoboyInventoryBalances.length > 0
+            || minasInventoryBalances.length > 0
+            || santaCatarinaInventoryBalances.length > 0;
+          const stockPools = poolsCoveringOrderStock({
+            items: orderProducts,
+            balancesByPool: {
+              loja: inventoryBalances,
+              motoboy: motoboyInventoryBalances,
+              minas: minasInventoryBalances,
+              santa_catarina: santaCatarinaInventoryBalances,
+            },
+            catalogNames: productNameById,
+          });
+          const stockPoolLabel = stockPools.map((pool) => inventoryPoolLabel(pool)).join(" · ");
+          const reservedOnSelectedPool = !!inventoryReservedByOrder[order.id]
+            && String((order as { inventoryPool?: string }).inventoryPool || "").toLowerCase() === selectedInventoryPool;
+          const orderStockCheck = !inventorySnapshotReady
             ? { hasStock: true, message: "", missingItems: [] as string[] }
             : verifyOrderStock(order.id, undefined, selectedInventoryPool);
-          const orderProducts = getOrderProducts(order.products);
           const isCancelledCard = isCancelledOrderStatus(order.status);
           const isReshipmentChild = isReshipmentChildOrder(order as {
             shippingType?: string | null;
@@ -13985,24 +14011,26 @@ function OrdersPanel({
                           </span>
                         )}
                         <span
-                          title={!poolInventoryReady
+                          title={!inventorySnapshotReady
                             ? "Carregando saldo de estoque"
-                            : orderStockCheck.hasStock
-                              ? `Estoque ${inventoryPoolLabel(selectedInventoryPool)} suficiente para envio`
-                              : orderStockCheck.missingItems.join("\n") || `Sem estoque ${inventoryPoolLabel(selectedInventoryPool)} dos produtos do pedido`}
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!poolInventoryReady
+                            : reservedOnSelectedPool
+                              ? `Baixa já feita no estoque ${inventoryPoolLabel(selectedInventoryPool)}`
+                              : stockPools.length > 0
+                                ? `Saldo suficiente em ${stockPoolLabel}`
+                                : orderStockCheck.missingItems.join("\n") || "Nenhum depósito tem saldo suficiente deste pedido"}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!inventorySnapshotReady
                             ? "bg-slate-100 text-slate-700 border-slate-200"
-                            : orderStockCheck.hasStock
+                            : reservedOnSelectedPool || stockPools.length > 0
                             ? "bg-green-100 text-green-800 border-green-200"
                             : "bg-red-100 text-red-800 border-red-200"}`}
                         >
-                          {!poolInventoryReady
+                          {!inventorySnapshotReady
                             ? "Estoque carregando"
-                            : inventoryReservedByOrder[order.id] && String((order as { inventoryPool?: string }).inventoryPool || "").toLowerCase() === selectedInventoryPool
+                            : reservedOnSelectedPool
                               ? `Reservado ${inventoryPoolLabel(selectedInventoryPool)}`
-                            : (orderStockCheck.hasStock
-                              ? `Estoque ${inventoryPoolLabel(selectedInventoryPool)} OK`
-                              : `sem estoque ${inventoryPoolLabel(selectedInventoryPool)}`)}
+                              : stockPools.length > 0
+                                ? `Estoque ${stockPoolLabel}`
+                                : "sem estoque"}
                         </span>
                         {isReshipment && (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
@@ -14649,66 +14677,26 @@ function OrdersPanel({
                     <span className="whitespace-nowrap">
                       {inventoryReservedByOrder[order.id] ? "Baixa feita:" : "Baixa estoque:"}
                     </span>
-                    <button
-                      type="button"
-                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
-                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
-                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
-                        : undefined}
-                      onClick={() => { void saveInventoryPoolForOrder(order.id, "loja"); }}
-                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
-                        selectedInventoryPool === "loja"
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
-                      }`}
-                    >
-                      Foz Guaçu
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
-                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
-                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
-                        : undefined}
-                      onClick={() => { void saveInventoryPoolForOrder(order.id, "motoboy"); }}
-                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
-                        selectedInventoryPool === "motoboy"
-                          ? "bg-orange-600 text-white border-orange-600"
-                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
-                      }`}
-                    >
-                      {inventoryPoolSaving[order.id] ? "..." : "Motoboy"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
-                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
-                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
-                        : undefined}
-                      onClick={() => { void saveInventoryPoolForOrder(order.id, "minas"); }}
-                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
-                        selectedInventoryPool === "minas"
-                          ? "bg-indigo-700 text-white border-indigo-700"
-                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
-                      }`}
-                    >
-                      Minas
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
-                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
-                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
-                        : undefined}
-                      onClick={() => { void saveInventoryPoolForOrder(order.id, "santa_catarina"); }}
-                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
-                        selectedInventoryPool === "santa_catarina"
-                          ? "bg-sky-700 text-white border-sky-700"
-                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
-                      }`}
-                    >
-                      Santa Catarina
-                    </button>
+                    {(["loja", "motoboy", "minas", "santa_catarina"] as const).map((pool) => {
+                      const poolHasStock = stockPools.includes(pool);
+                      const poolLocked = showEnviadoUi && !!inventoryReservedByOrder[order.id];
+                      return (
+                        <button
+                          key={pool}
+                          type="button"
+                          disabled={!!inventoryPoolSaving[order.id] || poolLocked}
+                          title={poolLocked
+                            ? "Estoque já baixado. Marque como Pendente para trocar o pool."
+                            : poolHasStock
+                              ? `Este pedido tem saldo em ${inventoryPoolLabel(pool)}`
+                              : undefined}
+                          onClick={() => { void saveInventoryPoolForOrder(order.id, pool); }}
+                          className={inventoryPoolChipClass(pool, selectedInventoryPool === pool, poolHasStock)}
+                        >
+                          {pool === "motoboy" && inventoryPoolSaving[order.id] ? "..." : inventoryPoolLabel(pool)}
+                        </button>
+                      );
+                    })}
                     {!inventoryReservedByOrder[order.id] && (
                       <>
                         {inventoryPoolNeedsExitPassword(selectedInventoryPool) ? (
