@@ -42,6 +42,18 @@ function rowKey(row: QueueRow): string {
   return `${row.source || "yury"}:${row.orderId}:${row.packageId || "pedido"}`;
 }
 
+function foldSearch(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+function rowMatchesSearch(row: QueueRow, query: string): boolean {
+  const needle = foldSearch(query);
+  if (!needle) return true;
+  const number = String(row.orderNumber ?? "");
+  const name = foldSearch(row.clientName || "");
+  return number.includes(needle.replace(/^#/, "")) || name.includes(needle);
+}
+
 export function LabelDebitQueuePanel({
   products,
   motoboyBalances,
@@ -59,6 +71,7 @@ export function LabelDebitQueuePanel({
   const [rows, setRows] = useState<QueueRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [password, setPassword] = useState("");
+  const [query, setQuery] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const catalogNames = useMemo(() => {
@@ -85,7 +98,7 @@ export function LabelDebitQueuePanel({
 
   useEffect(() => { void load(); }, [load]);
 
-  const visible = rows.filter((row) => row.lane === lane);
+  const visible = rows.filter((row) => row.lane === lane && rowMatchesSearch(row, query));
   const balances = lane === "minas"
     ? minasBalances
     : lane === "santa_catarina"
@@ -146,19 +159,30 @@ export function LabelDebitQueuePanel({
           );
         })}
       </div>
-      <input
-        type="password"
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        placeholder="Senha de baixa"
-        className="h-9 w-full max-w-xs px-3 rounded-lg border border-border text-sm outline-none focus:border-emerald-600"
-      />
+      <div className="flex flex-wrap gap-2">
+        <input
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Número do pedido ou nome do cliente"
+          className="h-9 w-full max-w-sm px-3 rounded-lg border border-border text-sm outline-none focus:border-emerald-600"
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="Senha de baixa"
+          className="h-9 w-full max-w-xs px-3 rounded-lg border border-border text-sm outline-none focus:border-emerald-600"
+        />
+      </div>
       {loading ? (
         <p className="text-sm text-muted-foreground flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Carregando etiquetas...
         </p>
       ) : visible.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhuma etiqueta sem baixa nesta aba.</p>
+        <p className="text-sm text-muted-foreground">
+          {query.trim() ? "Nenhuma etiqueta encontrada para essa busca." : "Nenhuma etiqueta sem baixa nesta aba."}
+        </p>
       ) : (
         <div className="space-y-2">
           {visible.map((row) => {
