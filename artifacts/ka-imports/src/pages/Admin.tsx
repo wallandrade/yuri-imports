@@ -5772,6 +5772,7 @@ export default function Admin() {
             onOpenCardPaidModal={(id) => { setCardPaidModal(id); setCardPaidForm({ installments: "", installmentValue: "", totalValue: "" }); }}
             updateOrderObservation={updateOrderObservation}
             isPrimary={isPrimary}
+            sellers={sellers}
             onEditOrder={openEditOrder}
             onOpenKycModal={openKycModal}
             onSetOrderEnviado={(id, enviado) => {
@@ -11370,7 +11371,7 @@ function OrdersPanel({
   gatewayFeeMin,
   orders, statusUpdating, storeCreditApplying, applyCustomerStoreCredit, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
-  onOpenCardPaidModal, updateOrderObservation, isPrimary, onEditOrder, onOpenKycModal,
+  onOpenCardPaidModal, updateOrderObservation, isPrimary, sellers, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups,   onSetReshipmentStatus, onRemoveOrder,
   shippingQueueMap, onRefreshInventory, onRefreshOrders,
   emptyMessage,
@@ -11407,6 +11408,7 @@ function OrdersPanel({
   onOpenCardPaidModal: (id: string) => void;
   updateOrderObservation: (id: string, observation: string, visibleToCustomer?: boolean) => void;
   isPrimary: boolean;
+  sellers: SavedSellerItem[];
   onEditOrder: (order: AdminOrder) => void;
   onOpenKycModal: (orderId: string) => void;
   onSetOrderEnviado: (id: string, enviado: boolean) => void;
@@ -11506,6 +11508,9 @@ function OrdersPanel({
   }>(null);
   const [splitShipmentModal, setSplitShipmentModal] = useState<AdminOrder | null>(null);
   const [splitShipmentSaving, setSplitShipmentSaving] = useState(false);
+  const [sellerChangeOrder, setSellerChangeOrder] = useState<AdminOrder | null>(null);
+  const [sellerChangeTarget, setSellerChangeTarget] = useState("");
+  const [sellerChangeSaving, setSellerChangeSaving] = useState(false);
   const [shippingForecastSaving, setShippingForecastSaving] = useState<Record<string, boolean>>({});
   const trackingInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [trackingReview, setTrackingReview] = useState<null | {
@@ -11554,6 +11559,44 @@ function OrdersPanel({
     const current = ordersLookup.find((o) => o.id === orderId);
     if (!current) return;
     onSetOrderPatched({ ...current, ...patch } as AdminOrder);
+  };
+
+  const sellerRateOf = (seller: SavedSellerItem | undefined) => {
+    if (!seller || seller.hasCommission === false) return 0;
+    const rate = Number(seller.commissionRate ?? 0);
+    return Number.isFinite(rate) ? rate : 0;
+  };
+
+  const openSellerChange = (order: AdminOrder) => {
+    const current = String(order.sellerCode || "").trim().toLowerCase();
+    const next = sellers.find((seller) => seller.slug.toLowerCase() !== current);
+    setSellerChangeTarget(next?.slug || "");
+    setSellerChangeOrder(order);
+  };
+
+  const saveSellerChange = async () => {
+    if (!sellerChangeOrder || !sellerChangeTarget) return;
+    setSellerChangeSaving(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${sellerChangeOrder.id}/seller`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ sellerCode: sellerChangeTarget }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; order?: AdminOrder };
+      if (!res.ok || !data.order) {
+        toast.error(data.message || "Não foi possível trocar o vendedor.");
+        return;
+      }
+      onSetOrderPatched(data.order);
+      const chosen = sellers.find((seller) => seller.slug === sellerChangeTarget);
+      toast.success(`Venda passou para ${sellerListTitle(chosen || { slug: sellerChangeTarget, whatsapp: "" })}. A comissão fica com esse vendedor.`);
+      setSellerChangeOrder(null);
+    } catch {
+      toast.error("Erro ao trocar o vendedor.");
+    } finally {
+      setSellerChangeSaving(false);
+    }
   };
 
   const saveShippingForecast = async (order: AdminOrder, date: string | null, packageId?: string | null) => {
@@ -14800,6 +14843,12 @@ function OrdersPanel({
                     <Pencil className="w-3.5 h-3.5" />Editar Pedido
                   </Button>
                 )}
+                {isPrimary && (
+                  <Button size="sm" variant="outline" className="gap-1.5 text-orange-700 border-orange-200 hover:bg-orange-50"
+                    onClick={() => openSellerChange(order)}>
+                    <Users className="w-3.5 h-3.5" />Trocar vendedor
+                  </Button>
+                )}
                 {isCard && (
                   <Button size="sm" variant="outline" className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50"
                     onClick={() => onOpenKycModal(order.id)}>
@@ -15283,6 +15332,94 @@ function OrdersPanel({
               </div>
             </motion.div>
           </motion.div>
+        )}
+
+        {sellerChangeOrder && (
+          <div className="fixed inset-0 z-[130] bg-black/45 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl border border-border bg-white shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Trocar vendedor</h3>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Pedido #{getOrderReference(sellerChangeOrder)} · {sellerChangeOrder.clientName}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="p-1.5 rounded-lg hover:bg-muted"
+                  onClick={() => setSellerChangeOrder(null)}
+                  disabled={sellerChangeSaving}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                {(() => {
+                  const order = sellerChangeOrder;
+                  if (!order) return null;
+                  const currentSlug = String(order.sellerCode || "").trim().toLowerCase();
+                  const currentSeller = sellers.find((seller) => seller.slug.toLowerCase() === currentSlug);
+                  const currentRate = getCommissionRate(order.sellerCode, order.sellerCommissionRateSnapshot);
+                  const nextSeller = sellers.find((seller) => seller.slug === sellerChangeTarget);
+                  const nextRate = sellerRateOf(nextSeller);
+                  const base = Number(order.total) || 0;
+                  const paid = Boolean(order.sellerCommissionPaidAt);
+                  const options = sellers.filter((seller) => seller.slug.toLowerCase() !== currentSlug);
+                  return (
+                    <>
+                      <p className="text-sm text-foreground">
+                        Agora está com <strong>{currentSeller ? sellerListTitle(currentSeller) : (currentSlug || "sem vendedor")}</strong>
+                        {currentSlug ? ` · comissão ${currentRate}% (${formatCurrency((base * currentRate) / 100)})` : ""}.
+                      </p>
+                      {paid ? (
+                        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                          A comissão deste pedido já foi paga. Não dá para passar para outro vendedor.
+                        </p>
+                      ) : options.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Cadastre outro vendedor para poder trocar.</p>
+                      ) : (
+                        <>
+                          <label className="block text-sm font-medium text-foreground">
+                            Novo vendedor
+                            <select
+                              value={sellerChangeTarget}
+                              onChange={(event) => setSellerChangeTarget(event.target.value)}
+                              className="mt-1.5 w-full h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-orange-500 outline-none text-sm"
+                            >
+                              {options.map((seller) => (
+                                <option key={seller.slug} value={seller.slug}>
+                                  {sellerListTitle(seller)} · {sellerRateOf(seller)}%
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {nextSeller && (
+                            <p className="text-sm text-orange-900 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+                              A comissão passa a ser de <strong>{sellerListTitle(nextSeller)}</strong>: {nextRate}% ({formatCurrency((base * nextRate) / 100)}).
+                              {order.sellerCommissionBatchId ? " O pedido sai do lote de comissão ainda aberto." : ""}
+                            </p>
+                          )}
+                        </>
+                      )}
+                      <div className="flex justify-end gap-2 pt-1">
+                        <Button type="button" variant="outline" disabled={sellerChangeSaving} onClick={() => setSellerChangeOrder(null)}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="button"
+                          className="bg-orange-600 hover:bg-orange-700 text-white"
+                          disabled={sellerChangeSaving || paid || !sellerChangeTarget || options.length === 0}
+                          onClick={() => { void saveSellerChange(); }}
+                        >
+                          {sellerChangeSaving ? "Salvando..." : "Trocar vendedor"}
+                        </Button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
         )}
 
         {splitShipmentModal && (

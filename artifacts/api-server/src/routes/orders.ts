@@ -1,9 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable, motoboyBookingsTable, customerUsersTable, orderShipmentsTable, type OrderShipment } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable, motoboyBookingsTable, customerUsersTable, orderShipmentsTable, sellersTable, sellerCommissionBatchesTable, type OrderShipment } from "@workspace/db";
 import { allocateShippingSlot, releaseShippingSlot, reallocateShippingSlot, isStandardShipping } from "../lib/shipping-queue-allocator";
-import { desc, and, gte, lte, eq, inArray, ne, sql, not, type SQL } from "drizzle-orm";
+import { desc, and, gte, lte, eq, inArray, isNull, ne, sql, not, type SQL } from "drizzle-orm";
 import crypto from "crypto";
-import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
+import { getAdminScope, requireAdminAuth, requirePrimaryAdmin, verifyCurrentAdminPassword } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
 import { evaluateCouponForProducts, incrementCouponUse } from "./coupons";
 import {
@@ -73,6 +73,14 @@ import { customerVisibleObservation, isObservationVisibleToCustomer } from "../l
 import { formatShippingForecastDateBR, normalizeShippingForecastDate } from "../lib/shipping-forecast";
 import { listOrderActivity, recordAdminActivity, recordOrderActivity } from "../lib/order-activity";
 import { parseShippingVia } from "../lib/shipping-via";
+import { mysqlAffectedRows } from "../lib/mysql-affected-rows";
+import {
+  commissionAlreadyPaid,
+  commissionRateSnapshotForSeller,
+  normalizeReassignSellerCode,
+  openBatchAfterRemovingOrder,
+  parseBatchOrderIds,
+} from "../lib/reassign-order-seller";
 import { diffEditedOrderProducts, snapshotProductImage, type OrderEditProductLine } from "../lib/order-activity-format";
 import { clampLineDiscount, lineNetAmount } from "../lib/line-discount";
 import { isMotoboyShippingType, parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold, shippingTypeAfterMotoboyToNormal } from "../lib/free-shipping";
@@ -2252,6 +2260,158 @@ router.patch("/admin/orders/:id/whatsapp-group", requireAdminAuth, async (req, r
   } catch (err) {
     console.error("Update whatsapp group error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar grupo do pedido." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/seller  (admin principal)
+// A comissão pendente passa para o vendedor novo, na taxa dele.
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/seller", requirePrimaryAdmin, async (req, res) => {
+  try {
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const nextSellerCode = normalizeReassignSellerCode((req.body as { sellerCode?: unknown } | undefined)?.sellerCode);
+    if (!nextSellerCode) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Escolha o vendedor." });
+      return;
+    }
+
+    const sellerRows = await db
+      .select({
+        slug: sellersTable.slug,
+        hasCommission: sellersTable.hasCommission,
+        commissionRate: sellersTable.commissionRate,
+      })
+      .from(sellersTable)
+      .where(eq(sellersTable.slug, nextSellerCode))
+      .limit(1);
+    const seller = sellerRows[0];
+    if (!seller) {
+      res.status(404).json({ error: "SELLER_NOT_FOUND", message: "Vendedor não encontrado." });
+      return;
+    }
+    const nextRate = commissionRateSnapshotForSeller(seller);
+
+    const result = await db.transaction(async (tx) => {
+      const rows = await tx.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+      const order = rows[0];
+      if (!order) {
+        throw Object.assign(new Error("Pedido não encontrado."), { status: 404, code: "NOT_FOUND" });
+      }
+
+      const currentSeller = normalizeReassignSellerCode(order.sellerCode);
+      if (currentSeller === nextSellerCode) {
+        return { order, changed: false as const, previousSeller: currentSeller, nextRate };
+      }
+
+      const batchId = String(order.sellerCommissionBatchId || "").trim();
+      let batchStatus: string | null = null;
+      if (batchId) {
+        const batchRows = await tx
+          .select()
+          .from(sellerCommissionBatchesTable)
+          .where(eq(sellerCommissionBatchesTable.id, batchId))
+          .limit(1);
+        batchStatus = batchRows[0] ? String(batchRows[0].status || "") : null;
+        if (commissionAlreadyPaid({ paidAt: order.sellerCommissionPaidAt, batchStatus })) {
+          throw Object.assign(
+            new Error("A comissão deste pedido já foi paga. Não dá para trocar o vendedor."),
+            { status: 409, code: "COMMISSION_ALREADY_PAID" },
+          );
+        }
+        const batch = batchRows[0];
+        if (batch) {
+          const leftoverIds = parseBatchOrderIds(batch.orderIds).filter((entry) => entry !== id);
+          const remaining = leftoverIds.length === 0
+            ? []
+            : await tx
+              .select({
+                id: ordersTable.id,
+                total: ordersTable.total,
+                rate: ordersTable.sellerCommissionRateSnapshot,
+              })
+              .from(ordersTable)
+              .where(inArray(ordersTable.id, leftoverIds));
+          const nextBatch = openBatchAfterRemovingOrder({
+            batchOrderIds: batch.orderIds,
+            removedOrderId: id,
+            remainingOrders: remaining.map((row) => ({
+              id: row.id,
+              total: row.total,
+              rate: row.rate,
+            })),
+          });
+          if (!nextBatch) {
+            await tx.delete(sellerCommissionBatchesTable).where(eq(sellerCommissionBatchesTable.id, batchId));
+          } else {
+            await tx
+              .update(sellerCommissionBatchesTable)
+              .set({
+                orderIds: nextBatch.orderIds,
+                orderCount: nextBatch.orderCount,
+                totalAmount: nextBatch.totalAmount.toFixed(2),
+                updatedAt: new Date(),
+              })
+              .where(eq(sellerCommissionBatchesTable.id, batchId));
+          }
+        }
+      } else if (commissionAlreadyPaid({ paidAt: order.sellerCommissionPaidAt, batchStatus: null })) {
+        throw Object.assign(
+          new Error("A comissão deste pedido já foi paga. Não dá para trocar o vendedor."),
+          { status: 409, code: "COMMISSION_ALREADY_PAID" },
+        );
+      }
+
+      const now = new Date();
+      const updated = await tx
+        .update(ordersTable)
+        .set({
+          sellerCode: nextSellerCode,
+          sellerCommissionRateSnapshot: nextRate.toFixed(2),
+          sellerCommissionBatchId: null,
+          updatedAt: now,
+        })
+        .where(and(eq(ordersTable.id, id), isNull(ordersTable.sellerCommissionPaidAt)));
+      if (mysqlAffectedRows(updated) === 0) {
+        throw Object.assign(
+          new Error("A comissão deste pedido já foi paga. Não dá para trocar o vendedor."),
+          { status: 409, code: "COMMISSION_ALREADY_PAID" },
+        );
+      }
+
+      await tx
+        .update(customChargesTable)
+        .set({ sellerCode: nextSellerCode, updatedAt: now })
+        .where(eq(customChargesTable.orderId, id));
+
+      const fresh = await tx.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+      return { order: fresh[0] ?? order, changed: true as const, previousSeller: currentSeller, nextRate };
+    });
+
+    if (result.changed) {
+      recordAdminActivity(
+        req,
+        id,
+        "seller",
+        `Vendedor: ${result.previousSeller || "nenhum"} → ${nextSellerCode}`,
+        `Comissão ${result.nextRate}%`,
+      );
+    }
+
+    res.json({ ok: true, order: mapOrder(result.order) });
+  } catch (err) {
+    const status = Number((err as { status?: number })?.status || 0);
+    if (status >= 400 && status < 500) {
+      res.status(status).json({
+        error: (err as { code?: string })?.code || "INVALID_STATE",
+        message: (err as Error)?.message || "Não foi possível trocar o vendedor.",
+      });
+      return;
+    }
+    console.error("Reassign seller error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao trocar o vendedor." });
   }
 });
 

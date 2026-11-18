@@ -60,6 +60,8 @@ export type AdminOrder = {
   transactionId?: string | null;
   sellerCode?: string | null;
   sellerCommissionRateSnapshot?: number | null;
+  sellerCommissionBatchId?: string | null;
+  sellerCommissionPaidAt?: string | null;
   purchaseIp?: string | null;
   couponCode?: string | null;
   discountAmount?: number | null;
