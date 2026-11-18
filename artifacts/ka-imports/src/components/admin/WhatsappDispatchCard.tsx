@@ -83,7 +83,7 @@ export default function WhatsappDispatchCard({
       <div>
         <h3 className="font-semibold">Como enviar</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          Direto manda pela Z-API, com fila de 6 minutos e no máximo 10 por hora em cada número. n8n usa a URL salva abaixo, para voltar atrás sem deploy.
+          Direto manda pela Z-API. Pedido pago espera no máximo 2 minutos. Os outros avisos esperam 6 minutos, no máximo 10 por hora em cada número. n8n usa a URL salva abaixo, para voltar atrás sem deploy.
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">

@@ -11,9 +11,12 @@ import {
   parseWhatsappChannel,
   supportLineCanReply,
   whatsappAttemptCountsForPace,
+  WHATSAPP_PAID_MAX_WAIT_MS,
+  WHATSAPP_TICK_MS,
   whatsappBackoffMs,
   whatsappInstanceCanSend,
   whatsappInstanceForSeller,
+  whatsappTickChoice,
 } from "./whatsapp-outbound-policy";
 import { zapiOutboundRequest } from "./zapi-client";
 
@@ -56,6 +59,41 @@ test("fila segura 6 minutos e 10 por hora", () => {
   assert.equal(whatsappBackoffMs(1), 6 * 60 * 1000);
   assert.equal(whatsappBackoffMs(2), 12 * 60 * 1000);
   assert.equal(whatsappBackoffMs(8), 60 * 60 * 1000);
+  assert.equal(whatsappBackoffMs(1, "pedido_pago"), WHATSAPP_PAID_MAX_WAIT_MS);
+});
+
+test("pedido pago fura a espera de 6 minutos e sai em até 2 minutos", () => {
+  const jumpAt = WHATSAPP_PAID_MAX_WAIT_MS - WHATSAPP_TICK_MS;
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: true,
+    paidAgeMs: jumpAt - 1,
+    hasOther: true,
+  }), "none");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: true,
+    paidAgeMs: jumpAt,
+    hasOther: true,
+  }), "paid");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: false,
+    paidAgeMs: 1_000,
+    hasOther: true,
+  }), "paid");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: false,
+    paidAgeMs: null,
+    hasOther: true,
+  }), "other");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: WHATSAPP_HOURLY_CAP,
+    gapBlocked: false,
+    paidAgeMs: jumpAt,
+    hasOther: true,
+  }), "none");
 });
 
 test("filmagem usa a foto do n8n e a legenda da loja", () => {

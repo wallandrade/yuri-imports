@@ -2,10 +2,14 @@ import crypto from "node:crypto";
 import { mysqlAffectedRows } from "./mysql-affected-rows";
 import { sendZapiMessageWithFallback } from "./zapi-client";
 import {
+  WHATSAPP_HOURLY_CAP,
   WHATSAPP_MAX_ATTEMPTS,
+  WHATSAPP_PAID_MAX_WAIT_MS,
+  WHATSAPP_PAID_ORIGIN,
+  WHATSAPP_TICK_MS,
   maskWhatsappPhone,
   whatsappBackoffMs,
-  whatsappInstanceCanSend,
+  whatsappTickChoice,
   type WhatsappOutboundKind,
   type WhatsappZapiInstance,
 } from "./whatsapp-outbound-policy";
@@ -148,7 +152,7 @@ async function rememberImmediate(draft: WhatsappOutboundDraft, sent: { ok: boole
   );
 }
 
-async function pace(instance: WhatsappZapiInstance): Promise<{ ok: true } | { ok: false; reason: "gap" | "hourly" }> {
+async function paceSnapshot(instance: WhatsappZapiInstance): Promise<{ sentInLastHour: number; gapBlocked: boolean }> {
   const pool = await database();
   const [rows] = await pool.query(
     `SELECT
@@ -169,24 +173,53 @@ async function pace(instance: WhatsappZapiInstance): Promise<{ ok: true } | { ok
     [instance, instance],
   );
   const row = Array.isArray(rows) ? rows[0] as { sent_hour?: number; sent_gap?: number } : {};
-  return whatsappInstanceCanSend({
+  return {
     sentInLastHour: Number(row?.sent_hour || 0),
-    sentInLastGap: Number(row?.sent_gap || 0) > 0,
-  });
+    gapBlocked: Number(row?.sent_gap || 0) > 0,
+  };
 }
 
-async function claimNext(instance: WhatsappZapiInstance): Promise<QueueRow | null> {
+async function oldestReadyPaidAgeMs(instance: WhatsappZapiInstance): Promise<number | null> {
   const pool = await database();
-  const [found] = await pool.query(
-    `SELECT id FROM whatsapp_outbound_queue
+  const [rows] = await pool.query(
+    `SELECT TIMESTAMPDIFF(SECOND, created_at, CURRENT_TIMESTAMP) AS age_s
+     FROM whatsapp_outbound_queue
      WHERE instance = ?
+       AND origin = ?
        AND (
          (status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP))
          OR (status = 'sending' AND updated_at <= CURRENT_TIMESTAMP - INTERVAL 15 MINUTE)
        )
      ORDER BY created_at ASC
      LIMIT 1`,
-    [instance],
+    [instance, WHATSAPP_PAID_ORIGIN],
+  );
+  const age = Array.isArray(rows) ? Number((rows[0] as { age_s?: number } | undefined)?.age_s) : Number.NaN;
+  return Number.isFinite(age) ? age * 1000 : null;
+}
+
+async function claimNext(
+  instance: WhatsappZapiInstance,
+  target: "paid" | "other",
+  minAgeSeconds: number,
+): Promise<QueueRow | null> {
+  const pool = await database();
+  const paid = target === "paid";
+  const [found] = await pool.query(
+    `SELECT id FROM whatsapp_outbound_queue
+     WHERE instance = ?
+       AND origin ${paid ? "=" : "<>"} ?
+       AND (
+         (status = 'sending' AND updated_at <= CURRENT_TIMESTAMP - INTERVAL 15 MINUTE)
+         OR (
+           status = 'pending'
+           AND (next_attempt_at IS NULL OR next_attempt_at <= CURRENT_TIMESTAMP)
+           AND created_at <= CURRENT_TIMESTAMP - INTERVAL ? SECOND
+         )
+       )
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [instance, WHATSAPP_PAID_ORIGIN, minAgeSeconds],
   );
   const id = Array.isArray(found) ? String((found[0] as { id?: string } | undefined)?.id || "") : "";
   if (!id) return null;
@@ -224,7 +257,7 @@ async function markResult(row: QueueRow, sent: { ok: boolean; error?: string }):
     return;
   }
   const failed = attempts >= WHATSAPP_MAX_ATTEMPTS;
-  const waitSeconds = Math.max(1, Math.round(whatsappBackoffMs(attempts) / 1000));
+  const waitSeconds = Math.max(1, Math.round(whatsappBackoffMs(attempts, row.origin) / 1000));
   await pool.query(
     `UPDATE whatsapp_outbound_queue
      SET status = ?, attempts = ?, last_error = ?,
@@ -238,11 +271,7 @@ async function markResult(row: QueueRow, sent: { ok: boolean; error?: string }):
   );
 }
 
-async function sendNextForInstance(instance: WhatsappZapiInstance): Promise<void> {
-  const gate = await pace(instance);
-  if (!gate.ok) return;
-  const row = await claimNext(instance);
-  if (!row) return;
+async function deliver(instance: WhatsappZapiInstance, row: QueueRow): Promise<void> {
   let optionList: unknown = row.option_list;
   if (typeof optionList === "string" && optionList.trim()) {
     try {
@@ -278,12 +307,49 @@ async function sendNextForInstance(instance: WhatsappZapiInstance): Promise<void
   }
 }
 
+async function sendNextForInstance(instance: WhatsappZapiInstance): Promise<void> {
+  const pace = await paceSnapshot(instance);
+  const paidAgeMs = await oldestReadyPaidAgeMs(instance);
+  const choice = whatsappTickChoice({
+    sentInLastHour: pace.sentInLastHour,
+    gapBlocked: pace.gapBlocked,
+    paidAgeMs,
+    hasOther: true,
+  });
+  if (choice === "none") return;
+
+  const jumpSeconds = Math.max(1, Math.round((WHATSAPP_PAID_MAX_WAIT_MS - WHATSAPP_TICK_MS) / 1000));
+  let sentThisHour = pace.sentInLastHour;
+  const sendPaid = async (minAgeSeconds: number): Promise<boolean> => {
+    if (sentThisHour >= WHATSAPP_HOURLY_CAP) return false;
+    const row = await claimNext(instance, "paid", minAgeSeconds);
+    if (!row) return false;
+    await deliver(instance, row);
+    sentThisHour += 1;
+    return true;
+  };
+
+  if (choice === "paid") {
+    const firstWait = pace.gapBlocked ? jumpSeconds : 0;
+    if (await sendPaid(firstWait)) {
+      while (await sendPaid(jumpSeconds)) {
+        // Pedidos pagos que já passaram de 90s saem no mesmo ciclo.
+      }
+    }
+    return;
+  }
+
+  const row = await claimNext(instance, "other", 0);
+  if (!row) return;
+  await deliver(instance, row);
+}
+
 function missingTable(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err || "");
   return message.includes("whatsapp_outbound_queue") || message.includes("ER_NO_SUCH_TABLE");
 }
 
-/** Uma mensagem por instância, se a trava de 6 minutos e a de 10 por hora deixarem. */
+/** Uma mensagem comum por instância, na trava de 6 minutos. Pedido pago sai em até 2 minutos. */
 export async function runWhatsappOutboundTick(): Promise<void> {
   const pool = await database();
   const conn = await pool.getConnection();
