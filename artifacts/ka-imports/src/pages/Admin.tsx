@@ -963,7 +963,8 @@ import {
   type AdminOrdersKind,
 } from "@/lib/admin-orders-kind";
 import { estimateOrderCardProfit, extraQuantityForItem, qtyByProductId, summarizeReshipmentExtra } from "@/lib/reshipment-profit";
-import { checkOrderItemsHaveStock, poolsCoveringOrderStock } from "@/lib/order-stock-check";
+import { checkOrderItemsHaveStock, measureOrderItemStock, poolsCoveringOrderStock } from "@/lib/order-stock-check";
+import { LabelDebitQueuePanel } from "@/components/LabelDebitQueuePanel";
 import { sortCustomersByWalletDesc } from "@/lib/customer-list-sort";
 import { AdminDebouncedSearchInput } from "@/components/AdminDebouncedSearchInput";
 import { AdminLiveVisitorStats } from "@/components/AdminLiveVisitorStats";
@@ -9734,7 +9735,7 @@ function SupportTicketsPanel({
 }
 
 type InventoryPoolKind = "loja" | "motoboy" | "minas" | "santa_catarina";
-type StockTabKind = InventoryPoolKind | "resumo";
+type StockTabKind = InventoryPoolKind | "resumo" | "baixas";
 
 type InventoryCatalogLite = {
   id: string;
@@ -10275,7 +10276,7 @@ function InventoryPanel({
   };
 
   const normalizedBalanceSearch = balanceSearch.trim().toLowerCase();
-  const poolTab: InventoryPoolKind = stockTab === "resumo" ? "loja" : stockTab;
+  const poolTab: InventoryPoolKind = stockTab === "resumo" || stockTab === "baixas" ? "loja" : stockTab;
   const isDeferredStockTab = isDeferredDebitPool(poolTab);
   const stockTabLabel = inventoryPoolLabel(poolTab);
   const activeBalances = stockTab === "motoboy"
@@ -10505,9 +10506,27 @@ function InventoryPanel({
         >
           Resumo
         </button>
+        <button
+          type="button"
+          onClick={() => setStockTab("baixas")}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition ${
+            stockTab === "baixas"
+              ? "bg-emerald-700 text-white border-emerald-700"
+              : "bg-white text-muted-foreground border-border hover:border-emerald-300"
+          }`}
+        >
+          Baixa de etiqueta
+        </button>
       </div>
 
-      {stockTab === "resumo" ? (
+      {stockTab === "baixas" ? (
+        <LabelDebitQueuePanel
+          products={products}
+          motoboyBalances={motoboyBalances}
+          minasBalances={minasBalances}
+          onRefresh={onRefresh}
+        />
+      ) : stockTab === "resumo" ? (
         <InventoryStockSummary
           loading={loading}
           products={products}
@@ -15318,11 +15337,41 @@ function OrdersPanel({
                 </button>
               </div>
               <div className="p-4 space-y-2">
-                {selectableEnvioEcomAccounts.map((account) => (
+                {selectableEnvioEcomAccounts.map((account) => {
+                  const pickerOrder = envioecomAccountPicker.order;
+                  const pickerPackageId = String(envioecomAccountPicker.packageId || "").trim();
+                  const pickerPackage = pickerPackageId
+                    ? (pickerOrder.envioecomPackages || []).find((pkg) => String(pkg?.id || "") === pickerPackageId)
+                    : null;
+                  const pickerItems = pickerPackage?.items?.length
+                    ? pickerPackage.items.map((item) => ({
+                      id: item.productId,
+                      name: String(item.variantOption || item.productName || "Produto"),
+                      quantity: item.quantity,
+                    }))
+                    : getOrderProducts(pickerOrder.products);
+                  const pickerPool = inventoryPoolForEnvioEcomAccount(account.id, account.name);
+                  const pickerReady = inventoryBalances.length > 0
+                    || motoboyInventoryBalances.length > 0
+                    || minasInventoryBalances.length > 0
+                    || santaCatarinaInventoryBalances.length > 0;
+                  const pickerLines = pickerPool
+                    ? measureOrderItemStock({
+                      items: pickerItems,
+                      balances: balancesForInventoryPool(pickerPool),
+                      catalogNames: productNameById,
+                    })
+                    : [];
+                  const pickerCovers = pickerReady
+                    && pickerLines.length > 0
+                    && pickerLines.every((line) => line.available >= line.needed);
+                  return (
                   <button
                     key={account.id}
                     type="button"
-                    className="w-full text-left rounded-xl border border-border hover:border-teal-300 hover:bg-teal-50/50 px-4 py-3 transition"
+                    className={`w-full text-left rounded-xl border px-4 py-3 transition ${pickerCovers
+                      ? "border-emerald-400 bg-emerald-50/70 hover:bg-emerald-50"
+                      : "border-border hover:border-teal-300 hover:bg-teal-50/50"}`}
                     onClick={() => {
                       const picked = envioecomAccountPicker;
                       if (
@@ -15347,10 +15396,30 @@ function OrdersPanel({
                     <p className="font-semibold text-foreground">{account.name}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {account.fromEnv ? "Conta do servidor" : "Conta cadastrada"}
-                      {account.originCep ? ` · CEP ${account.originCep}` : ""}
+                      {account.originCep ? ` · CEP origem ${account.originCep}` : ""}
                     </p>
+                    {!pickerReady ? (
+                      <p className="text-xs text-slate-500 mt-1">Estoque carregando</p>
+                    ) : pickerLines.map((line) => {
+                      const short = line.available < line.needed;
+                      const text = line.available <= 0
+                        ? `${line.label}: sem estoque`
+                        : short
+                          ? `${line.label}: tem ${line.available}, precisa ${line.needed}`
+                          : `${line.label}: ${line.available} em estoque`;
+                      return (
+                        <p
+                          key={`${account.id}-${line.label}`}
+                          className={`text-xs mt-0.5 ${short ? "text-red-700" : "text-emerald-800"}`}
+                          title={text}
+                        >
+                          {text}
+                        </p>
+                      );
+                    })}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

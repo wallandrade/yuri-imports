@@ -156,12 +156,18 @@ function remapLine(
   return { productId, productName, fallbackProductId: null };
 }
 
-export function checkOrderItemsHaveStock(params: {
+export type OrderItemStockLine = {
+  label: string;
+  needed: number;
+  available: number;
+};
+
+/** Quantidade que a baixa acharia em um depósito, por produto do pedido. */
+export function measureOrderItemStock(params: {
   items: OrderStockCheckItem[];
   balances: OrderStockBalanceRow[];
   catalogNames?: Record<string, string>;
-  poolLabel?: string;
-}): OrderStockCheckResult {
+}): OrderItemStockLine[] {
   const stock = buildStockById(params.balances);
   const catalog = buildCatalogIndex(params.catalogNames);
   const grouped = new Map<string, {
@@ -189,8 +195,7 @@ export function checkOrderItemsHaveStock(params: {
     });
   }
 
-  const missingItems: string[] = [];
-  for (const item of grouped.values()) {
+  return [...grouped.values()].map((item) => {
     const picked = pickOrphanSameName(
       pickDebitProductId(
         item.productId,
@@ -204,9 +209,22 @@ export function checkOrderItemsHaveStock(params: {
       catalog,
       params.balances,
     );
-    if (picked.available < item.qty) {
+    return { label: item.label, needed: item.qty, available: picked.available };
+  });
+}
+
+export function checkOrderItemsHaveStock(params: {
+  items: OrderStockCheckItem[];
+  balances: OrderStockBalanceRow[];
+  catalogNames?: Record<string, string>;
+  poolLabel?: string;
+}): OrderStockCheckResult {
+  const lines = measureOrderItemStock(params);
+  const missingItems: string[] = [];
+  for (const line of lines) {
+    if (line.available < line.needed) {
       missingItems.push(
-        `${item.label}: faltam ${item.qty - picked.available} un. (tem ${picked.available}, precisa ${item.qty})`,
+        `${line.label}: faltam ${line.needed - line.available} un. (tem ${line.available}, precisa ${line.needed})`,
       );
     }
   }

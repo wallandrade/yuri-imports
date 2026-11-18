@@ -146,6 +146,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       sql: "ALTER TABLE orders ADD COLUMN inventory_reserved TINYINT(1) NOT NULL DEFAULT 0",
     },
     {
+      name: "label_debit_waived",
+      sql: "ALTER TABLE orders ADD COLUMN label_debit_waived TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
       name: "promo_stock_consumed",
       sql: "ALTER TABLE orders ADD COLUMN promo_stock_consumed TINYINT(1) NOT NULL DEFAULT 0",
     },
@@ -1120,6 +1124,7 @@ async function ensureOrderShipmentsTable(databaseName: string): Promise<void> {
       shipping_forecast_date VARCHAR(10) NULL,
       enviado_at TIMESTAMP NULL,
       inventory_reserved TINYINT(1) NOT NULL DEFAULT 0,
+      label_debit_waived TINYINT(1) NOT NULL DEFAULT 0,
       envioecom_shipment_id VARCHAR(64) NULL,
       envioecom_barcode VARCHAR(64) NULL,
       envioecom_tracking_key VARCHAR(128) NULL,
@@ -1161,6 +1166,7 @@ async function ensureOrderShipmentSuperfreteColumns(databaseName: string): Promi
     { name: "superfrete_account_id", sql: "ALTER TABLE order_shipments ADD COLUMN superfrete_account_id VARCHAR(64) NULL" },
     { name: "shipping_forecast_date", sql: "ALTER TABLE order_shipments ADD COLUMN shipping_forecast_date VARCHAR(10) NULL" },
     { name: "manual_tracking_code", sql: "ALTER TABLE order_shipments ADD COLUMN manual_tracking_code VARCHAR(64) NULL" },
+    { name: "label_debit_waived", sql: "ALTER TABLE order_shipments ADD COLUMN label_debit_waived TINYINT(1) NOT NULL DEFAULT 0" },
   ];
   for (const definition of definitions) {
     if (!(await columnExists("order_shipments", definition.name, databaseName))) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { checkOrderItemsHaveStock, poolsCoveringOrderStock } from "./order-stock-check";
+import { checkOrderItemsHaveStock, measureOrderItemStock, poolsCoveringOrderStock } from "./order-stock-check";
 
 test("selo OK só se o ID do pedido tem saldo — nome parecido não conta", () => {
   const result = checkOrderItemsHaveStock({
@@ -149,6 +149,15 @@ test("selo lista os dois depósitos quando os dois cobrem a quantidade", () => {
     catalogNames: { "sku-1": "Tirzepatida 10mg" },
   });
   assert.deepEqual(pools, ["minas", "santa_catarina"]);
+});
+
+test("medida mostra quantas unidades o depósito tem, mesmo acima do pedido", () => {
+  const lines = measureOrderItemStock({
+    items: [{ id: "sku-1", name: "Tirzepatida 10mg", quantity: 1 }],
+    balances: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 4 }],
+    catalogNames: { "sku-1": "Tirzepatida 10mg" },
+  });
+  assert.deepEqual(lines, [{ label: "Tirzepatida 10mg", needed: 1, available: 4 }]);
 });
 
 test("quantidade insuficiente em todos os depósitos não lista nenhum", () => {

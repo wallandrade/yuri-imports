@@ -1,6 +1,6 @@
 # Arquitetura — Yuri Import
 
-> **Última atualização:** 2026-11-17
+> **Última atualização:** 2026-11-18
 
 Stack, pastas e deploy **como existem no código**. Precedência: código > memória > tipagens.
 
@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-18 | Coluna `label_debit_waived` em `orders` e `order_shipments` | A fila Baixa de etiqueta marca quem saiu sem descontar saldo. Runtime adiciona a coluna na subida | `inventory_reserved` continua sendo a baixa de verdade |
 | 2026-11-17 | Tabela `whatsapp_outbound_queue` (+ runtime) | Fila do WhatsApp da Z-API. Job `whatsapp-outbound-job.ts` na subida. Sem token na tabela | Pedido, PIX e as tabelas de sessão do atendimento iguais. Sem `tenant_id` |
 | 2026-11-17 | Painel do admin acima do menu em todas as telas | Cards, filas de envio, Produtos mais vendidos e os portais de foto ficam fora da condição `inicio`/`orders`. O menu continua logo abaixo | Atalhos PIX, KYC, Tickets e Reenvios só no Início. Desenho do menu, grupos, rotas e o GET de pedidos (mesmo De/até) iguais |
 | 2026-11-17 | Menu do admin abaixo do painel em Início e Pedidos | Em `Admin.tsx`, os cards (incluindo Produtos mais vendidos) fecham antes do `<div>` com `AdminGroupedNav` | Desenho horizontal, grupos e rotas iguais. Nas outras telas o menu continua no topo do conteúdo |

@@ -12,6 +12,8 @@ export const orderShipmentsTable = mysqlTable("order_shipments", {
   shippingForecastDate: varchar("shipping_forecast_date", { length: 10 }),
   enviadoAt: timestamp("enviado_at"),
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
+  /** Saiu da fila Baixa de etiqueta sem descontar o saldo deste pacote. */
+  labelDebitWaived: boolean("label_debit_waived").notNull().default(false),
   envioecomShipmentId: varchar("envioecom_shipment_id", { length: 64 }),
   envioecomBarcode: varchar("envioecom_barcode", { length: 64 }),
   envioecomTrackingKey: varchar("envioecom_tracking_key", { length: 128 }),
