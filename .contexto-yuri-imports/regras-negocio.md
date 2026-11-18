@@ -49,6 +49,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-18 | Baixa da KA acha o produto pelo nome | Etiqueta sem id da Yuri desconta o produto do catálogo quando o nome é único e o saldo cobre | Nome parecido de outro cadastro continua de fora. A cópia 48h igual |
 | 2026-11-18 | Baixa de etiqueta mostra a foto | Cada produto da fila usa a foto do catálogo. Sem foto, o quadrado fica vazio. O clique amplia | A busca, a senha e a baixa iguais |
 | 2026-11-18 | Baixa de etiqueta tem busca | O campo filtra a aba aberta pelo número do pedido ou pelo nome do cliente | A contagem das abas, a senha e a baixa continuam iguais |
 | 2026-11-18 | Baixa de etiqueta lista a KA | Com as duas variáveis da API, a etiqueta pendente da KA aparece em Motoboy, Minas ou Santa Catarina. Não entra na aba Pedidos. Sem abater não mexe no saldo | A fila da Yuri e a cópia 48h iguais. São Paulo da Yuri continua no saldo Motoboy |

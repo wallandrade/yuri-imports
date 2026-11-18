@@ -243,6 +243,33 @@ function catalogHasProductId(index: CatalogIndex, productId: string): boolean {
  * Depois do id do pedido / recadastro: se ainda falta saldo, usa a única linha
  * órfã (id fora do catálogo) com o mesmo nome único. Nome parecido não entra.
  */
+/** Sem id (etiqueta da KA), o nome único do catálogo vira o id da baixa. */
+export function pickNamedInventoryDebit(params: {
+  catalog: CatalogIndex;
+  stock: Map<string, number>;
+  namedBalances: NamedStockRow[];
+  productId: string;
+  productName: string;
+  quantity: number;
+  fallbackProductId?: string | null;
+}): { productId: string; productName: string; available: number } {
+  const remapped = remapInventoryItem(params.catalog, params.productId, params.productName);
+  const picked = pickDebitWithOrphanSameName({
+    primaryId: remapped.productId,
+    fallbackId: params.fallbackProductId || remapped.fallbackProductId,
+    quantity: params.quantity,
+    productName: remapped.productName || params.productName,
+    stock: params.stock,
+    catalog: params.catalog,
+    namedBalances: params.namedBalances,
+  });
+  return {
+    productId: picked.productId,
+    productName: remapped.productName || params.productName,
+    available: picked.available,
+  };
+}
+
 export function pickDebitWithOrphanSameName(params: {
   primaryId: string;
   fallbackId: string | null | undefined;

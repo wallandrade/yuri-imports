@@ -10,7 +10,7 @@ import {
 import {
   buildNamedStockMap,
   mapInventoryBalanceRows,
-  pickDebitWithOrphanSameName,
+  pickNamedInventoryDebit,
   remapInventoryItem,
   resolveCatalogByOptionName,
   type CatalogIndex,
@@ -189,14 +189,14 @@ export async function pickOrderInventoryDebit(
   const debitItems: Array<{ productId: string; productName: string; quantity: number }> = [];
   const insufficient: string[] = [];
   for (const item of items) {
-    const picked = pickDebitWithOrphanSameName({
-      primaryId: item.productId,
-      fallbackId: item.fallbackProductId,
-      quantity: item.quantity,
-      productName: item.productName,
-      stock: stockByProduct,
+    const picked = pickNamedInventoryDebit({
       catalog: named.catalog,
+      stock: stockByProduct,
       namedBalances: named.balances,
+      productId: item.productId,
+      productName: item.productName,
+      quantity: item.quantity,
+      fallbackProductId: item.fallbackProductId,
     });
     if (picked.available < item.quantity) {
       insufficient.push(`${item.productName} (precisa ${item.quantity}, disponível ${picked.available})`);
@@ -204,7 +204,7 @@ export async function pickOrderInventoryDebit(
     }
     debitItems.push({
       productId: picked.productId,
-      productName: item.productName,
+      productName: picked.productName,
       quantity: item.quantity,
     });
   }

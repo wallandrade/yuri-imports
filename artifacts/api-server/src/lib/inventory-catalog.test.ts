@@ -10,6 +10,7 @@ import {
   normalizeProductId,
   pickDebitProductId,
   pickDebitWithOrphanSameName,
+  pickNamedInventoryDebit,
   remapInventoryItem,
   resolveInventoryCatalogRef,
   resolveManualExitTarget,
@@ -164,6 +165,23 @@ test("baixa: nome parecido de outro cadastro não herda o saldo", () => {
   });
   assert.equal(picked.productId, "sku-vial");
   assert.equal(picked.available, 0);
+});
+
+test("baixa sem id usa o nome único do catálogo que tem saldo", () => {
+  const catalog = buildCatalogIndex([{ id: "synedica", name: "Tirzepatida Synedica 240MG 4 frasco 60mg" }]);
+  const named = [
+    { productId: "synedica", productName: "Tirzepatida Synedica 240MG 4 frasco 60mg", quantity: 5 },
+  ];
+  const picked = pickNamedInventoryDebit({
+    catalog,
+    stock: buildNamedStockMap(named),
+    namedBalances: named,
+    productId: "",
+    productName: "Tirzepatida Synedica 240MG 4 frasco 60mg",
+    quantity: 1,
+  });
+  assert.equal(picked.productId, "synedica");
+  assert.equal(picked.available, 5);
 });
 
 test("baixa: dois órfãos com o mesmo nome não escolhe um", () => {
