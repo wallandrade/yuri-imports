@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-19 | Conexão da Cell Tech não mostra a instância Z-API | `zapiConfigured` é só sim ou não. O log de instância ausente não leva ID nem token | O token do Gestão Click, o checkout token e a fila (só os 4 últimos dígitos) iguais |
 | 2026-11-19 | CORS aceita `yuri-imports-py.com` | Checkout no domínio novo entra na allowlist junto com KA e o host antigo | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-17 | Token da Z-API não entra no log nem na fila | O erro gravado tira URL da instância e trechos longos. A fila mostra só os 4 últimos dígitos. A entrada continua exigindo o token do atendimento | O checkout token e o token do Gestão Click iguais |
 | 2026-11-17 | Status da Cell Tech não leva o token | `GET /api/admin/cell-tech/connection` e `GET /api/admin/cell-tech/situations` exigem admin principal (`requirePrimaryAdmin`). A resposta mostra no máximo os 4 últimos caracteres. A chave `cell_tech_connection_status` não entra em `PUBLIC_KEYS` | O GET de settings da Cell Tech e o checkout token iguais |

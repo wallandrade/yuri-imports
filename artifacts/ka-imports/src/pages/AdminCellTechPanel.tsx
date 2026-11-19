@@ -157,9 +157,13 @@ export default function AdminCellTechPanel() {
     setBusy(name);
     try {
       const res = await fetch(`${BASE}/api/admin/cell-tech/${path}`, { method: "POST", headers: authHeaders() });
-      const data = await res.json().catch(() => ({})) as { message?: string; alreadySent?: boolean; orders?: number; situations?: number };
+      const data = await res.json().catch(() => ({})) as { message?: string; alreadySent?: boolean; queued?: boolean; orders?: number; situations?: number };
       if (!res.ok) {
         toast.error(data.message || "Não foi possível concluir.");
+        return;
+      }
+      if (data.queued) {
+        toast.success("Na fila. Enviado só depois que a Z-API aceitar.");
         return;
       }
       if (data.alreadySent) {
@@ -181,7 +185,7 @@ export default function AdminCellTechPanel() {
       <div>
         <h2 className="text-xl font-bold">Cell Tech</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Ordens de serviço do Gestão Click. O aviso sai pelo n8n para o grupo da loja. Esta aba não mexe em pedido, PIX nem frete.
+          Ordens de serviço do Gestão Click. No modo direto o aviso entra na fila da instância da Cell Tech e só sai das 8h às 19h. Esta aba não mexe em pedido, PIX nem frete.
         </p>
       </div>
 

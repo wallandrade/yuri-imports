@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-19 | A fila do WhatsApp também esvazia `celltech` | O mesmo `whatsapp_outbound_queue` e o job de 30s. `instance` já é varchar(16). Sem coluna nova e sem token na tabela | Pedido, PIX e as sessões do atendimento iguais. Sem `tenant_id` |
 | 2026-11-19 | Loja no domínio `yuri-imports-py.com` | DNS na Hostinger aponta para a Vercel. `www` é o host da loja; o apex redireciona. `yury-imports.com` não resolve | API continua em `yuri-imports-9483v.ondigitalocean.app`. O rewrite `/api` da Vercel igual |
 | 2026-11-18 | Coluna `label_debit_waived` em `orders` e `order_shipments` | A fila Baixa de etiqueta marca quem saiu sem descontar saldo. Runtime adiciona a coluna na subida | `inventory_reserved` continua sendo a baixa de verdade |
 | 2026-11-17 | Tabela `whatsapp_outbound_queue` (+ runtime) | Fila do WhatsApp da Z-API. Job `whatsapp-outbound-job.ts` na subida. Sem token na tabela | Pedido, PIX e as tabelas de sessão do atendimento iguais. Sem `tenant_id` |

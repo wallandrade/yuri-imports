@@ -7,8 +7,11 @@ import {
   parseCellTechConnectionState,
   parseSituationLabels,
   peekCellTechConnectionMemory,
+  cellTechQueueDeliveryOutcome,
+  presentCellTechConnection,
   publicCellTechConnection,
   recordCellTechWhatsapp,
+  recordCellTechWhatsappOutcome,
   resetCellTechConnectionMemory,
   serializeSituationLabels,
   emptyCellTechConnectionState,
@@ -119,6 +122,53 @@ test("rótulo de situação não entra na lista de IDs fechados", () => {
   assert.deepEqual(labels, { "12": "Finalizado", "7": "Sem reparo" });
   assert.equal(serializeSituationLabels(labels).includes("Finalizado"), true);
   assert.equal(joinIdList(["12", "30"]), "12,30");
+});
+
+test("sem a instância da Cell Tech o status não fica enviado", () => {
+  const view = publicCellTechConnection("", "", {
+    gestao: null,
+    whatsapp: { outcome: "ok", message: "", at: "2026-11-19T12:00:00.000Z" },
+  });
+  const shown = presentCellTechConnection(view, false, "direto");
+  assert.equal(shown.zapiConfigured, false);
+  assert.equal(shown.whatsapp.outcome, "falhou");
+  assert.match(shown.whatsapp.message, /não configurada/);
+  assert.equal(JSON.stringify(shown).includes("instancia"), false);
+  const configured = presentCellTechConnection(view, true, "direto");
+  assert.equal(configured.zapiConfigured, true);
+  assert.equal(configured.whatsapp.outcome, "ok");
+});
+
+test("na fila não vira enviado antes da Z-API aceitar", () => {
+  assert.equal(cellTechQueueDeliveryOutcome({
+    accepted: false,
+    attempts: 1,
+    maxAttempts: 8,
+    error: "timeout",
+  }), null);
+  assert.deepEqual(cellTechQueueDeliveryOutcome({ accepted: true, attempts: 1, maxAttempts: 8 }), {
+    outcome: "ok",
+    message: "",
+  });
+  const failed = cellTechQueueDeliveryOutcome({
+    accepted: false,
+    attempts: 8,
+    maxAttempts: 8,
+    error: "zapi_not_configured",
+  });
+  assert.equal(failed?.outcome, "falhou");
+  assert.equal(failed?.message, "zapi_not_configured");
+  resetCellTechConnectionMemory();
+  recordCellTechWhatsappOutcome("fila", "Na fila da Z-API. O grupo ainda não recebeu.", "2026-11-19T15:00:00.000Z");
+  const state = peekCellTechConnectionMemory();
+  resetCellTechConnectionMemory();
+  const view = publicCellTechConnection("", "", state);
+  assert.equal(view.whatsapp.outcome, "fila");
+  assert.match(view.whatsapp.message, /fila/);
+  const stored = parseCellTechConnectionState({
+    whatsapp: { outcome: "fila", message: "Na fila da Z-API.", at: "2026-11-19T15:00:00.000Z" },
+  });
+  assert.equal(stored.whatsapp?.outcome, "fila");
 });
 
 test("a janela do grupo continua das 8h às 19h", () => {

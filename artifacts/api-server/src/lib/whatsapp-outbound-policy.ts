@@ -34,7 +34,9 @@ export const WHATSAPP_CHANNEL_SETTING_KEYS = [
 export type WhatsappNoticeOrigin = keyof typeof WHATSAPP_CHANNEL_SETTING;
 export type WhatsappChannel = "direto" | "n8n";
 export type WhatsappSupportDelivery = "fila" | "na_hora";
-export type WhatsappZapiInstance = "main" | "poly";
+/** Cada nome tem a própria trava de 6 minutos e de 10 por hora. Cell Tech não usa main nem poly. */
+export const WHATSAPP_ZAPI_INSTANCES = ["main", "poly", "celltech"] as const;
+export type WhatsappZapiInstance = (typeof WHATSAPP_ZAPI_INSTANCES)[number];
 export type WhatsappOutboundKind = "text" | "image" | "option_list";
 
 /** Foto fixa do nó Filmagem. A legenda continua a que a loja monta. */

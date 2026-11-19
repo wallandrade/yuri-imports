@@ -1,4 +1,4 @@
-export type ZapiInstanceName = "main" | "poly";
+export type ZapiInstanceName = "main" | "poly" | "celltech";
 export type ZapiOutboundKind = "text" | "image" | "option_list";
 
 export type ZapiCredentials = {
@@ -17,20 +17,32 @@ function validPart(value: string): boolean {
   return Boolean(value) && !/[/?#\s]/.test(value);
 }
 
-/** Credencial da instância. Poly pode repetir o Client-Token da conta. Não logar o retorno. */
-export function zapiCredentials(instance: ZapiInstanceName): ZapiCredentials | null {
-  if (instance === "poly") {
-    const instanceId = readZapiEnv("ZAPI_POLY_INSTANCE_ID");
-    const token = readZapiEnv("ZAPI_POLY_TOKEN");
-    const clientToken = readZapiEnv("ZAPI_POLY_CLIENT_TOKEN") || readZapiEnv("ZAPI_CLIENT_TOKEN");
-    if (!validPart(instanceId) || !validPart(token) || !validPart(clientToken)) return null;
-    return { instanceId, token, clientToken };
-  }
-  const instanceId = readZapiEnv("ZAPI_MAIN_INSTANCE_ID");
-  const token = readZapiEnv("ZAPI_MAIN_TOKEN");
-  const clientToken = readZapiEnv("ZAPI_CLIENT_TOKEN");
+function credentialsFrom(instanceId: string, token: string, clientToken: string): ZapiCredentials | null {
   if (!validPart(instanceId) || !validPart(token) || !validPart(clientToken)) return null;
   return { instanceId, token, clientToken };
+}
+
+/** Credencial da instância. Poly e Cell Tech podem repetir o Client-Token da conta. Não logar o retorno. */
+export function zapiCredentials(instance: ZapiInstanceName): ZapiCredentials | null {
+  if (instance === "poly") {
+    return credentialsFrom(
+      readZapiEnv("ZAPI_POLY_INSTANCE_ID"),
+      readZapiEnv("ZAPI_POLY_TOKEN"),
+      readZapiEnv("ZAPI_POLY_CLIENT_TOKEN") || readZapiEnv("ZAPI_CLIENT_TOKEN"),
+    );
+  }
+  if (instance === "celltech") {
+    return credentialsFrom(
+      readZapiEnv("ZAPI_CELL_TECH_INSTANCE_ID"),
+      readZapiEnv("ZAPI_CELL_TECH_TOKEN"),
+      readZapiEnv("ZAPI_CELL_TECH_CLIENT_TOKEN") || readZapiEnv("ZAPI_CLIENT_TOKEN"),
+    );
+  }
+  return credentialsFrom(
+    readZapiEnv("ZAPI_MAIN_INSTANCE_ID"),
+    readZapiEnv("ZAPI_MAIN_TOKEN"),
+    readZapiEnv("ZAPI_CLIENT_TOKEN"),
+  );
 }
 
 export function zapiInstancePath(creds: ZapiCredentials, suffix: string): string {

@@ -21,11 +21,19 @@ function fail(res: { status: (code: number) => { json: (body: unknown) => void }
     return;
   }
   const message = error instanceof Error ? error.message : "";
-  if (message.startsWith("Salve ") || message.startsWith("A URL ")) {
+  if (
+    message.startsWith("Salve ")
+    || message.startsWith("A URL ")
+    || message.startsWith("Instância ")
+    || message.startsWith("O grupo da Cell Tech")
+    || message.startsWith("A mensagem da Cell Tech")
+    || message.startsWith("Grupo da Cell Tech")
+    || message.startsWith("ZAPI_CELL_TECH_GROUP_ID")
+  ) {
     res.status(400).json({ error: "INVALID_SETTING", message });
     return;
   }
-  if (message.startsWith("O n8n ")) {
+  if (message.startsWith("O n8n ") || message.startsWith("A Z-API ")) {
     res.status(502).json({ error: "N8N_ERROR", message });
     return;
   }
