@@ -17,6 +17,7 @@ import {
   whatsappInstanceCanSend,
   whatsappInstanceForSeller,
   whatsappTickChoice,
+  WHATSAPP_ZAPI_INSTANCES,
 } from "./whatsapp-outbound-policy";
 import { zapiOutboundRequest } from "./zapi-client";
 
@@ -34,6 +35,7 @@ test("Poly sai pela instância dela e o menu dela não responde", () => {
   assert.equal(whatsappInstanceForSeller("yuri"), "main");
   assert.equal(supportLineCanReply("poly"), false);
   assert.equal(supportLineCanReply("main"), true);
+  assert.deepEqual([...WHATSAPP_ZAPI_INSTANCES], ["main", "poly", "celltech"]);
 });
 
 test("fila segura 6 minutos e 10 por hora", () => {

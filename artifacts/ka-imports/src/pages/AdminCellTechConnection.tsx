@@ -20,7 +20,7 @@ type Settings = {
 };
 
 type CallStatus = {
-  outcome: "ok" | "recusado" | "falhou" | null;
+  outcome: "ok" | "recusado" | "falhou" | "fila" | null;
   message: string;
   at: string | null;
 };
@@ -30,6 +30,7 @@ type ConnectionStatus = {
   secretConfigured: boolean;
   accessHint: string;
   secretHint: string;
+  zapiConfigured?: boolean;
   gestao: CallStatus;
   whatsapp: CallStatus;
 };
@@ -59,6 +60,7 @@ function formatWhen(iso: string | null): string {
 
 function tone(outcome: CallStatus["outcome"]): string {
   if (outcome === "ok") return "border-emerald-300 bg-emerald-50";
+  if (outcome === "fila") return "border-amber-300 bg-amber-50";
   if (outcome === "recusado" || outcome === "falhou") return "border-red-300 bg-red-50";
   return "border-border bg-white";
 }
@@ -70,6 +72,7 @@ function outcomeLabel(outcome: CallStatus["outcome"], kind: "gestao" | "whatsapp
     return "Sem registro";
   }
   if (outcome === "ok") return "Enviado";
+  if (outcome === "fila") return "Na fila";
   if (outcome === "falhou") return "Falhou";
   return "Sem registro";
 }
@@ -181,7 +184,7 @@ export default function AdminCellTechConnection() {
       <div>
         <h2 className="text-xl font-bold">Conexão</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Token e secret do Gestão Click. O valor completo não aparece, só o final. O grupo automático continua só das 8h às 19h, horário de Brasília. Esta tela não manda mensagem.
+          Token e secret do Gestão Click. O valor completo não aparece, só o final. A instância da Cell Tech também não mostra ID nem token. O grupo automático continua só das 8h às 19h, horário de Brasília. Esta tela não manda mensagem.
         </p>
       </div>
 
@@ -198,6 +201,13 @@ export default function AdminCellTechConnection() {
               <p className="text-lg font-semibold mt-1">{secretOn ? "Configurado" : "Não configurado"}</p>
               {secretHint ? <p className="text-sm mt-1 font-mono">{secretHint}</p> : null}
             </article>
+            {status ? (
+              <article className="rounded-2xl border border-border bg-white p-4">
+                <p className="text-xs text-muted-foreground">Instância Z-API da Cell Tech</p>
+                <p className="text-lg font-semibold mt-1">{status.zapiConfigured ? "Configurada" : "Não configurada"}</p>
+                <p className="text-sm mt-1 text-muted-foreground">Sem ID e sem token nesta tela. Sem a instância, o grupo não recebe.</p>
+              </article>
+            ) : null}
             <article className={`rounded-2xl border-2 p-4 ${tone(status?.gestao.outcome ?? null)}`}>
               <p className="text-xs text-muted-foreground">Última chamada ao Gestão Click</p>
               <p className="text-lg font-semibold mt-1">{outcomeLabel(status?.gestao.outcome ?? null, "gestao")}</p>
@@ -239,7 +249,7 @@ export default function AdminCellTechConnection() {
             ) : (
               <p className="text-sm">Não deu para ler o webhook. Salvar fica desligado para não apagar a URL do n8n.</p>
             )}
-            <p className="text-xs text-muted-foreground">No modo direto, a Z-API manda no grupo e o último envio aparece no card acima. No modo n8n, o POST continua nesta URL. Atualizar status só lê o que já foi gravado.</p>
+            <p className="text-xs text-muted-foreground">No modo direto, a mensagem entra na fila da instância da Cell Tech. Enviado só aparece depois que a Z-API aceita. Até lá o card fica em Na fila. Sem a instância, nada sai e o card não fica Enviado. No modo n8n, o POST continua nesta URL. Atualizar status só lê o que já foi gravado.</p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => void saveSettings()} disabled={saving || !settingsLoaded} className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60">
                 {saving ? "Salvando…" : "Salvar"}

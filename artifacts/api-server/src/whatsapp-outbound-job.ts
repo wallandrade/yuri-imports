@@ -15,5 +15,5 @@ export function startWhatsappOutboundJob(): void {
       });
   };
   setInterval(tick, WHATSAPP_TICK_MS);
-  console.log("[WhatsApp fila] conferência a cada 30s. Pedido pago sai em até 2 min. Os outros avisos: 1 a cada 6 min e 10 por hora.");
+  console.log("[WhatsApp fila] conferência a cada 30s. Pedido pago sai em até 2 min. Os outros avisos: 1 a cada 6 min e 10 por hora, por instância (main, poly e celltech).");
 }

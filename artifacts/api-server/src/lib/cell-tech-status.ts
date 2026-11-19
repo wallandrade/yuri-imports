@@ -1,7 +1,10 @@
 /** Última chamada ao Gestão Click e último envio ao grupo. Sem token. */
 
 export type CellTechGestaoOutcome = "ok" | "recusado";
-export type CellTechWhatsappOutcome = "ok" | "falhou";
+export type CellTechWhatsappOutcome = "ok" | "falhou" | "fila";
+
+export const CELL_TECH_ZAPI_MISSING_LOG = "[Cell Tech] instância Z-API da Cell Tech não configurada";
+export const CELL_TECH_ZAPI_MISSING_MESSAGE = "Instância Z-API da Cell Tech não configurada.";
 
 export type CellTechCallRecord = {
   outcome: CellTechGestaoOutcome | CellTechWhatsappOutcome;
@@ -33,7 +36,7 @@ export type CellTechConnectionPublic = {
 
 const EMPTY: CellTechConnectionState = { gestao: null, whatsapp: null };
 const GESTAO = new Set<CellTechGestaoOutcome>(["ok", "recusado"]);
-const WHATSAPP = new Set<CellTechWhatsappOutcome>(["ok", "falhou"]);
+const WHATSAPP = new Set<CellTechWhatsappOutcome>(["ok", "falhou", "fila"]);
 
 let memory: CellTechConnectionState = { gestao: null, whatsapp: null };
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -107,6 +110,42 @@ export function mergeCellTechConnection(
   };
 }
 
+export function cellTechQueueDeliveryOutcome(input: {
+  accepted: boolean;
+  attempts: number;
+  maxAttempts: number;
+  error?: string;
+}): { outcome: CellTechWhatsappOutcome; message: string } | null {
+  if (input.accepted) return { outcome: "ok", message: "" };
+  if (input.attempts >= input.maxAttempts) {
+    return {
+      outcome: "falhou",
+      message: cellTechStatusMessage(input.error, "A Z-API não enviou a mensagem."),
+    };
+  }
+  return null;
+}
+
+/** Sem a instância da Cell Tech, o card não pode dizer que o grupo recebeu. */
+export function presentCellTechConnection(
+  view: CellTechConnectionPublic,
+  zapiConfigured: boolean,
+  channel: "direto" | "n8n",
+): CellTechConnectionPublic & { zapiConfigured: boolean } {
+  if (channel === "direto" && !zapiConfigured) {
+    return {
+      ...view,
+      zapiConfigured: false,
+      whatsapp: {
+        outcome: "falhou",
+        message: CELL_TECH_ZAPI_MISSING_MESSAGE,
+        at: view.whatsapp.at,
+      },
+    };
+  }
+  return { ...view, zapiConfigured };
+}
+
 export function noteCellTechCall(
   state: CellTechConnectionState,
   channel: "gestao" | "whatsapp",
@@ -175,9 +214,37 @@ export function recordCellTechGestao(ok: boolean, message = "", at = new Date().
   remember(memory);
 }
 
-export function recordCellTechWhatsapp(ok: boolean, message = "", at = new Date().toISOString()): void {
-  memory = noteCellTechCall(memory, "whatsapp", ok, message, at);
+export function recordCellTechWhatsappOutcome(
+  outcome: CellTechWhatsappOutcome,
+  message = "",
+  at = new Date().toISOString(),
+): void {
+  const fallback = outcome === "fila"
+    ? "Na fila da Z-API. O grupo ainda não recebeu."
+    : "A Z-API não enviou a mensagem.";
+  const record: CellTechCallRecord = {
+    outcome,
+    message: outcome === "ok" ? "" : cellTechStatusMessage(message, fallback),
+    at,
+  };
+  memory = { ...memory, whatsapp: record };
   remember(memory);
+}
+
+export function recordCellTechWhatsapp(ok: boolean, message = "", at = new Date().toISOString()): void {
+  recordCellTechWhatsappOutcome(ok ? "ok" : "falhou", message, at);
+}
+
+export function applyCellTechQueueDelivery(input: {
+  accepted: boolean;
+  attempts: number;
+  maxAttempts: number;
+  error?: string;
+  at?: string;
+}): void {
+  const next = cellTechQueueDeliveryOutcome(input);
+  if (!next) return;
+  recordCellTechWhatsappOutcome(next.outcome, next.message, input.at);
 }
 
 export async function readCellTechConnectionState(): Promise<CellTechConnectionState> {

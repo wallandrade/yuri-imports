@@ -40,7 +40,15 @@ import {
   type CellTechOrder,
 } from "./cell-tech-logic";
 import { clearGestaoCache, GestaoClickError, loadCashDayReports, loadCashMonthReports, loadClosedCashBoxes, loadGestaoOrderDetail, loadGestaoOrders, loadGestaoSituations, ordersFromRows } from "./cell-tech-client";
-import { publicCellTechConnection, readCellTechConnectionState, recordCellTechWhatsapp } from "./cell-tech-status";
+import {
+  CELL_TECH_ZAPI_MISSING_LOG,
+  CELL_TECH_ZAPI_MISSING_MESSAGE,
+  presentCellTechConnection,
+  publicCellTechConnection,
+  readCellTechConnectionState,
+  recordCellTechWhatsapp,
+  recordCellTechWhatsappOutcome,
+} from "./cell-tech-status";
 import {
   claimCellTechAlert,
   publicCellTechSettings,
@@ -63,39 +71,55 @@ async function cellTechChannel(): Promise<"direto" | "n8n"> {
   return readWhatsappChannel("cell_tech");
 }
 
+async function rejectCellTechSend(message: string, log: string): Promise<never> {
+  console.warn(log);
+  recordCellTechWhatsappOutcome("falhou", message);
+  throw new Error(message);
+}
+
 async function assertCellTechTransport(settings: CellTechSettings): Promise<void> {
   if ((await cellTechChannel()) === "n8n") {
     if (!settings.webhookUrl) throw new Error("Salve a URL https do webhook do n8n.");
     return;
   }
   const { zapiCredentials } = await import("./zapi-client");
-  if (!zapiCredentials("main")) {
-    throw new Error("Faltam ZAPI_MAIN_INSTANCE_ID, ZAPI_MAIN_TOKEN e ZAPI_CLIENT_TOKEN no servidor.");
+  if (!zapiCredentials("celltech")) {
+    await rejectCellTechSend(CELL_TECH_ZAPI_MISSING_MESSAGE, CELL_TECH_ZAPI_MISSING_LOG);
   }
 }
 
-async function postCellTech(url: string, kind: string, message: string): Promise<void> {
+async function postCellTech(url: string, kind: string, message: string): Promise<"queued" | "posted"> {
   if ((await cellTechChannel()) !== "n8n") {
     if (!cellTechAutomaticGroupSendOpen(saoPauloClock())) {
       throw new Error("O grupo da Cell Tech só recebe mensagem das 8h às 19h, horário de Brasília.");
     }
+    const { zapiCredentials } = await import("./zapi-client");
+    const { cellTechDirectQueueDraft } = await import("./cell-tech-zapi");
+    const { cellTechZapiGroupId } = await import("./whatsapp-outbound-policy");
+    let phone = "";
     try {
-      const { sendZapiMessage } = await import("./zapi-client");
-      const { cellTechZapiGroupId } = await import("./whatsapp-outbound-policy");
-      const sent = await sendZapiMessage({
-        instance: "main",
-        phone: cellTechZapiGroupId(),
-        kind: "text",
-        message,
-      });
-      if (!sent.ok) throw new Error(sent.error || "A Z-API não enviou a mensagem.");
-      recordCellTechWhatsapp(true, "");
+      phone = cellTechZapiGroupId();
     } catch (error) {
-      const failure = error instanceof Error ? error.message : "A Z-API não enviou a mensagem.";
-      recordCellTechWhatsapp(false, failure);
-      throw error instanceof Error ? error : new Error(failure);
+      const failure = error instanceof Error ? error.message : "Grupo da Cell Tech inválido.";
+      return rejectCellTechSend(failure, "[Cell Tech] grupo inválido");
     }
-    return;
+    const plan = cellTechDirectQueueDraft({
+      configured: zapiCredentials("celltech") != null,
+      phone,
+      message,
+    });
+    if (!plan.ok) return rejectCellTechSend(plan.message, plan.log);
+    const instance: string = plan.draft.instance;
+    if (instance !== "celltech") {
+      return rejectCellTechSend(CELL_TECH_ZAPI_MISSING_MESSAGE, CELL_TECH_ZAPI_MISSING_LOG);
+    }
+    const { enqueueWhatsappOutbound } = await import("./whatsapp-outbound-queue");
+    const queued = await enqueueWhatsappOutbound(plan.draft);
+    if (!queued.ok) {
+      return rejectCellTechSend("A mensagem da Cell Tech não entrou na fila.", "[Cell Tech] fila indisponível");
+    }
+    recordCellTechWhatsappOutcome("fila", "Na fila da Z-API. O grupo ainda não recebeu.");
+    return "queued";
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -108,6 +132,7 @@ async function postCellTech(url: string, kind: string, message: string): Promise
     });
     if (!cellTechWebhookAccepted(response.status)) throw new Error(`O n8n respondeu ${response.status}.`);
     recordCellTechWhatsapp(true, "");
+    return "posted";
   } catch (error) {
     const failure = error instanceof Error && error.name === "AbortError"
       ? "O n8n não respondeu a tempo."
@@ -120,13 +145,18 @@ async function postCellTech(url: string, kind: string, message: string): Promise
   }
 }
 
-async function sendClaimed(settings: CellTechSettings, kind: string, osId: string, periodKey: string, message: string): Promise<boolean> {
+async function sendClaimed(
+  settings: CellTechSettings,
+  kind: string,
+  osId: string,
+  periodKey: string,
+  message: string,
+): Promise<"posted" | "queued" | "idle"> {
   await assertCellTechTransport(settings);
   const claim = await claimCellTechAlert(kind, osId, periodKey);
-  if (!claim) return false;
+  if (!claim) return "idle";
   try {
-    await postCellTech(settings.webhookUrl, kind, message);
-    return true;
+    return await postCellTech(settings.webhookUrl, kind, message);
   } catch (error) {
     await releaseCellTechAlert(claim);
     throw error;
@@ -195,7 +225,9 @@ export async function getCellTechSettingsView() {
 export async function getCellTechConnectionView() {
   const settings = await readCellTechSettings();
   const state = await readCellTechConnectionState();
-  return publicCellTechConnection(settings.accessToken, settings.secretAccessToken, state);
+  const view = publicCellTechConnection(settings.accessToken, settings.secretAccessToken, state);
+  const { zapiCredentials } = await import("./zapi-client");
+  return presentCellTechConnection(view, zapiCredentials("celltech") != null, await cellTechChannel());
 }
 
 export async function listCellTechSituations() {
@@ -262,7 +294,8 @@ export async function sendCellTechTestWebhook() {
   assertGroupSendOpen();
   const settings = await readCellTechSettings();
   await assertCellTechTransport(settings);
-  await postCellTech(settings.webhookUrl, "test", "*Cell Tech* conectado. Este aviso é só um teste do grupo da loja.");
+  const mode = await postCellTech(settings.webhookUrl, "test", "*Cell Tech* conectado. Este aviso é só um teste do grupo da loja.");
+  return { ok: true, queued: mode === "queued" };
 }
 
 export async function sendCellTechReport(kind: "daily" | "monthly") {
@@ -272,8 +305,8 @@ export async function sendCellTechReport(kind: "daily" | "monthly") {
   const loaded = await snapshotOrders(settings, true, clock);
   const periodKey = kind === "daily" ? `${clock.dayKey}:visual` : `${monthKey(clock.dayKey)}:visual`;
   const message = kind === "daily" ? buildDailyReport(loaded.orders, clock) : buildMonthlyReport(loaded.orders, clock);
-  const sent = await sendClaimed(settings, kind, "", periodKey, message);
-  return { alreadySent: !sent };
+  const mode = await sendClaimed(settings, kind, "", periodKey, message);
+  return { alreadySent: mode === "idle", queued: mode === "queued" };
 }
 
 function alertMessage(kind: CellTechAlertKind, order: CellTechOrder): string {
@@ -388,12 +421,16 @@ export async function runCellTechTick(
 ): Promise<{ noticesSent: number; dailySent: boolean; monthlySent: boolean; cashSent: number; queueSent: boolean; stalledSent: boolean }> {
   const settings = await readCellTechSettings();
   const channel = await cellTechChannel();
+  const ready = Boolean(settings.alertsEnabled && settings.accessToken && settings.secretAccessToken)
+    && (channel === "n8n" ? Boolean(settings.webhookUrl) : true);
+  if (!ready) return EMPTY_TICK;
   if (channel === "direto") {
     const { zapiCredentials } = await import("./zapi-client");
-    if (!zapiCredentials("main")) return EMPTY_TICK;
-  }
-  if (!settings.alertsEnabled || (channel === "n8n" && !settings.webhookUrl) || !settings.accessToken || !settings.secretAccessToken) {
-    return EMPTY_TICK;
+    if (!zapiCredentials("celltech")) {
+      console.warn(CELL_TECH_ZAPI_MISSING_LOG);
+      recordCellTechWhatsappOutcome("falhou", CELL_TECH_ZAPI_MISSING_MESSAGE);
+      return EMPTY_TICK;
+    }
   }
   const clock = saoPauloClock(now);
   const loaded = await snapshotOrders(settings, false, clock);

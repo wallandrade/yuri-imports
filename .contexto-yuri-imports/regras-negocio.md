@@ -49,6 +49,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-19 | Cell Tech mostra a instância e não finge envio | Em Conexão, a instância da Cell Tech aparece como Configurada ou Não configurada, sem o valor. Na fila até a Z-API aceitar. Enviado só depois. Sem a instância, o card fica em erro | A janela das 8h às 19h, PIX antigo, compra de esgotado e a senha de baixa iguais |
 | 2026-11-19 | Loja pública em `www.yuri-imports-py.com` | Senha, afiliado e Reportana, sem variável de loja, usam esse endereço. Link de afiliado com host `yury-imports.com` abre no domínio da página | Pedido, PIX e comissão iguais |
 | 2026-11-18 | Baixa da KA acha o produto pelo nome | Etiqueta sem id da Yuri desconta o produto do catálogo quando o nome é único e o saldo cobre | Nome parecido de outro cadastro continua de fora. A cópia 48h igual |
 | 2026-11-18 | Baixa de etiqueta mostra a foto | Cada produto da fila usa a foto do catálogo. Sem foto, o quadrado fica vazio. O clique amplia | A busca, a senha e a baixa iguais |

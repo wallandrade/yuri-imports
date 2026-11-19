@@ -7,6 +7,7 @@ import {
   WHATSAPP_PAID_MAX_WAIT_MS,
   WHATSAPP_PAID_ORIGIN,
   WHATSAPP_TICK_MS,
+  WHATSAPP_ZAPI_INSTANCES,
   maskWhatsappPhone,
   whatsappBackoffMs,
   whatsappTickChoice,
@@ -243,6 +244,37 @@ async function claimNext(
   return row?.id ? row : null;
 }
 
+async function cellTechQueueStillWaiting(exceptId: string): Promise<boolean> {
+  const pool = await database();
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM whatsapp_outbound_queue
+     WHERE instance = 'celltech' AND origin = 'cell_tech'
+       AND status IN ('pending', 'sending')
+       AND id <> ?`,
+    [exceptId],
+  );
+  const total = Array.isArray(rows) ? Number((rows[0] as { total?: number } | undefined)?.total || 0) : 0;
+  return total > 0;
+}
+
+async function noteCellTechDelivery(row: QueueRow, sent: { ok: boolean; error?: string }, attempts: number): Promise<void> {
+  if (row.instance !== "celltech" || row.origin !== "cell_tech") return;
+  const { applyCellTechQueueDelivery, recordCellTechWhatsappOutcome } = await import("./cell-tech-status");
+  if (sent.ok) {
+    const waiting = await cellTechQueueStillWaiting(row.id).catch(() => false);
+    if (waiting) {
+      recordCellTechWhatsappOutcome("fila", "Na fila da Z-API. O grupo ainda não recebeu.");
+      return;
+    }
+  }
+  applyCellTechQueueDelivery({
+    accepted: sent.ok,
+    attempts,
+    maxAttempts: WHATSAPP_MAX_ATTEMPTS,
+    error: sent.error,
+  });
+}
+
 async function markResult(row: QueueRow, sent: { ok: boolean; error?: string }): Promise<void> {
   const pool = await database();
   const attempts = Number(row.attempts || 0) + 1;
@@ -254,6 +286,7 @@ async function markResult(row: QueueRow, sent: { ok: boolean; error?: string }):
        WHERE id = ?`,
       [attempts, row.id],
     );
+    await noteCellTechDelivery(row, sent, attempts);
     return;
   }
   const failed = attempts >= WHATSAPP_MAX_ATTEMPTS;
@@ -269,6 +302,7 @@ async function markResult(row: QueueRow, sent: { ok: boolean; error?: string }):
       ? ["failed", attempts, clip(sent.error, 400), row.id]
       : ["pending", attempts, clip(sent.error, 400), waitSeconds, row.id],
   );
+  await noteCellTechDelivery(row, sent, attempts);
 }
 
 async function deliver(instance: WhatsappZapiInstance, row: QueueRow): Promise<void> {
@@ -307,7 +341,19 @@ async function deliver(instance: WhatsappZapiInstance, row: QueueRow): Promise<v
   }
 }
 
+async function cellTechMaySend(instance: WhatsappZapiInstance): Promise<boolean> {
+  if (instance !== "celltech") return true;
+  const { zapiCredentials } = await import("./zapi-client");
+  const { cellTechAutomaticGroupSendOpen, saoPauloClock } = await import("./cell-tech-logic");
+  const { cellTechOutboundReady } = await import("./cell-tech-zapi");
+  return cellTechOutboundReady({
+    configured: zapiCredentials("celltech") != null,
+    windowOpen: cellTechAutomaticGroupSendOpen(saoPauloClock()),
+  });
+}
+
 async function sendNextForInstance(instance: WhatsappZapiInstance): Promise<void> {
+  if (!(await cellTechMaySend(instance))) return;
   const pace = await paceSnapshot(instance);
   const paidAgeMs = await oldestReadyPaidAgeMs(instance);
   const choice = whatsappTickChoice({
@@ -358,8 +404,9 @@ export async function runWhatsappOutboundTick(): Promise<void> {
     const [rows] = await conn.query("SELECT GET_LOCK(?, 0) AS locked", ["yuri_whatsapp_outbound"]);
     locked = Array.isArray(rows) && Number((rows[0] as { locked?: number } | undefined)?.locked) === 1;
     if (!locked) return;
-    await sendNextForInstance("main");
-    await sendNextForInstance("poly");
+    for (const instance of WHATSAPP_ZAPI_INSTANCES) {
+      await sendNextForInstance(instance);
+    }
   } catch (err) {
     if (missingTable(err)) return;
     throw err;
