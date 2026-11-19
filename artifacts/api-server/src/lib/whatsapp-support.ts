@@ -8,6 +8,7 @@ import { envioecomTrackingUrl } from "./order-tracking-whatsapp";
 import { isCustomerTrackingCode } from "./reportana-payload";
 import { isSuperfreteDelivered, isSuperfretePosted } from "./superfrete-status";
 import { trySupportAiReply } from "./whatsapp-support-ai";
+import { STORE_ORIGIN } from "./whatsapp-line";
 import {
   SUPPORT_PIX_KEY_ID,
   defaultSupportMenu,
@@ -597,7 +598,8 @@ export function supportListText(turn: Extract<SupportTurn, { kind: "list" }>): s
 
 function comparableSupportText(value: string): string {
   return value
-    .replace(/https:\/\/www\.yury-imports\.com\/(?:yuri|poly)\b/g, "https://www.yury-imports.com")
+    .replace(/https:\/\/(?:www\.)?yury-imports\.com(?:\/(?:yuri|poly))?\b/g, STORE_ORIGIN)
+    .replace(/https:\/\/www\.yuri-imports-py\.com\/(?:yuri|poly)\b/g, STORE_ORIGIN)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\*/g, "")
@@ -655,7 +657,7 @@ function isAutomaticStoreNotice(text: string): boolean {
   if (folded.includes("pedido saiu para entrega")) return true;
   if (folded.includes("comunicado oficial")) return true;
   if (folded.includes("filmagem completa da abertura")) return true;
-  if (folded.includes("pode ver em https://www.yury-imports.com")) return true;
+  if (folded.includes(`pode ver em ${STORE_ORIGIN}`)) return true;
   if (folded.includes("qual produto voce quer saber o valor")) return true;
   if (folded.includes("tem mais de um parecido")) return true;
   if (/pedido #\d+/.test(folded) && (folded.includes("pagamento:") || folded.includes("situacao:") || folded.includes("produtos:"))) return true;

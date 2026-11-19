@@ -20,19 +20,29 @@ export const POLY_N8N_SETTING_KEYS = [
 
 export type WhatsappLine = "poly" | "main";
 
-const STORE_ORIGIN = "https://www.yury-imports.com";
+export const STORE_ORIGIN = "https://www.yuri-imports-py.com";
+const PREVIOUS_STORE_ORIGINS = ["https://www.yury-imports.com", "https://yury-imports.com"];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /** Link da loja do vendedor que atendeu. A comissão segue esse caminho. */
 export function whatsappSellerStoreUrl(line: WhatsappLine): string {
   return line === "poly" ? `${STORE_ORIGIN}/poly` : `${STORE_ORIGIN}/yuri`;
 }
 
-/** Troca o site solto pelo link do vendedor. Página de produto e link que já tem caminho ficam iguais. */
+/** Troca o site solto pelo link do vendedor. O domínio antigo vira o atual e o caminho fica. */
 export function withWhatsappSellerStoreLink(message: string, line: WhatsappLine): string {
-  return message.replace(
-    /https:\/\/www\.yury-imports\.com(?!\/[A-Za-z0-9])/g,
-    whatsappSellerStoreUrl(line),
-  );
+  const target = whatsappSellerStoreUrl(line);
+  let text = message;
+  for (const origin of [STORE_ORIGIN, ...PREVIOUS_STORE_ORIGINS]) {
+    text = text.replace(new RegExp(`${escapeRegExp(origin)}(?!\\/[A-Za-z0-9])`, "g"), target);
+  }
+  for (const origin of PREVIOUS_STORE_ORIGINS) {
+    text = text.split(origin).join(STORE_ORIGIN);
+  }
+  return text;
 }
 
 export function isPolyWhatsappSeller(sellerCode: string | null | undefined): boolean {

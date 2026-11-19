@@ -1,3 +1,5 @@
+import { STORE_ORIGIN } from "./whatsapp-line";
+
 export const GROUP_SLOTS = [9, 13, 17, 21] as const;
 export const GROUP_STAGGER_MINUTES = 10;
 export const GROUP_LIMIT = 6;
@@ -76,7 +78,7 @@ export function pickGroupProduct<T extends CampaignProduct>(
 }
 
 export function productCaption(name: string, productId: string): string {
-  return `${name}\nhttps://www.yury-imports.com/produto/${encodeURIComponent(productId)}`;
+  return `${name}\n${STORE_ORIGIN}/produto/${encodeURIComponent(productId)}`;
 }
 
 function captionWithoutImageUrl(message: string, imageUrl: string): string {
@@ -600,7 +602,7 @@ export function peptideDailyCaption(brief: PeptideBrief, productId: string): str
   const imagine = imagineLine(brief);
   if (imagine) parts.push("", imagine);
   parts.push("", "🔬 *O QUE MOSTRAM OS ESTUDOS?*", "", studyLead(brief), "", ...bulletLines(brief));
-  parts.push("", `Compre aqui: https://www.yury-imports.com/produto/${encodeURIComponent(productId)}`);
+  parts.push("", `Compre aqui: ${STORE_ORIGIN}/produto/${encodeURIComponent(productId)}`);
   return parts.join("\n");
 }
 

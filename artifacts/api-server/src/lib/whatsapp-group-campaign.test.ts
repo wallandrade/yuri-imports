@@ -46,7 +46,7 @@ test("a rodada escolhe foto https e pula esgotado", () => {
   const later = pickGroupProduct(products, ["d", "e"], "2026-10-11", 13);
   assert.equal(first?.image?.startsWith("https://"), true);
   assert.notEqual(later?.id, first?.id);
-  assert.equal(productCaption("Lipoless", "d").includes("https://www.yury-imports.com/produto/d"), true);
+  assert.equal(productCaption("Lipoless", "d").includes("https://www.yuri-imports-py.com/produto/d"), true);
 });
 
 test("cada grupo sai 10 minutos depois do anterior", () => {
@@ -114,7 +114,7 @@ test("a explicação diária só sai se tiver ficha e produto à venda", () => {
   assert.deepEqual(peptideSendHours("21"), [21]);
   assert.deepEqual(peptideSendHours("[21,10,10,25,13]"), [10, 13, 21]);
   const plain = peptideDailyCaption(briefs[0], "buy");
-  assert.equal(plain.includes("https://www.yury-imports.com/produto/buy"), true);
+  assert.equal(plain.includes("https://www.yuri-imports-py.com/produto/buy"), true);
   assert.equal(plain.includes("Vale a pena ler até o final"), true);
   assert.equal(plain.includes("🧠✨"), true);
   assert.equal(plain.includes("Mas atenção"), false);

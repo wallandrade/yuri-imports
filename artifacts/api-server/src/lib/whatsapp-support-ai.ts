@@ -1,6 +1,6 @@
 import { eq, or, sql } from "drizzle-orm";
 import { promoPriceStillApplies } from "./promo-stock-logic";
-import { whatsappSellerStoreUrl, type WhatsappLine } from "./whatsapp-line";
+import { STORE_ORIGIN, whatsappSellerStoreUrl, type WhatsappLine } from "./whatsapp-line";
 
 export const WHATSAPP_SUPPORT_AI_SETTING = "whatsapp_support_ai_enabled";
 
@@ -124,7 +124,7 @@ export function buildSupportAiMessages(
   const catalog = products.length === 0
     ? "Nenhum produto do site combina com a pergunta."
     : products.map((product) => {
-      return `- ${product.name}: ${money(product.price)}. https://www.yury-imports.com/produto/${product.id}`;
+      return `- ${product.name}: ${money(product.price)}. ${STORE_ORIGIN}/produto/${product.id}`;
     }).join("\n");
   return [
     {

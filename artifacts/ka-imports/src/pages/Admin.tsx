@@ -22048,7 +22048,7 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
           </div>
         </div>
         <p className="text-xs text-muted-foreground break-all">
-          Meu pedido: o cliente manda o número ou o CPF e recebe situação, produtos e rastreio. A Z-API, em Ao receber, aponta direto para a API, sem n8n. Cole {n8nSupportToken.trim().length >= 8 ? `https://api.yury-imports.com/api/whatsapp/support/inbound?token=${n8nSupportToken.trim()}` : "https://api.yury-imports.com/api/whatsapp/support/inbound?token=SEU_TOKEN"}. O menu da Poly continua desligado.
+          Meu pedido: o cliente manda o número ou o CPF e recebe situação, produtos e rastreio. A Z-API, em Ao receber, aponta direto para a API, sem n8n. Cole {n8nSupportToken.trim().length >= 8 ? `https://yuri-imports-9483v.ondigitalocean.app/api/whatsapp/support/inbound?token=${n8nSupportToken.trim()}` : "https://yuri-imports-9483v.ondigitalocean.app/api/whatsapp/support/inbound?token=SEU_TOKEN"}. O menu da Poly continua desligado.
         </p>
       </div>
 
@@ -22181,11 +22181,11 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
             type="url"
             value={brevoResetBaseUrl}
             onChange={(e) => setBrevoResetBaseUrl(e.target.value)}
-            placeholder="https://www.yury-imports.com"
+            placeholder="https://www.yuri-imports-py.com"
             className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            Se ficar vazio, o link usa https://www.yury-imports.com/redefinir-senha. Sem chave ou sem e-mail do remetente, a loja não envia e o cliente vê a mesma mensagem genérica.
+            Se ficar vazio, o link usa https://www.yuri-imports-py.com/redefinir-senha. Sem chave ou sem e-mail do remetente, a loja não envia e o cliente vê a mesma mensagem genérica.
           </p>
         </div>
         <div className="flex justify-end">

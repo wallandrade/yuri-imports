@@ -1,6 +1,6 @@
 # Regras de negócio — Yuri Import
 
-> **Última atualização:** 2026-11-18
+> **Última atualização:** 2026-11-19
 
 Descreve o que **já existe no código** do e-commerce Yuri Import (grafia no app/domínio frequentemente **Yury**). Não especula features futuras.
 
@@ -49,6 +49,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-19 | Loja pública em `www.yuri-imports-py.com` | Senha, afiliado e Reportana, sem variável de loja, usam esse endereço. Link de afiliado com host `yury-imports.com` abre no domínio da página | Pedido, PIX e comissão iguais |
 | 2026-11-18 | Baixa da KA acha o produto pelo nome | Etiqueta sem id da Yuri desconta o produto do catálogo quando o nome é único e o saldo cobre | Nome parecido de outro cadastro continua de fora. A cópia 48h igual |
 | 2026-11-18 | Baixa de etiqueta mostra a foto | Cada produto da fila usa a foto do catálogo. Sem foto, o quadrado fica vazio. O clique amplia | A busca, a senha e a baixa iguais |
 | 2026-11-18 | Baixa de etiqueta tem busca | O campo filtra a aba aberta pelo número do pedido ou pelo nome do cliente | A contagem das abas, a senha e a baixa continuam iguais |
@@ -433,7 +434,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 ## Identidade do produto
 
 - Nome comercial na memória: **Yuri Import**.
-- No código/UI/domínio aparece **Yury** / `yury-imports.com` — TODO confirmar com humano a grafia pública final.
+- No código/UI o domínio público da loja é `www.yuri-imports-py.com`. `yury-imports.com` não resolve e só permanece como host antigo a reescrever.
 - Pasta GitHub/workspace `barbearia` e package `@workspace/ka-imports` são **nomes legados**; **não** tratar como barbearia, agendamento ou salão.
 - DB de exemplo em scripts: `oficialkaimports` — legado.
 
@@ -445,7 +446,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 - Status usados no admin (código): `pending`, `awaiting_payment`, `paid`, `cancelled`, `completed`.
 - Métodos de pagamento observados: `pix`, cartão simulado (`card_simulation` / fluxos de cartão), WhatsApp (`whatsapp_pix`), crédito de afiliado (`affiliate_credit`), saldo da loja (`store_credit`).
 - Guest orders: `guestAccessToken` para acesso sem conta.
-- **Senha da conta:** o cliente pede em Esqueci minha senha (`POST /api/auth/forgot-password`). A resposta diz se o link foi enviado, se o e-mail não tem conta, se estourou o limite ou se o envio falhou. O sucesso só aparece quando o Brevo devolve `messageId`. O link `https://www.yury-imports.com/redefinir-senha?token=` vale 1 hora, uma vez. A página nova grava a senha com o mesmo PBKDF2 do admin. O WhatsApp continua como alternativa. O botão Senha do admin continua.
+- **Senha da conta:** o cliente pede em Esqueci minha senha (`POST /api/auth/forgot-password`). A resposta diz se o link foi enviado, se o e-mail não tem conta, se estourou o limite ou se o envio falhou. O sucesso só aparece quando o Brevo devolve `messageId`. O link `https://www.yuri-imports-py.com/redefinir-senha?token=` vale 1 hora, uma vez, salvo `brevo_reset_base_url` ou `PASSWORD_RESET_BASE_URL`. A página nova grava a senha com o mesmo PBKDF2 do admin. O WhatsApp continua como alternativa. O botão Senha do admin continua.
 - Comprovantes: `proofUrl` + `proofUrls` (galeria; uploads anexam sem apagar anteriores).
 - **Extrato OFX (Inter):** aba **Extrato** — só pedidos manuais (`whatsapp_pix` ou sem `transactionId`; exclui PIX gateway). Upload `.ofx` → analyze; FITID já em `ok`/`confirmed_100` é **ignorado**. Score = tokens de nome; se CPF/CNPJ do crédito (NAME/MEMO) = `clientDocument` do pedido → **100%**. Lista UI **Valor bateu, nome diferente** = match valor/data com score abaixo de 100%. **Buscar no extrato** filtra créditos por nome e permite **Vincular** ao nº do pedido (valor deve bater). **Aplicar só 100%** → `confirmed_100`. Aba **Depósitos** lista histórico persistente (`GET /api/admin/bank-deposits`); **Desfazer** zera `bank_deposit_*` (`POST .../clear`) sem mudar pago. **Não** altera `status` pago automaticamente.
 - Edição de pedido (admin primário): troca de itens/quantidades; endereço; **contato** (telefone, e-mail, CPF/CNPJ); **desconto por produto** (`lineDiscount` no JSON, em reais, teto = preço × qtd cobrada). O preço de catálogo permanece; subtotal, seguro e lucro da linha usam o líquido. Cupom / Desconto do pedido continua à parte. PIX de diferença via cobrança/gateway quando o valor sobe. Quando o novo total fica **abaixo** do já pago, a diferença vai para a **carteira** (`order_edit_surplus` + `store_credit_from_edit`), salvo se o admin marcar **Não enviar saldo para a carteira do cliente**. Marcada, a sobra fica na loja (`store_credit_withheld_from_edit`) e não credita agora nem no cadastro/login depois. `paidAmount` continua o PIX recebido; prepaid efetivo = pago − já creditado − já retido. Sem conta e sem a opção: não credita na hora; cadastro/login depois (`claimGuestOrdersForCustomer`) libera a sobra.
@@ -514,7 +515,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 ## Afiliados
 
 - Cadastro, código, referrals, comissões e uso de crédito — `routes/affiliate.ts`, `lib/affiliates.ts`, schemas `affiliates*`.
-- Link de divulgação (`GET /api/me/affiliate/dashboard`): `STOREFRONT_URL`, senão `FRONTEND_URL`, senão `PUBLIC_SITE_URL`, senão `https://www.yury-imports.com`, no formato `/r/{código}`. Na Minha conta, host `ka-imports.com` ou `www.ka-imports.com` vira o domínio da página aberta, com o mesmo caminho.
+- Link de divulgação (`GET /api/me/affiliate/dashboard`): `STOREFRONT_URL`, senão `FRONTEND_URL`, senão `PUBLIC_SITE_URL`, senão `https://www.yuri-imports-py.com`, no formato `/r/{código}`. Na Minha conta, host `ka-imports.com`, `www.ka-imports.com`, `yury-imports.com` ou `www.yury-imports.com` vira o domínio da página aberta, com o mesmo caminho.
 
 ## Cobranças customizadas
 

@@ -1,6 +1,6 @@
 # Segurança e performance — Yuri Import
 
-> **Última atualização:** 2026-11-17
+> **Última atualização:** 2026-11-19
 
 Controles de segurança/performance **no código** (`artifacts/api-server/src/app.ts` e afins).
 
@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-19 | CORS aceita `yuri-imports-py.com` | Checkout no domínio novo entra na allowlist junto com KA e o host antigo | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-17 | Token da Z-API não entra no log nem na fila | O erro gravado tira URL da instância e trechos longos. A fila mostra só os 4 últimos dígitos. A entrada continua exigindo o token do atendimento | O checkout token e o token do Gestão Click iguais |
 | 2026-11-17 | Status da Cell Tech não leva o token | `GET /api/admin/cell-tech/connection` e `GET /api/admin/cell-tech/situations` exigem admin principal (`requirePrimaryAdmin`). A resposta mostra no máximo os 4 últimos caracteres. A chave `cell_tech_connection_status` não entra em `PUBLIC_KEYS` | O GET de settings da Cell Tech e o checkout token iguais |
 | 2026-11-12 | Moderação de grupo usa o token do atendimento | `POST /api/whatsapp/groups/inbound` e o grupo que chega no webhook já existente exigem o mesmo token. Sem checkout token. Nasce desligada | O limite do atendimento 1:1 e o checkout token iguais |
@@ -32,7 +33,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 ## CORS e headers
 
-- CORS com allowlist de origens oficiais (domínios Yury/KA/Vercel + `CORS_ALLOWED_ORIGINS`). Exceção: `POST /api/whatsapp/support/inbound` aceita a origem da Z-API; a senha da rota é o controle.
+- CORS com allowlist de origens oficiais (`yuri-imports-py.com`, Yury antigo, KA, Vercel + `CORS_ALLOWED_ORIGINS`). Exceção: `POST /api/whatsapp/support/inbound` aceita a origem da Z-API; a senha da rota é o controle.
 - `credentials: true`; métodos REST padrão; `allowedHeaders`: `Content-Type`, `Authorization`.
 - Headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`.
 - Body JSON/urlencoded até ~15mb (uploads/base64).

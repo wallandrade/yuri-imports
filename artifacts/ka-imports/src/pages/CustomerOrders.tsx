@@ -75,7 +75,8 @@ function resolveStoreReferralLink(link: string, code: string): string {
     const isLocalApiOrigin =
       (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") && parsed.port === "5000";
     const isLegacyStoreHost =
-      parsed.hostname === "ka-imports.com" || parsed.hostname === "www.ka-imports.com";
+      parsed.hostname === "ka-imports.com" || parsed.hostname === "www.ka-imports.com"
+      || parsed.hostname === "yury-imports.com" || parsed.hostname === "www.yury-imports.com";
 
     if (isLegacyStoreHost) {
       return `${window.location.origin}${parsed.pathname}${parsed.search}`;
