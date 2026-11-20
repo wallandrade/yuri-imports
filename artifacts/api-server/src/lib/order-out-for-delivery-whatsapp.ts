@@ -1,27 +1,4 @@
-import { eq } from "drizzle-orm";
-import { toWhatsappMarkup, toWhatsappPhone } from "./order-paid-whatsapp";
-import { isCustomerTrackingCode } from "./reportana-payload";
-import { dispatchWhatsappNotice, whatsappNoticeConfigured } from "./whatsapp-dispatch";
-import { whatsappInstanceForSeller } from "./whatsapp-outbound-policy";
-
-export const N8N_OUT_FOR_DELIVERY_WEBHOOK_SETTING = "n8n_out_for_delivery_webhook_url";
-
-async function database() {
-  const { db, ordersTable } = await import("@workspace/db");
-  return { db, ordersTable };
-}
-
-export function parseOutForDeliveryWhatsappKeys(raw: string | null | undefined): string[] {
-  const text = String(raw || "").trim();
-  if (!text) return [];
-  try {
-    const parsed = JSON.parse(text);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.map((item) => String(item || "").trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
+import { queueOrderFilmagemDeliveryWhatsapp } from "./order-filmagem-whatsapp";
 
 /** Só a frase da transportadora. Postado, trânsito e Entregue ficam de fora. */
 export function isOutForDeliveryStatus(status: string | null | undefined): boolean {
@@ -32,7 +9,7 @@ export function isOutForDeliveryStatus(status: string | null | undefined): boole
   return /saiu\s+para\s+entrega/.test(value);
 }
 
-/** Só na passagem para saiu para entrega. Cada pacote avisa uma vez. */
+/** Só na passagem para saiu para entrega. Cada pacote dispara o texto 2 uma vez; a filmagem em si é uma vez por pedido. */
 export function shouldAnnounceOutForDelivery(input: {
   previousStatus?: string | null;
   nextStatus?: string | null;
@@ -46,102 +23,7 @@ export function shouldAnnounceOutForDelivery(input: {
   return !sent.has(key);
 }
 
-export function buildOutForDeliveryWhatsappMessage(input: {
-  clientName?: string | null;
-  orderNumber?: number | null;
-  orderId?: string | null;
-  trackingCode?: string | null;
-}): string {
-  const firstName = String(input.clientName || "Cliente").trim().split(/\s+/)[0] || "Cliente";
-  const reference = input.orderNumber != null && Number(input.orderNumber) > 0
-    ? String(input.orderNumber)
-    : String(input.orderId || "").trim() || "-";
-  const code = String(input.trackingCode || "").trim();
-  const lines = [
-    `🛵 **${firstName}, seu pedido saiu para entrega!**`,
-    "",
-    `Pedido #${reference}`,
-  ];
-  if (isCustomerTrackingCode(code)) lines.push(`Código: **${code}**`);
-  lines.push("", "Fique de olho para receber. 📦");
-  return toWhatsappMarkup(lines.join("\n"));
-}
-
-async function webhookUrl(sellerCode?: string | null): Promise<string> {
-  const { resolveWhatsappWebhookUrl } = await import("./whatsapp-line");
-  return resolveWhatsappWebhookUrl({
-    sellerCode,
-    env: "N8N_OUT_FOR_DELIVERY_WEBHOOK_URL",
-    setting: N8N_OUT_FOR_DELIVERY_WEBHOOK_SETTING,
-    envPoly: "N8N_OUT_FOR_DELIVERY_WEBHOOK_URL_POLY",
-    settingPoly: "n8n_out_for_delivery_webhook_url_poly",
-  });
-}
-
-/** Avisa uma vez por pacote quando ele sai para entrega. Falha não segura etiqueta nem sync. */
-export async function sendOutForDeliveryWhatsapp(
-  orderId: string,
-  packageKey: string,
-  trackingCode?: string | null,
-): Promise<{ sent: boolean; error?: string }> {
-  const id = String(orderId || "").trim();
-  const key = String(packageKey || "").trim();
-  if (!id || !key) return { sent: false, error: "missing_id" };
-  try {
-    const { db, ordersTable } = await database();
-    const rows = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
-    const order = rows[0];
-    if (!order) return { sent: false, error: "not_found" };
-
-    const url = await webhookUrl(order.sellerCode);
-    if (!(await whatsappNoticeConfigured("saiu", url))) return { sent: false, error: "not_configured" };
-    const phone = toWhatsappPhone(order.clientPhone);
-    if (!phone) return { sent: false, error: "missing_phone" };
-
-    const already = parseOutForDeliveryWhatsappKeys(order.outForDeliveryWhatsappKeys);
-    if (already.includes(key)) return { sent: false, error: "already_sent" };
-
-    await db
-      .update(ordersTable)
-      .set({ outForDeliveryWhatsappKeys: JSON.stringify([...already, key]) })
-      .where(eq(ordersTable.id, id));
-
-    const message = buildOutForDeliveryWhatsappMessage({
-      clientName: order.clientName,
-      orderNumber: order.orderNumber,
-      orderId: order.id,
-      trackingCode,
-    });
-    const result = await dispatchWhatsappNotice({
-      origin: "saiu",
-      instance: whatsappInstanceForSeller(order.sellerCode),
-      phone,
-      kind: "text",
-      message,
-      n8nUrl: url,
-      n8nBody: { phone, message },
-    });
-    if (result.ok) return { sent: true };
-
-    await db
-      .update(ordersTable)
-      .set({ outForDeliveryWhatsappKeys: JSON.stringify(already) })
-      .where(eq(ordersTable.id, id));
-    console.warn("[WhatsApp saiu para entrega] falha", id, result.error || "request_failed");
-    return { sent: false, error: result.error || "request_failed" };
-  } catch (err) {
-    console.error("[WhatsApp saiu para entrega] sync", id, err instanceof Error ? err.message : err);
-    return { sent: false, error: "exception" };
-  }
-}
-
-export function queueOutForDeliveryWhatsapp(orderId: string | null | undefined, packageKey: string, trackingCode?: string | null): void {
-  const id = String(orderId || "").trim();
-  const key = String(packageKey || "").trim();
-  if (!id || !key) return;
-  void sendOutForDeliveryWhatsapp(id, key, trackingCode);
-}
-
+/** Na saída para entrega sai só o texto 2 e o vídeo. O aviso antigo da moto não entra. */
 export function announceOutForDelivery(input: {
   orderId: string | null | undefined;
   packageKey: string | null | undefined;
@@ -155,8 +37,5 @@ export function announceOutForDelivery(input: {
     nextStatus: input.nextStatus,
     packageKey: key,
   })) return;
-  queueOutForDeliveryWhatsapp(input.orderId, key, input.trackingCode);
-  void import("./order-filmagem-whatsapp").then(({ queueOrderFilmagemDeliveryWhatsapp }) => {
-    queueOrderFilmagemDeliveryWhatsapp(input.orderId);
-  });
+  queueOrderFilmagemDeliveryWhatsapp(input.orderId);
 }
