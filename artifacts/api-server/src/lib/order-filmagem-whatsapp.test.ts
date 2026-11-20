@@ -11,6 +11,9 @@ import {
   FILMAGEM_NOTICE_DELAY_MS,
   FILMAGEM_PAID_TEXT,
   FILMAGEM_QUEUE_ORIGIN,
+  filmagemOrderIdFromOptionList,
+  filmagemOutboundStillAllowed,
+  filmagemSiblingQueueIds,
   FILMAGEM_VIDEO_PUBLIC_PATH,
   filmagemNoticeDueAt,
   filmagemNoticeEligibleOnTransition,
@@ -82,6 +85,16 @@ test("pedido pago entra na fila no prazo, com GIF atrás do texto, uma vez", () 
   assert.equal(plan.drafts[1]?.instance, "poly");
   assert.equal(plan.drafts[1]?.phone, PHONE);
   assert.equal(plan.drafts[1]?.nextAttemptAt?.getTime(), DUE.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS);
+  assert.equal(filmagemOrderIdFromOptionList(plan.drafts[0]?.optionList), "pedido1");
+  assert.equal(filmagemOrderIdFromOptionList(plan.drafts[1]?.optionList), "pedido1");
+  assert.equal(filmagemOutboundStillAllowed("paid"), true);
+  assert.equal(filmagemOutboundStillAllowed("completed"), true);
+  assert.equal(filmagemOutboundStillAllowed("cancelled"), false);
+  assert.equal(filmagemOutboundStillAllowed("pending"), false);
+  assert.deepEqual(filmagemSiblingQueueIds("pedido1", FILMAGEM_QUEUE_ORIGIN), [
+    plan.drafts[0]?.id,
+    plan.drafts[1]?.id,
+  ]);
   assert.equal(plan.drafts[0]?.id, filmagemQueueId("pedido1", "paid-text"));
   assert.equal(plan.drafts[1]?.id, filmagemQueueId("pedido1", "paid-gif"));
   assert.notEqual(plan.drafts[0]?.id, plan.drafts[1]?.id);

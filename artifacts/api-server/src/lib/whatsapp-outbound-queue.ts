@@ -331,6 +331,11 @@ async function deliver(instance: WhatsappZapiInstance, row: QueueRow): Promise<v
     }
   }
   const fallback = row.kind === "option_list" ? String(row.caption || "").trim() : "";
+  if (row.origin === "filmagem" || row.origin === "filmagem_entrega") {
+    const { dropFilmagemIfOrderLeftPaid } = await import("./order-filmagem-whatsapp");
+    const dropped = await dropFilmagemIfOrderLeftPaid({ origin: row.origin, optionList });
+    if (dropped) return;
+  }
   const sent = await sendZapiMessageWithFallback({
     instance,
     phone: row.phone,

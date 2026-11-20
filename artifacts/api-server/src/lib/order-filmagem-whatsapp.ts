@@ -103,6 +103,39 @@ export function orderFilmagemWhatsappPayload(
   return { phone, message };
 }
 
+export function filmagemOrderRef(orderId: string): { filmagemOrderId: string } {
+  return { filmagemOrderId: orderId };
+}
+
+export function filmagemOrderIdFromOptionList(raw: unknown): string {
+  let value = raw;
+  if (typeof value === "string" && value.trim()) {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return "";
+    }
+  }
+  if (!value || typeof value !== "object") return "";
+  return String((value as { filmagemOrderId?: unknown }).filmagemOrderId || "").trim();
+}
+
+/** Cancelado ou desfeito no meio das 2h não recebe "pagamento confirmado". */
+export function filmagemOutboundStillAllowed(status: string | null | undefined): boolean {
+  const value = String(status || "").trim().toLowerCase();
+  return value === "paid" || value === "completed";
+}
+
+export function filmagemSiblingQueueIds(orderId: string, origin: string): string[] {
+  if (origin === FILMAGEM_QUEUE_ORIGIN) {
+    return [filmagemQueueId(orderId, "paid-text"), filmagemQueueId(orderId, "paid-gif")];
+  }
+  if (origin === FILMAGEM_DELIVERY_QUEUE_ORIGIN) {
+    return [filmagemQueueId(orderId, "delivery-text"), filmagemQueueId(orderId, "delivery-gif")];
+  }
+  return [];
+}
+
 function textDraft(input: {
   orderId: string;
   slot: "paid-text" | "delivery-text";
@@ -119,6 +152,7 @@ function textDraft(input: {
     kind: "text",
     message: input.message,
     origin: input.origin,
+    optionList: filmagemOrderRef(input.orderId),
     nextAttemptAt: input.nextAttemptAt,
   };
 }
@@ -141,8 +175,38 @@ function gifDraft(input: {
     kind: "gif",
     image: videoUrl,
     origin: input.origin,
+    optionList: filmagemOrderRef(input.orderId),
     nextAttemptAt: input.nextAttemptAt,
   };
+}
+
+/** Tira texto e GIF da fila se o pedido saiu de pago. Sem id, a fila segue. */
+export async function dropFilmagemIfOrderLeftPaid(input: {
+  origin: string;
+  optionList: unknown;
+}): Promise<boolean> {
+  if (input.origin !== FILMAGEM_QUEUE_ORIGIN && input.origin !== FILMAGEM_DELIVERY_QUEUE_ORIGIN) return false;
+  const orderId = filmagemOrderIdFromOptionList(input.optionList);
+  if (!orderId) return false;
+  const { db, ordersTable } = await import("@workspace/db");
+  const rows = await db
+    .select({ status: ordersTable.status })
+    .from(ordersTable)
+    .where(eq(ordersTable.id, orderId))
+    .limit(1);
+  if (filmagemOutboundStillAllowed(rows[0]?.status)) return false;
+  const ids = filmagemSiblingQueueIds(orderId, input.origin);
+  if (ids.length === 0) return true;
+  const { pool } = await import("@workspace/db");
+  const marks = ids.map(() => "?").join(", ");
+  await pool.query(
+    `UPDATE whatsapp_outbound_queue
+     SET status = 'failed', attempts = 0, last_error = 'pedido_nao_pago',
+         next_attempt_at = NULL, sent_at = NULL, updated_at = CURRENT_TIMESTAMP
+     WHERE id IN (${marks}) AND status IN ('pending', 'sending')`,
+    ids,
+  );
+  return true;
 }
 
 /** Texto na hora marcada e, se houver URL, o GIF um segundo depois. */
