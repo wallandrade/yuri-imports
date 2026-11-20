@@ -163,12 +163,14 @@ test("saída para entrega manda o texto 2 e o GIF, sem furar a fila do pago", ()
   if (!plan.ok) return;
   assert.equal(plan.drafts[0]?.message, FILMAGEM_DELIVERY_TEXT);
   assert.equal(plan.drafts[0]?.kind, "text");
-  assert.equal(plan.drafts[0]?.nextAttemptAt, null);
+  assert.equal(plan.drafts[0]?.nextAttemptAt?.getTime(), now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS);
+  assert.equal(plan.drafts[0]?.createdAt?.getTime(), now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS);
   assert.equal(plan.drafts[0]?.origin, FILMAGEM_DELIVERY_QUEUE_ORIGIN);
   assert.notEqual(plan.drafts[0]?.origin, WHATSAPP_PAID_ORIGIN);
   assert.equal(plan.drafts[0]?.phone, PHONE);
   assert.equal(plan.drafts[1]?.kind, "gif");
-  assert.equal(plan.drafts[1]?.nextAttemptAt?.getTime(), now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS);
+  assert.equal(plan.drafts[1]?.nextAttemptAt?.getTime(), now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS * 2);
+  assert.equal(plan.drafts[1]?.createdAt?.getTime(), now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS * 2);
   assert.equal(plan.drafts[0]?.id, filmagemQueueId("pedido1", "delivery-text"));
   assert.notEqual(plan.drafts[0]?.id, filmagemQueueId("pedido1", "paid-text"));
   assert.deepEqual(planFilmagemDeliveryNotice({

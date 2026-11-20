@@ -144,6 +144,7 @@ function textDraft(input: {
   message: string;
   origin: string;
   nextAttemptAt: Date | null;
+  createdAt?: Date | null;
 }): WhatsappOutboundDraft {
   return {
     id: filmagemQueueId(input.orderId, input.slot),
@@ -154,6 +155,7 @@ function textDraft(input: {
     origin: input.origin,
     optionList: filmagemOrderRef(input.orderId),
     nextAttemptAt: input.nextAttemptAt,
+    createdAt: input.createdAt,
   };
 }
 
@@ -165,6 +167,7 @@ function gifDraft(input: {
   videoUrl: string;
   origin: string;
   nextAttemptAt: Date;
+  createdAt?: Date | null;
 }): WhatsappOutboundDraft | null {
   const videoUrl = filmagemVideoUrl(input.videoUrl);
   if (!videoUrl) return null;
@@ -177,6 +180,7 @@ function gifDraft(input: {
     origin: input.origin,
     optionList: filmagemOrderRef(input.orderId),
     nextAttemptAt: input.nextAttemptAt,
+    createdAt: input.createdAt,
   };
 }
 
@@ -250,7 +254,7 @@ export function planFilmagemPaidNotice(input: {
   return { ok: true, drafts };
 }
 
-/** Texto 2 na hora em que a fila puder, e o GIF logo atrás. */
+/** Texto 2 um segundo depois do aviso da main, e o GIF mais um segundo atrás. */
 export function planFilmagemDeliveryNotice(input: {
   orderId: string;
   phone?: string | null;
@@ -263,6 +267,8 @@ export function planFilmagemDeliveryNotice(input: {
   const phone = toWhatsappPhone(input.phone);
   if (!phone) return { ok: false, error: "missing_phone" };
   const instance = whatsappInstanceForSeller(input.sellerCode);
+  const textAt = new Date(input.now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS);
+  const gifAt = new Date(input.now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS * 2);
   const drafts: WhatsappOutboundDraft[] = [
     textDraft({
       orderId: input.orderId,
@@ -271,7 +277,8 @@ export function planFilmagemDeliveryNotice(input: {
       instance,
       message: FILMAGEM_DELIVERY_TEXT,
       origin: FILMAGEM_DELIVERY_QUEUE_ORIGIN,
-      nextAttemptAt: null,
+      nextAttemptAt: textAt,
+      createdAt: textAt,
     }),
   ];
   const gif = gifDraft({
@@ -281,7 +288,8 @@ export function planFilmagemDeliveryNotice(input: {
     instance,
     videoUrl: String(input.videoUrl || ""),
     origin: FILMAGEM_DELIVERY_QUEUE_ORIGIN,
-    nextAttemptAt: new Date(input.now.getTime() + FILMAGEM_GIF_AFTER_TEXT_MS),
+    nextAttemptAt: gifAt,
+    createdAt: gifAt,
   });
   if (gif) drafts.push(gif);
   return { ok: true, drafts };

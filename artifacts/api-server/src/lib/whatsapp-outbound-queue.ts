@@ -30,6 +30,8 @@ export type WhatsappOutboundDraft = {
   id?: string;
   /** Horário mínimo. Null sai assim que a trava de 6 minutos deixar. */
   nextAttemptAt?: Date | null;
+  /** Quando preenchido, ordena a linha depois de um aviso gravado agora. */
+  createdAt?: Date | null;
 };
 
 type QueueRow = {
@@ -110,12 +112,15 @@ export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Pro
   const nextAttemptAt = draft.nextAttemptAt instanceof Date && !Number.isNaN(draft.nextAttemptAt.getTime())
     ? draft.nextAttemptAt
     : null;
+  const createdAt = draft.createdAt instanceof Date && !Number.isNaN(draft.createdAt.getTime())
+    ? draft.createdAt
+    : null;
   try {
     const pool = await database();
     await pool.query(
       `INSERT INTO whatsapp_outbound_queue
-        (id, instance, phone, kind, message, caption, image, option_list, origin, status, attempts, next_attempt_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?)`,
+        (id, instance, phone, kind, message, caption, image, option_list, origin, status, attempts, next_attempt_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
       [
         id,
         draft.instance,
@@ -127,6 +132,7 @@ export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Pro
         optionListText(draft.optionList),
         String(draft.origin || "aviso").slice(0, 40),
         nextAttemptAt,
+        createdAt,
       ],
     );
     return { ok: true, id };
