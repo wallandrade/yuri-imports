@@ -1,6 +1,6 @@
 # Regras de negócio — Yuri Import
 
-> **Última atualização:** 2026-11-19
+> **Última atualização:** 2026-11-20
 
 Descreve o que **já existe no código** do e-commerce Yuri Import (grafia no app/domínio frequentemente **Yury**). Não especula features futuras.
 
@@ -49,6 +49,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-20 | Filmagem 2h depois do pago e lembrete na saída | Texto 1 só para pedido que vira pago a partir da coluna `filmagem_whatsapp_due_at`. Texto 2 uma vez quando sai para entrega. GIF só se a URL pública estiver configurada. A fila continua 1 envio a cada 6 min e 10 por hora | Aviso de pago, PIX antigo, compra de esgotado, cópia 48h e Cell Tech iguais |
 | 2026-11-19 | Cell Tech mostra a instância e não finge envio | Em Conexão, a instância da Cell Tech aparece como Configurada ou Não configurada, sem o valor. Na fila até a Z-API aceitar. Enviado só depois. Sem a instância, o card fica em erro | A janela das 8h às 19h, PIX antigo, compra de esgotado e a senha de baixa iguais |
 | 2026-11-19 | Loja pública em `www.yuri-imports-py.com` | Senha, afiliado e Reportana, sem variável de loja, usam esse endereço. Link de afiliado com host `yury-imports.com` abre no domínio da página | Pedido, PIX e comissão iguais |
 | 2026-11-18 | Baixa da KA acha o produto pelo nome | Etiqueta sem id da Yuri desconta o produto do catálogo quando o nome é único e o saldo cobre | Nome parecido de outro cadastro continua de fora. A cópia 48h igual |
@@ -445,6 +446,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 - Cliente: nome, e-mail, telefone, documento, endereço (CEP etc.), produtos JSON (inclui `image` no snapshot do checkout; `/api/me/orders` completa foto pelo catálogo se faltar), frete, seguro opcional, cupom, vendedor (`sellerCode`), afiliado.
 - **CPF no pedido:** checkout, PIX (`checkout.ts`) e filho de reenvio gravam `clientDocument` só com dígitos. A edição admin já exigia 11 ou 14. Pedidos antigos com máscara continuam válidos na busca do alerta (tira `.`, `-`, `/`, espaço e tab).
 - Status usados no admin (código): `pending`, `awaiting_payment`, `paid`, `cancelled`, `completed`.
+- **Filmagem no WhatsApp:** o texto longo sai 2 horas depois que o pedido vira `paid` ou `completed` pela primeira vez. A marca `filmagem_whatsapp_due_at` é gravada nesse momento, só se a coluna ainda está nula. Pedido que já estava pago não ganha a marca e não recebe o texto. O lembrete curto sai uma vez quando a transportadora grava saiu para entrega. Os dois podem ser seguidos do vídeo de abrir a caixa. Sem a URL, segue só o texto. Compra de esgotado continua permitida.
 - Métodos de pagamento observados: `pix`, cartão simulado (`card_simulation` / fluxos de cartão), WhatsApp (`whatsapp_pix`), crédito de afiliado (`affiliate_credit`), saldo da loja (`store_credit`).
 - Guest orders: `guestAccessToken` para acesso sem conta.
 - **Senha da conta:** o cliente pede em Esqueci minha senha (`POST /api/auth/forgot-password`). A resposta diz se o link foi enviado, se o e-mail não tem conta, se estourou o limite ou se o envio falhou. O sucesso só aparece quando o Brevo devolve `messageId`. O link `https://www.yuri-imports-py.com/redefinir-senha?token=` vale 1 hora, uma vez, salvo `brevo_reset_base_url` ou `PASSWORD_RESET_BASE_URL`. A página nova grava a senha com o mesmo PBKDF2 do admin. O WhatsApp continua como alternativa. O botão Senha do admin continua.

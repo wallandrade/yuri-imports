@@ -37,10 +37,7 @@ export type WhatsappSupportDelivery = "fila" | "na_hora";
 /** Cada nome tem a própria trava de 6 minutos e de 10 por hora. Cell Tech não usa main nem poly. */
 export const WHATSAPP_ZAPI_INSTANCES = ["main", "poly", "celltech"] as const;
 export type WhatsappZapiInstance = (typeof WHATSAPP_ZAPI_INSTANCES)[number];
-export type WhatsappOutboundKind = "text" | "image" | "option_list";
-
-/** Foto fixa do nó Filmagem. A legenda continua a que a loja monta. */
-export const FILMAGEM_ZAPI_IMAGE_URL = "https://pub-f5d30eebc4f5447c8dbace71b8e690f3.r2.dev/admin-images/1792175200919-75b3fa2b745d.jpg";
+export type WhatsappOutboundKind = "text" | "image" | "option_list" | "gif";
 
 /** Grupo do fluxo Cell Tech. O campo phone da Z-API recebe esse id. */
 export const CELL_TECH_ZAPI_GROUP_ID = "553591710559-1525960254";

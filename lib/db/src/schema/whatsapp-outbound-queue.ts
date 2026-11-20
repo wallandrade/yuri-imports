@@ -8,6 +8,7 @@ export const whatsappOutboundQueueTable = mysqlTable("whatsapp_outbound_queue", 
   kind: varchar("kind", { length: 16 }).notNull(),
   message: text("message"),
   caption: text("caption"),
+  /** URL da foto. Quando kind é gif, é o MP4. */
   image: text("image"),
   optionList: text("option_list"),
   origin: varchar("origin", { length: 40 }).notNull(),

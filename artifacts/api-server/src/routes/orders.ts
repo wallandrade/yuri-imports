@@ -1956,7 +1956,7 @@ router.post("/admin/orders/:id/apply-store-credit", requireAdminAuth, async (req
         source: "admin_store_credit",
         coveredByStoreCredit: true,
       });
-      queueOrderPaidWhatsapp(id);
+      queueOrderPaidWhatsapp(id, true);
     }
     queueReportanaOrderSync(id);
 
@@ -2142,7 +2142,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
         total: existing[0]?.total,
         source: "admin_manual",
       });
-      queueOrderPaidWhatsapp(id);
+      queueOrderPaidWhatsapp(id, true);
     }
     if (isBeingCancelled && !wasAlreadyCancelled) {
       void sendOutboundWebhook("order_cancelled", {
@@ -2481,7 +2481,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
         total: existing[0]?.total,
         source: "admin_proof",
       });
-      queueOrderPaidWhatsapp(id);
+      queueOrderPaidWhatsapp(id, true);
     }
     recordAdminActivity(req, id, "proof", "Enviou comprovante");
     queueReportanaOrderSync(id);

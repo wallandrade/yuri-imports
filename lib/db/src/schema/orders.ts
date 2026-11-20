@@ -90,8 +90,10 @@ export const ordersTable = mysqlTable("orders", {
   clientDataCorrectedAt: timestamp("client_data_corrected_at"),
   /** WhatsApp do pedido pago já foi entregue ao n8n. Um retry de PIX não manda de novo. */
   paidWhatsappSentAt: timestamp("paid_whatsapp_sent_at"),
-  /** WhatsApp da filmagem já foi entregue ao n8n. Separado do pedido pago. */
+  /** Texto da filmagem já entrou na fila. Uma vez por pedido. Null em pedido pago antes deste aviso. */
   filmagemWhatsappSentAt: timestamp("filmagem_whatsapp_sent_at"),
+  /** Prazo do texto 1, gravado só quando o pedido vira pago. Null = não enviar. */
+  filmagemWhatsappDueAt: timestamp("filmagem_whatsapp_due_at"),
   /** Lembrete da filmagem quando a EnvioEcom marca saiu para entrega. Uma vez por pedido. */
   filmagemDeliveryWhatsappSentAt: timestamp("filmagem_delivery_whatsapp_sent_at"),
   /** Códigos de rastreio que já saíram no WhatsApp. JSON. EC não entra. */
