@@ -142,6 +142,17 @@ export function queueOutForDeliveryWhatsapp(orderId: string | null | undefined, 
   void sendOutForDeliveryWhatsapp(id, key, trackingCode);
 }
 
+async function sendOutForDeliveryThenFilmagem(
+  orderId: string | null | undefined,
+  packageKey: string,
+  trackingCode?: string | null,
+): Promise<void> {
+  await sendOutForDeliveryWhatsapp(String(orderId || ""), packageKey, trackingCode);
+  const { queueOrderFilmagemDeliveryWhatsapp } = await import("./order-filmagem-whatsapp");
+  queueOrderFilmagemDeliveryWhatsapp(orderId);
+}
+
+/** Primeiro o aviso da main. Depois o texto 2 e o vídeo, que entram na fila com horário um pouco depois. */
 export function announceOutForDelivery(input: {
   orderId: string | null | undefined;
   packageKey: string | null | undefined;
@@ -155,8 +166,5 @@ export function announceOutForDelivery(input: {
     nextStatus: input.nextStatus,
     packageKey: key,
   })) return;
-  queueOutForDeliveryWhatsapp(input.orderId, key, input.trackingCode);
-  void import("./order-filmagem-whatsapp").then(({ queueOrderFilmagemDeliveryWhatsapp }) => {
-    queueOrderFilmagemDeliveryWhatsapp(input.orderId);
-  });
+  void sendOutForDeliveryThenFilmagem(input.orderId, key, input.trackingCode);
 }

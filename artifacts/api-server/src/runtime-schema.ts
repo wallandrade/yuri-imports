@@ -162,6 +162,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       sql: "ALTER TABLE orders ADD COLUMN filmagem_whatsapp_sent_at TIMESTAMP NULL",
     },
     {
+      name: "filmagem_whatsapp_due_at",
+      sql: "ALTER TABLE orders ADD COLUMN filmagem_whatsapp_due_at TIMESTAMP NULL",
+    },
+    {
       name: "filmagem_delivery_whatsapp_sent_at",
       sql: "ALTER TABLE orders ADD COLUMN filmagem_delivery_whatsapp_sent_at TIMESTAMP NULL",
     },
@@ -291,6 +295,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     {
       name: "orders_parent_order_id_idx",
       sql: "ALTER TABLE orders ADD KEY orders_parent_order_id_idx (parent_order_id)",
+    },
+    {
+      name: "orders_filmagem_whatsapp_due_idx",
+      sql: "ALTER TABLE orders ADD KEY orders_filmagem_whatsapp_due_idx (filmagem_whatsapp_due_at, filmagem_whatsapp_sent_at)",
     },
   ];
 

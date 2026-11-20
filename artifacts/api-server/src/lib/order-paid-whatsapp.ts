@@ -223,8 +223,15 @@ export async function sendOrderPaidWhatsapp(orderId: string): Promise<{ sent: bo
   }
 }
 
-export function queueOrderPaidWhatsapp(orderId: string | null | undefined): void {
+/** `firstPaid` só no instante em que o pedido vira pago. Repetição e pedido antigo ficam de fora. */
+export function queueOrderPaidWhatsapp(orderId: string | null | undefined, firstPaid = false): void {
   const id = String(orderId || "").trim();
   if (!id) return;
   void sendOrderPaidWhatsapp(id);
+  if (!firstPaid) return;
+  void import("./order-filmagem-whatsapp").then(({ queueOrderFilmagemPaidNotice }) => {
+    queueOrderFilmagemPaidNotice(id);
+  }).catch((err: unknown) => {
+    console.warn("[WhatsApp filmagem] não agendou", id, err instanceof Error ? err.message.slice(0, 160) : "falha");
+  });
 }

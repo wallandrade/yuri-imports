@@ -26,6 +26,12 @@ export type WhatsappOutboundDraft = {
   /** Texto simples se a lista do menu for recusada. */
   fallbackMessage?: string;
   origin: string;
+  /** Id estável evita duas linhas do mesmo aviso. Sem id, a fila gera um novo. */
+  id?: string;
+  /** Horário mínimo. Null sai assim que a trava de 6 minutos deixar. */
+  nextAttemptAt?: Date | null;
+  /** Quando preenchido, ordena a linha depois de um aviso gravado agora. */
+  createdAt?: Date | null;
 };
 
 type QueueRow = {
@@ -92,16 +98,29 @@ export async function readSiteSetting(key: string): Promise<string> {
   return String(rows[0]?.value || "").trim();
 }
 
-export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Promise<{ ok: boolean; id?: string; error?: string }> {
+function isDuplicateKey(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const row = err as { code?: string; errno?: number };
+  return row.code === "ER_DUP_ENTRY" || row.errno === 1062;
+}
+
+export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Promise<{ ok: boolean; id?: string; error?: string; duplicate?: boolean }> {
   const phone = String(draft.phone || "").trim();
   if (!phone) return { ok: false, error: "missing_phone" };
-  const id = crypto.randomBytes(16).toString("hex");
+  const id = String(draft.id || "").trim() || crypto.randomBytes(16).toString("hex");
+  if (!id || id.length > 64) return { ok: false, error: "id_invalido" };
+  const nextAttemptAt = draft.nextAttemptAt instanceof Date && !Number.isNaN(draft.nextAttemptAt.getTime())
+    ? draft.nextAttemptAt
+    : null;
+  const createdAt = draft.createdAt instanceof Date && !Number.isNaN(draft.createdAt.getTime())
+    ? draft.createdAt
+    : null;
   try {
     const pool = await database();
     await pool.query(
       `INSERT INTO whatsapp_outbound_queue
-        (id, instance, phone, kind, message, caption, image, option_list, origin, status, attempts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0)`,
+        (id, instance, phone, kind, message, caption, image, option_list, origin, status, attempts, next_attempt_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, COALESCE(?, CURRENT_TIMESTAMP))`,
       [
         id,
         draft.instance,
@@ -112,10 +131,13 @@ export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Pro
         clip(draft.image, 1000),
         optionListText(draft.optionList),
         String(draft.origin || "aviso").slice(0, 40),
+        nextAttemptAt,
+        createdAt,
       ],
     );
     return { ok: true, id };
   } catch (err) {
+    if (isDuplicateKey(err)) return { ok: true, id, duplicate: true };
     console.warn("[WhatsApp fila] não entrou", draft.instance, draft.origin, err instanceof Error ? err.message.slice(0, 160) : "falha");
     return { ok: false, error: "fila_indisponivel" };
   }
@@ -315,10 +337,15 @@ async function deliver(instance: WhatsappZapiInstance, row: QueueRow): Promise<v
     }
   }
   const fallback = row.kind === "option_list" ? String(row.caption || "").trim() : "";
+  if (row.origin === "filmagem" || row.origin === "filmagem_entrega") {
+    const { dropFilmagemIfOrderLeftPaid } = await import("./order-filmagem-whatsapp");
+    const dropped = await dropFilmagemIfOrderLeftPaid({ origin: row.origin, optionList });
+    if (dropped) return;
+  }
   const sent = await sendZapiMessageWithFallback({
     instance,
     phone: row.phone,
-    kind: row.kind === "image" || row.kind === "option_list" ? row.kind : "text",
+    kind: row.kind === "image" || row.kind === "option_list" || row.kind === "gif" ? row.kind : "text",
     message: row.message || "",
     caption: row.kind === "option_list" ? "" : (row.caption || ""),
     image: row.image || "",
@@ -404,6 +431,10 @@ export async function runWhatsappOutboundTick(): Promise<void> {
     const [rows] = await conn.query("SELECT GET_LOCK(?, 0) AS locked", ["yuri_whatsapp_outbound"]);
     locked = Array.isArray(rows) && Number((rows[0] as { locked?: number } | undefined)?.locked) === 1;
     if (!locked) return;
+    const { enqueueDueFilmagemNotices } = await import("./order-filmagem-whatsapp");
+    await enqueueDueFilmagemNotices().catch((err: unknown) => {
+      console.warn("[WhatsApp filmagem] varredura", err instanceof Error ? err.message.slice(0, 160) : "falha");
+    });
     for (const instance of WHATSAPP_ZAPI_INSTANCES) {
       await sendNextForInstance(instance);
     }

@@ -513,7 +513,10 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
             data: { id: existing.orderId, status: newOrderStatus },
           });
           if (newOrderStatus === "paid" || newOrderStatus === "completed") {
-            queueOrderPaidWhatsapp(existing.orderId);
+            queueOrderPaidWhatsapp(
+              existing.orderId,
+              parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
+            );
           }
         }
       }
@@ -588,7 +591,10 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
           data: { id: existing.orderId, status: newOrderStatus },
         });
         if (newOrderStatus === "paid" || newOrderStatus === "completed") {
-          queueOrderPaidWhatsapp(existing.orderId);
+          queueOrderPaidWhatsapp(
+            existing.orderId,
+            parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
+          );
         }
       }
     }

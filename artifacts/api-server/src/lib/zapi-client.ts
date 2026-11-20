@@ -1,5 +1,5 @@
 export type ZapiInstanceName = "main" | "poly" | "celltech";
-export type ZapiOutboundKind = "text" | "image" | "option_list";
+export type ZapiOutboundKind = "text" | "image" | "option_list" | "gif";
 
 export type ZapiCredentials = {
   instanceId: string;
@@ -107,6 +107,11 @@ export function zapiOutboundRequest(input: {
       suffix: "/send-image",
       body: { phone, image, caption: String(input.caption || input.message || "") },
     };
+  }
+  if (input.kind === "gif") {
+    const gif = String(input.image || "").trim();
+    if (!gif) return { error: "missing_gif" };
+    return { suffix: "/send-gif", body: { phone, gif } };
   }
   return { suffix: "/send-text", body: { phone, message: String(input.message || "") } };
 }

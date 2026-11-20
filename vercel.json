@@ -5,7 +5,7 @@
       "destination": "https://yuri-imports-9483v.ondigitalocean.app/api/:path*"
     },
     {
-      "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest).*)",
+      "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest|filmagem/).*)",
       "destination": "/index.html"
     }
   ],
@@ -20,11 +20,20 @@
       ]
     },
     {
-      "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest).*)",
+      "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest|filmagem/).*)",
       "headers": [
         {
           "key": "Cache-Control",
           "value": "no-store, no-cache, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/filmagem/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
         }
       ]
     },

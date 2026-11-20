@@ -287,7 +287,7 @@ router.post("/pix/callback/:token", async (req, res) => {
           total: existing[0].total,
           source: "legacy_pix_callback",
         });
-        queueOrderPaidWhatsapp(existing[0].id);
+        queueOrderPaidWhatsapp(existing[0].id, true);
         queueReportanaOrderSync(existing[0].id);
         void recordOrderActivity({
           orderId: existing[0].id,

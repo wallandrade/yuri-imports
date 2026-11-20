@@ -59,6 +59,19 @@ test("pedido de texto, imagem e lista segue o n8n", () => {
   }
 });
 
+test("GIF da filmagem sai em send-gif com o MP4 no campo gif", () => {
+  const sent = zapiOutboundRequest({
+    phone: PHONE,
+    kind: "gif",
+    image: "https://projeto.vercel.app/filmagem/como-abrir-caixa.mp4",
+  });
+  assert.deepEqual(sent, {
+    suffix: "/send-gif",
+    body: { phone: PHONE, gif: "https://projeto.vercel.app/filmagem/como-abrir-caixa.mp4" },
+  });
+  assert.deepEqual(zapiOutboundRequest({ phone: PHONE, kind: "gif", image: "" }), { error: "missing_gif" });
+});
+
 test("sucesso da Z-API exige 2xx sem erro, ou messageId", () => {
   assert.equal(zapiMessageAccepted(200, { messageId: "abc", zaapId: "z" }), true);
   assert.equal(zapiMessageAccepted(200, { error: "falhou" }), false);

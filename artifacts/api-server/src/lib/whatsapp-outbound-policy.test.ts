@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { FILMAGEM_DELIVERY_CAPTION, FILMAGEM_PAID_CAPTION } from "./order-filmagem-whatsapp";
 import {
   CELL_TECH_ZAPI_GROUP_ID,
-  FILMAGEM_ZAPI_IMAGE_URL,
   WHATSAPP_HOURLY_CAP,
   cellTechZapiGroupId,
   maskWhatsappPhone,
@@ -19,7 +17,6 @@ import {
   whatsappTickChoice,
   WHATSAPP_ZAPI_INSTANCES,
 } from "./whatsapp-outbound-policy";
-import { zapiOutboundRequest } from "./zapi-client";
 
 test("canal vazio é direto e a resposta vazia fica na fila", () => {
   assert.equal(parseWhatsappChannel(""), "direto");
@@ -96,32 +93,6 @@ test("pedido pago fura a espera de 6 minutos e sai em até 2 minutos", () => {
     paidAgeMs: jumpAt,
     hasOther: true,
   }), "none");
-});
-
-test("filmagem usa a foto do n8n e a legenda da loja", () => {
-  assert.equal(
-    FILMAGEM_ZAPI_IMAGE_URL,
-    "https://pub-f5d30eebc4f5447c8dbace71b8e690f3.r2.dev/admin-images/1792175200919-75b3fa2b745d.jpg",
-  );
-  const paid = zapiOutboundRequest({
-    phone: "5500000000000",
-    kind: "image",
-    image: FILMAGEM_ZAPI_IMAGE_URL,
-    caption: FILMAGEM_PAID_CAPTION,
-  });
-  const delivery = zapiOutboundRequest({
-    phone: "5500000000000",
-    kind: "image",
-    image: FILMAGEM_ZAPI_IMAGE_URL,
-    caption: FILMAGEM_DELIVERY_CAPTION,
-  });
-  assert.equal("error" in paid, false);
-  assert.equal("error" in delivery, false);
-  if (!("error" in paid) && !("error" in delivery)) {
-    assert.match(String(paid.body.caption), /COMUNICADO OFICIAL/);
-    assert.equal(String(paid.body.caption).includes("direitos do consumidor"), false);
-    assert.match(String(delivery.body.caption), /SEU PEDIDO SAIU PARA ENTREGA/);
-  }
 });
 
 test("Cell Tech fala com o grupo do fluxo", () => {
