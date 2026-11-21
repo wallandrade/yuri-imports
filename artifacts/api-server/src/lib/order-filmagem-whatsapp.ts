@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
+import { mysqlAffectedRows } from "./mysql-affected-rows";
 import { toWhatsappPhone, type PaidWhatsappOrder } from "./order-paid-whatsapp";
 import { whatsappInstanceForSeller, type WhatsappZapiInstance } from "./whatsapp-outbound-policy";
 import { enqueueWhatsappOutbound, type WhatsappOutboundDraft } from "./whatsapp-outbound-queue";
@@ -184,32 +185,95 @@ function gifDraft(input: {
   };
 }
 
+/** Tira texto e GIF pendentes da fila. Não mexe em linha já enviada. */
+export function filmagemCancelQueueSql(ids: string[]): { sql: string; params: string[] } {
+  const marks = ids.map(() => "?").join(", ");
+  return {
+    sql: `UPDATE whatsapp_outbound_queue
+     SET status = 'failed', attempts = 0, last_error = 'pedido_nao_pago',
+         next_attempt_at = NULL, sent_at = NULL, updated_at = CURRENT_TIMESTAMP
+     WHERE id IN (${marks}) AND status IN ('pending', 'sending')`,
+    params: ids,
+  };
+}
+
+export type FilmagemDropIo = {
+  loadStatus(orderId: string): Promise<string | null>;
+  failPending(ids: string[]): Promise<void>;
+};
+
+/** Número visível do pedido. Nunca o telefone. */
+export function filmagemLogRef(order: { orderNumber?: number | null; id?: string | null } | null, fallback = ""): string {
+  const number = Number(order?.orderNumber);
+  if (Number.isFinite(number) && number > 0) return `#${number}`;
+  return String(order?.id || fallback || "").trim() || "-";
+}
+
+/** Tira sequências longas de dígito (telefone) e tokens. Sobram no máximo os 4 finais. */
+export function redactFilmagemLog(value: unknown): string {
+  const text = value instanceof Error ? value.message : String(value ?? "");
+  return text
+    .replace(/\d{8,}/g, (digits) => `****${digits.slice(-4)}`)
+    .replace(/(token|client-token|authorization|whsec)[=:]\s*\S+/gi, "$1=***")
+    .slice(0, 160);
+}
+
+export type FilmagemLogger = {
+  warn(code: string, ref: string, detail?: string): void;
+  info(origin: string, ref: string): void;
+};
+
+function defaultFilmagemLogger(): FilmagemLogger {
+  return {
+    warn(code, ref, detail = "") {
+      const extra = redactFilmagemLog(detail);
+      if (extra) console.warn("[WhatsApp filmagem]", code, ref, extra);
+      else console.warn("[WhatsApp filmagem]", code, ref);
+    },
+    info(origin, ref) {
+      console.log("[WhatsApp filmagem] na fila", origin, ref);
+    },
+  };
+}
+
+function warnFilmagem(log: FilmagemLogger, code: string, ref: string, detail = ""): void {
+  log.warn(code, ref, redactFilmagemLog(detail));
+}
+
+function defaultFilmagemDropIo(): FilmagemDropIo {
+  return {
+    async loadStatus(orderId) {
+      const { db, ordersTable } = await import("@workspace/db");
+      const rows = await db
+        .select({ status: ordersTable.status })
+        .from(ordersTable)
+        .where(eq(ordersTable.id, orderId))
+        .limit(1);
+      return rows[0]?.status ?? null;
+    },
+    async failPending(ids) {
+      if (ids.length === 0) return;
+      const { pool } = await import("@workspace/db");
+      const statement = filmagemCancelQueueSql(ids);
+      await pool.query(statement.sql, statement.params);
+    },
+  };
+}
+
 /** Tira texto e GIF da fila se o pedido saiu de pago. Sem id, a fila segue. */
 export async function dropFilmagemIfOrderLeftPaid(input: {
   origin: string;
   optionList: unknown;
-}): Promise<boolean> {
+}, io?: FilmagemDropIo): Promise<boolean> {
   if (input.origin !== FILMAGEM_QUEUE_ORIGIN && input.origin !== FILMAGEM_DELIVERY_QUEUE_ORIGIN) return false;
   const orderId = filmagemOrderIdFromOptionList(input.optionList);
   if (!orderId) return false;
-  const { db, ordersTable } = await import("@workspace/db");
-  const rows = await db
-    .select({ status: ordersTable.status })
-    .from(ordersTable)
-    .where(eq(ordersTable.id, orderId))
-    .limit(1);
-  if (filmagemOutboundStillAllowed(rows[0]?.status)) return false;
+  const port = io ?? defaultFilmagemDropIo();
+  const status = await port.loadStatus(orderId);
+  if (filmagemOutboundStillAllowed(status)) return false;
   const ids = filmagemSiblingQueueIds(orderId, input.origin);
   if (ids.length === 0) return true;
-  const { pool } = await import("@workspace/db");
-  const marks = ids.map(() => "?").join(", ");
-  await pool.query(
-    `UPDATE whatsapp_outbound_queue
-     SET status = 'failed', attempts = 0, last_error = 'pedido_nao_pago',
-         next_attempt_at = NULL, sent_at = NULL, updated_at = CURRENT_TIMESTAMP
-     WHERE id IN (${marks}) AND status IN ('pending', 'sending')`,
-    ids,
-  );
+  await port.failPending(ids);
   return true;
 }
 
@@ -309,9 +373,28 @@ function asDate(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-async function stampFilmagemDue(orderId: string): Promise<void> {
+export type FilmagemOrderSnapshot = {
+  id: string;
+  orderNumber: number | null;
+  status: string | null;
+  clientPhone: string | null;
+  sellerCode: string | null;
+  filmagemWhatsappDueAt: Date | null;
+  filmagemWhatsappSentAt: Date | null;
+};
+
+export type FilmagemPaidIo = {
+  stampDue(orderId: string): Promise<number>;
+  load(orderId: string): Promise<FilmagemOrderSnapshot | null>;
+  claimPaid(orderId: string): Promise<void>;
+  enqueue(draft: WhatsappOutboundDraft): Promise<{ ok: boolean; error?: string; duplicate?: boolean }>;
+  videoUrl(): string;
+  log?: FilmagemLogger;
+};
+
+async function stampFilmagemDue(orderId: string): Promise<number> {
   const { pool } = await import("@workspace/db");
-  await pool.query(
+  const result = await pool.query(
     `UPDATE orders
      SET filmagem_whatsapp_due_at = CURRENT_TIMESTAMP + INTERVAL ${FILMAGEM_NOTICE_DELAY_SECONDS} SECOND
      WHERE id = ?
@@ -320,6 +403,45 @@ async function stampFilmagemDue(orderId: string): Promise<void> {
        AND status IN ('paid', 'completed')`,
     [orderId],
   );
+  return mysqlAffectedRows(result);
+}
+
+async function loadFilmagemOrder(orderId: string): Promise<FilmagemOrderSnapshot | null> {
+  const { db, ordersTable } = await import("@workspace/db");
+  const rows = await db
+    .select({
+      id: ordersTable.id,
+      orderNumber: ordersTable.orderNumber,
+      status: ordersTable.status,
+      clientPhone: ordersTable.clientPhone,
+      sellerCode: ordersTable.sellerCode,
+      filmagemWhatsappDueAt: ordersTable.filmagemWhatsappDueAt,
+      filmagemWhatsappSentAt: ordersTable.filmagemWhatsappSentAt,
+    })
+    .from(ordersTable)
+    .where(eq(ordersTable.id, orderId))
+    .limit(1);
+  const order = rows[0];
+  if (!order) return null;
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber ?? null,
+    status: order.status,
+    clientPhone: order.clientPhone,
+    sellerCode: order.sellerCode,
+    filmagemWhatsappDueAt: asDate(order.filmagemWhatsappDueAt),
+    filmagemWhatsappSentAt: asDate(order.filmagemWhatsappSentAt),
+  };
+}
+
+function defaultFilmagemPaidIo(): FilmagemPaidIo {
+  return {
+    stampDue: stampFilmagemDue,
+    load: loadFilmagemOrder,
+    claimPaid: (orderId) => claimSend(orderId, "paid"),
+    enqueue: enqueueWhatsappOutbound,
+    videoUrl: () => filmagemVideoUrl(),
+  };
 }
 
 async function claimSend(orderId: string, kind: "paid" | "delivery"): Promise<void> {
@@ -331,15 +453,18 @@ async function claimSend(orderId: string, kind: "paid" | "delivery"): Promise<vo
     .where(and(eq(ordersTable.id, orderId), isNull(stamp)));
 }
 
-async function enqueueDrafts(drafts: WhatsappOutboundDraft[]): Promise<{ ok: boolean; error?: string }> {
+async function enqueueDrafts(
+  drafts: WhatsappOutboundDraft[],
+  ref: string,
+  enqueue: FilmagemPaidIo["enqueue"],
+  log: FilmagemLogger,
+): Promise<{ ok: boolean; error?: string }> {
   let textQueued = false;
   for (const draft of drafts) {
-    const result = await enqueueWhatsappOutbound(draft);
+    const result = await enqueue(draft);
     if (!result.ok) {
-      if (textQueued) {
-        console.warn("[WhatsApp filmagem] gif não entrou na fila", draft.origin);
-        return { ok: true };
-      }
+      warnFilmagem(log, "erro de insert", ref, `${draft.origin} ${result.error || "fila_indisponivel"}`);
+      if (textQueued) return { ok: true };
       return { ok: false, error: result.error || "fila_indisponivel" };
     }
     if (draft.kind === "text") textQueued = true;
@@ -348,67 +473,106 @@ async function enqueueDrafts(drafts: WhatsappOutboundDraft[]): Promise<{ ok: boo
 }
 
 /** Coloca o texto (e o GIF, se a URL existir) na fila. Não grava o prazo. */
-export async function enqueueFilmagemPaidNotice(orderId: string): Promise<{ queued: boolean; error?: string }> {
+export async function enqueueFilmagemPaidNotice(orderId: string, io?: FilmagemPaidIo): Promise<{ queued: boolean; error?: string }> {
   const id = String(orderId || "").trim();
   if (!id) return { queued: false, error: "missing_id" };
+  const port = io ?? defaultFilmagemPaidIo();
+  const log = port.log ?? defaultFilmagemLogger();
   try {
-    const { db, ordersTable } = await import("@workspace/db");
-    const rows = await db
-      .select({
-        id: ordersTable.id,
-        status: ordersTable.status,
-        clientPhone: ordersTable.clientPhone,
-        sellerCode: ordersTable.sellerCode,
-        filmagemWhatsappDueAt: ordersTable.filmagemWhatsappDueAt,
-        filmagemWhatsappSentAt: ordersTable.filmagemWhatsappSentAt,
-      })
-      .from(ordersTable)
-      .where(eq(ordersTable.id, id))
-      .limit(1);
-    const order = rows[0];
-    if (!order) return { queued: false, error: "not_found" };
+    const order = await port.load(id);
+    if (!order) {
+      warnFilmagem(log, "not_eligible", id);
+      return { queued: false, error: "not_found" };
+    }
+    const ref = filmagemLogRef(order, id);
     const plan = planFilmagemPaidNotice({
       orderId: order.id,
       status: order.status,
       phone: order.clientPhone,
       sellerCode: order.sellerCode,
-      dueAt: asDate(order.filmagemWhatsappDueAt),
+      dueAt: order.filmagemWhatsappDueAt,
       alreadySent: order.filmagemWhatsappSentAt != null,
-      videoUrl: filmagemVideoUrl(),
+      videoUrl: port.videoUrl(),
     });
-    if (!plan.ok) return { queued: false, error: plan.error };
-    const queued = await enqueueDrafts(plan.drafts);
+    if (!plan.ok) {
+      if (plan.error === "not_eligible" || plan.error === "not_paid") warnFilmagem(log, "not_eligible", ref);
+      else if (plan.error === "missing_phone") warnFilmagem(log, "missing_phone", ref);
+      return { queued: false, error: plan.error };
+    }
+    const queued = await enqueueDrafts(plan.drafts, ref, port.enqueue, log);
     if (!queued.ok) return { queued: false, error: queued.error };
-    await claimSend(id, "paid");
+    await port.claimPaid(id);
+    log.info(plan.drafts[0]?.origin || FILMAGEM_QUEUE_ORIGIN, ref);
     return { queued: true };
   } catch (err) {
-    if (schemaMissing(err)) return { queued: false, error: "column_missing" };
-    console.warn("[WhatsApp filmagem] fila", id, err instanceof Error ? err.message.slice(0, 160) : "falha");
+    if (schemaMissing(err)) {
+      warnFilmagem(log, "column_missing", id);
+      return { queued: false, error: "column_missing" };
+    }
+    warnFilmagem(log, "fila", id, redactFilmagemLog(err));
     return { queued: false, error: "exception" };
   }
 }
 
 /**
  * Grava o prazo só no pedido que acabou de ficar pago e coloca o aviso na fila
- * com `next_attempt_at` daqui a 2h. Pedido antigo não tem essa coluna preenchida.
+ * com `next_attempt_at` daqui a 2h. Quem chama precisa já ter gravado o status.
+ * Pedido antigo, sem esta chamada, continua com a coluna nula.
  */
-export async function scheduleFilmagemPaidNotice(orderId: string): Promise<{ queued: boolean; error?: string }> {
+export async function scheduleFilmagemPaidNotice(orderId: string, io?: FilmagemPaidIo): Promise<{ queued: boolean; error?: string }> {
   const id = String(orderId || "").trim();
   if (!id) return { queued: false, error: "missing_id" };
+  const port = io ?? defaultFilmagemPaidIo();
+  const log = port.log ?? defaultFilmagemLogger();
   try {
-    await stampFilmagemDue(id);
+    try {
+      await port.stampDue(id);
+    } catch (err) {
+      if (schemaMissing(err)) {
+        warnFilmagem(log, "column_missing", id);
+        return { queued: false, error: "column_missing" };
+      }
+      throw err;
+    }
+    let order = await port.load(id);
+    if (!order) {
+      warnFilmagem(log, "not_eligible", id, "stamp 0 linhas");
+      return { queued: false, error: "not_found" };
+    }
+    const ref = filmagemLogRef(order, id);
+    if (!filmagemOutboundStillAllowed(order.status)) {
+      warnFilmagem(log, "not_eligible", ref, "stamp 0 linhas");
+      return { queued: false, error: "not_eligible" };
+    }
+    if (!order.filmagemWhatsappDueAt && !order.filmagemWhatsappSentAt) {
+      await port.stampDue(id);
+      order = await port.load(id);
+    }
+    if (!order || !filmagemOutboundStillAllowed(order.status)) {
+      warnFilmagem(log, "not_eligible", ref, "stamp 0 linhas");
+      return { queued: false, error: "not_eligible" };
+    }
+    if (order.filmagemWhatsappSentAt && !order.filmagemWhatsappDueAt) {
+      warnFilmagem(log, "not_eligible", ref, "already_sent");
+      return { queued: false, error: "already_sent" };
+    }
+    if (!order.filmagemWhatsappDueAt) {
+      warnFilmagem(log, "stamp 0 linhas", ref);
+      return { queued: false, error: "stamp_zero" };
+    }
+    return enqueueFilmagemPaidNotice(id, port);
   } catch (err) {
-    if (schemaMissing(err)) return { queued: false, error: "column_missing" };
-    console.warn("[WhatsApp filmagem] prazo", id, err instanceof Error ? err.message.slice(0, 160) : "falha");
+    if (schemaMissing(err)) {
+      warnFilmagem(log, "column_missing", id);
+      return { queued: false, error: "column_missing" };
+    }
+    warnFilmagem(log, "prazo", id, redactFilmagemLog(err));
     return { queued: false, error: "exception" };
   }
-  return enqueueFilmagemPaidNotice(id);
 }
 
-export function queueOrderFilmagemPaidNotice(orderId: string | null | undefined): void {
-  const id = String(orderId || "").trim();
-  if (!id) return;
-  void scheduleFilmagemPaidNotice(id);
+export function queueOrderFilmagemPaidNotice(orderId: string | null | undefined): Promise<{ queued: boolean; error?: string }> {
+  return scheduleFilmagemPaidNotice(String(orderId || ""));
 }
 
 /** Rede de segurança: se a fila não recebeu o aviso na hora do pagamento, pega quando o prazo vence. */
@@ -431,10 +595,13 @@ export async function enqueueDueFilmagemNotices(): Promise<void> {
       await enqueueFilmagemPaidNotice(id);
     }
   } catch (err) {
-    if (schemaMissing(err)) return;
+    if (schemaMissing(err)) {
+      warnFilmagem(defaultFilmagemLogger(), "column_missing", "varredura");
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err || "");
     if (message.includes("orders") && message.includes("ER_NO_SUCH_TABLE")) return;
-    console.warn("[WhatsApp filmagem] varredura", message.slice(0, 160));
+    console.warn("[WhatsApp filmagem] varredura", redactFilmagemLog(message));
   }
 }
 
@@ -464,12 +631,12 @@ async function sendDelivery(orderId: string): Promise<{ sent: boolean; error?: s
       videoUrl: filmagemVideoUrl(),
     });
     if (!plan.ok) return { sent: false, error: plan.error };
-    const queued = await enqueueDrafts(plan.drafts);
+    const queued = await enqueueDrafts(plan.drafts, order.id, enqueueWhatsappOutbound, defaultFilmagemLogger());
     if (!queued.ok) return { sent: false, error: queued.error };
     await claimSend(id, "delivery");
     return { sent: true };
   } catch (err) {
-    console.warn("[WhatsApp filmagem] entrega", id, err instanceof Error ? err.message.slice(0, 160) : "falha");
+    console.warn("[WhatsApp filmagem] entrega", id, redactFilmagemLog(err));
     return { sent: false, error: "exception" };
   }
 }

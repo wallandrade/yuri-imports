@@ -148,7 +148,7 @@ async function handleCallback(body: GatewayCallback) {
                 clientName: row.clientName,
                 total: row.total,
               });
-              queueOrderPaidWhatsapp(row.id, true);
+              await queueOrderPaidWhatsapp(row.id, true);
               recordPixPaid(row.id);
             }
             queueReportanaOrderSync(row.id);
@@ -240,7 +240,7 @@ async function handleCallback(body: GatewayCallback) {
                   total: parentOrder[0].total,
                   source: "difference_charge",
                 });
-                queueOrderPaidWhatsapp(
+                await queueOrderPaidWhatsapp(
                   row.orderId,
                   parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
                 );
@@ -489,7 +489,7 @@ router.post("/webhook", async (req, res) => {
                 total: row.total,
                 source: "universal_webhook",
               });
-              queueOrderPaidWhatsapp(rawOrderId, true);
+              await queueOrderPaidWhatsapp(rawOrderId, true);
               recordPixPaid(rawOrderId);
             }
             queueReportanaOrderSync(rawOrderId);
@@ -559,7 +559,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
             total: row.total,
             source: "direct_order_webhook",
           });
-          queueOrderPaidWhatsapp(orderId, true);
+          await queueOrderPaidWhatsapp(orderId, true);
           recordPixPaid(orderId);
           queueReportanaOrderSync(orderId);
           console.log(`[WEBHOOK] Order ${orderId} paid via direct URL`);
@@ -655,7 +655,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
                 total: parentOrder[0].total,
                 source: "direct_charge_webhook",
               });
-              queueOrderPaidWhatsapp(
+              await queueOrderPaidWhatsapp(
                 rows[0]!.orderId,
                 parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
               );

@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-21 | Log da filmagem não leva telefone nem token | Sucesso e falha do agendamento usam o número do pedido. Telefone, se aparecer numa mensagem de erro, fica só com os 4 finais | O token do atendimento e o da Z-API iguais |
 | 2026-11-21 | CORS aceita `imports-py.com` | Cadastro e checkout no domínio novo entram na allowlist. Os hosts anteriores continuam | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-19 | Conexão da Cell Tech não mostra a instância Z-API | `zapiConfigured` é só sim ou não. O log de instância ausente não leva ID nem token | O token do Gestão Click, o checkout token e a fila (só os 4 últimos dígitos) iguais |
 | 2026-11-19 | CORS aceita `yuri-imports-py.com` | Checkout no domínio novo entra na allowlist junto com KA e o host antigo | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
