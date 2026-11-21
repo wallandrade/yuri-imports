@@ -68,7 +68,7 @@ function defaultMenu(): MenuConfig {
         title: "Quero comprar",
         description: "Abrir o site",
         action: "text",
-        message: "Pode comprar em https://www.yuri-imports-py.com",
+        message: "Pode comprar em https://www.imports-py.com",
       },
       {
         id: "problema",

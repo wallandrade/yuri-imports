@@ -1,6 +1,6 @@
 # Arquitetura — Yuri Import
 
-> **Última atualização:** 2026-11-20
+> **Última atualização:** 2026-11-21
 
 Stack, pastas e deploy **como existem no código**. Precedência: código > memória > tipagens.
 
@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-21 | Loja no domínio `www.imports-py.com` | `yuri-imports-py.com` foi bloqueado. O apex e o `www` do domínio novo estão na Vercel | API continua em `yuri-imports-9483v.ondigitalocean.app` |
 | 2026-11-20 | Coluna `orders.filmagem_whatsapp_due_at` (+ runtime) e índice | Marca o prazo do texto 1 da filmagem. Pedido antigo fica nulo. A fila `whatsapp_outbound_queue` usa o `next_attempt_at` que já existia. `kind=gif` guarda o MP4 na coluna `image` | Sem tabela nova. Pedido, PIX e as outras colunas de WhatsApp iguais. Sem `tenant_id` |
 | 2026-11-19 | A fila do WhatsApp também esvazia `celltech` | O mesmo `whatsapp_outbound_queue` e o job de 30s. `instance` já é varchar(16). Sem coluna nova e sem token na tabela | Pedido, PIX e as sessões do atendimento iguais. Sem `tenant_id` |
 | 2026-11-19 | Loja no domínio `yuri-imports-py.com` | DNS na Hostinger aponta para a Vercel. `www` é o host da loja; o apex redireciona. `yury-imports.com` não resolve | API continua em `yuri-imports-9483v.ondigitalocean.app`. O rewrite `/api` da Vercel igual |
@@ -134,6 +135,6 @@ APPCNPay, DentPeg, webhooks, Cloudflare R2, Brevo, WhatsApp (links), SSE admin, 
 
 ## Incertezas
 
-- Domínio público da loja: `www.yuri-imports-py.com` (Vercel). `yury-imports.com` não está no DNS.
+- Domínio público da loja: `www.imports-py.com` (Vercel). `yuri-imports-py.com` e `yury-imports.com` ficam só como hosts antigos.
 - TODO confirmar: DentPeg em produção vs fallback experimental.
 - TODO confirmar: Google Sheets removido de vez (parece sim).

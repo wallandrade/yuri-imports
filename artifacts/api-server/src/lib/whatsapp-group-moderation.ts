@@ -422,7 +422,7 @@ export async function handleGroupModeration(body: unknown, now = Date.now()): Pr
 
   const configuredIds = splitModerationList(cleanEnv("WHATSAPP_MODERATION_GROUP_IDS") || settings.get(GROUP_MODERATION_GROUP_IDS_SETTING) || "");
   const allowPhones = splitModerationList(cleanEnv("WHATSAPP_MODERATION_ALLOW_PHONES") || settings.get(GROUP_MODERATION_ALLOW_PHONES_SETTING) || "");
-  const allowHosts = ["yury-imports.com", "yuri-imports-py.com", ...splitModerationList(cleanEnv("WHATSAPP_MODERATION_LINK_HOSTS") || settings.get(GROUP_MODERATION_LINK_HOSTS_SETTING) || "")];
+  const allowHosts = ["yury-imports.com", "yuri-imports-py.com", "imports-py.com", ...splitModerationList(cleanEnv("WHATSAPP_MODERATION_LINK_HOSTS") || settings.get(GROUP_MODERATION_LINK_HOSTS_SETTING) || "")];
   const storePhone = cleanEnv("WHATSAPP_MODERATION_STORE_PHONE")
     || settings.get(GROUP_MODERATION_STORE_PHONE_SETTING)
     || GROUP_MODERATION_STORE_PHONE;

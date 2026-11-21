@@ -97,7 +97,7 @@ test("chave pix manda a chave e as outras opções seguem iguais", () => {
     assert.equal(order.session.step, "await_lookup");
     const buy = decideSupportTurn({ choiceId: "comprar" });
     assert.equal(buy.kind, "text");
-    if (buy.kind === "text") assert.match(buy.message, /yuri-imports-py\.com/);
+    if (buy.kind === "text") assert.match(buy.message, /https:\/\/www\.imports-py\.com/);
     assert.equal(buy.session.step, "menu");
     const human = decideSupportTurn({ choiceId: "atendente" });
     assert.equal(human.session.step, "human");

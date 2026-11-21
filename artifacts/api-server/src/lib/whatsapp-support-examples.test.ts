@@ -91,7 +91,7 @@ test("a resposta usa o exemplo e não devolve pedido", () => {
 
   const messages = buildSupportAiMessages("qual o prazo medio", "poly", ranked);
   assert.equal(messages[1]?.content.includes("o prazo depende da transportadora"), true);
-  assert.equal(messages[0]?.content.includes("https://www.yuri-imports-py.com/poly"), true);
+  assert.equal(messages[0]?.content.includes("https://www.imports-py.com/poly"), true);
   assert.equal(messages[0]?.content.includes("1782"), false);
 });
 
@@ -103,7 +103,7 @@ test("qual valor sem produto pergunta qual é, e o preço sai do site", () => {
   assert.equal(supportPriceReply("qual valor?", products, "main"), "Qual produto você quer saber o valor?");
   const one = supportPriceReply("qual o valor da tirzepatida 15mg", products, "poly");
   assert.equal(one?.includes("R$ 189,90"), true);
-  assert.equal(one?.includes("https://www.yuri-imports-py.com/poly"), true);
+  assert.equal(one?.includes("https://www.imports-py.com/poly"), true);
   assert.equal(one?.includes("1782"), false);
   const gone = supportPriceReply("qual o valor da tirzepatida 30mg", products, "main");
   assert.equal(gone?.includes("R$ 299,00"), true);

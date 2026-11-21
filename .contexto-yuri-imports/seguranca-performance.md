@@ -1,6 +1,6 @@
 # Segurança e performance — Yuri Import
 
-> **Última atualização:** 2026-11-19
+> **Última atualização:** 2026-11-21
 
 Controles de segurança/performance **no código** (`artifacts/api-server/src/app.ts` e afins).
 
@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-21 | CORS aceita `imports-py.com` | Cadastro e checkout no domínio novo entram na allowlist. Os hosts anteriores continuam | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-19 | Conexão da Cell Tech não mostra a instância Z-API | `zapiConfigured` é só sim ou não. O log de instância ausente não leva ID nem token | O token do Gestão Click, o checkout token e a fila (só os 4 últimos dígitos) iguais |
 | 2026-11-19 | CORS aceita `yuri-imports-py.com` | Checkout no domínio novo entra na allowlist junto com KA e o host antigo | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-17 | Token da Z-API não entra no log nem na fila | O erro gravado tira URL da instância e trechos longos. A fila mostra só os 4 últimos dígitos. A entrada continua exigindo o token do atendimento | O checkout token e o token do Gestão Click iguais |
@@ -34,7 +35,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 ## CORS e headers
 
-- CORS com allowlist de origens oficiais (`yuri-imports-py.com`, Yury antigo, KA, Vercel + `CORS_ALLOWED_ORIGINS`). Exceção: `POST /api/whatsapp/support/inbound` aceita a origem da Z-API; a senha da rota é o controle.
+- CORS com allowlist de origens oficiais (`imports-py.com`, `yuri-imports-py.com`, Yury antigo, KA, Vercel + `CORS_ALLOWED_ORIGINS`). Exceção: `POST /api/whatsapp/support/inbound` aceita a origem da Z-API; a senha da rota é o controle.
 - `credentials: true`; métodos REST padrão; `allowedHeaders`: `Content-Type`, `Authorization`.
 - Headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`.
 - Body JSON/urlencoded até ~15mb (uploads/base64).

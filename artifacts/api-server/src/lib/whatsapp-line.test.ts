@@ -26,26 +26,26 @@ test("pedido da Poly usa o webhook dela e os outros não", () => {
 });
 
 test("quero comprar abre o link de quem atendeu", () => {
-  const text = "Pode comprar em https://www.yuri-imports-py.com";
+  const text = "Pode comprar em https://www.imports-py.com";
   assert.equal(
     withWhatsappSellerStoreLink(text, "poly"),
-    "Pode comprar em https://www.yuri-imports-py.com/poly",
+    "Pode comprar em https://www.imports-py.com/poly",
   );
   assert.equal(
     withWhatsappSellerStoreLink(text, "main"),
-    "Pode comprar em https://www.yuri-imports-py.com/yuri",
+    "Pode comprar em https://www.imports-py.com/yuri",
   );
   assert.equal(
-    withWhatsappSellerStoreLink("Pode comprar em https://www.yury-imports.com", "poly"),
-    "Pode comprar em https://www.yuri-imports-py.com/poly",
-  );
-  assert.equal(
-    withWhatsappSellerStoreLink("Veja https://www.yury-imports.com/produto/abc", "poly"),
-    "Veja https://www.yuri-imports-py.com/produto/abc",
+    withWhatsappSellerStoreLink("Pode comprar em https://www.yuri-imports-py.com", "poly"),
+    "Pode comprar em https://www.imports-py.com/poly",
   );
   assert.equal(
     withWhatsappSellerStoreLink("Veja https://www.yuri-imports-py.com/produto/abc", "poly"),
-    "Veja https://www.yuri-imports-py.com/produto/abc",
+    "Veja https://www.imports-py.com/produto/abc",
+  );
+  assert.equal(
+    withWhatsappSellerStoreLink("Veja https://www.imports-py.com/produto/abc", "poly"),
+    "Veja https://www.imports-py.com/produto/abc",
   );
 });
 
