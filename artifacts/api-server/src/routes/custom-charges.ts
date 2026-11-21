@@ -16,6 +16,7 @@ import {
 import { getChannelPixGateway } from "../lib/checkout-channel-settings";
 import { consumePromoStockForPaidOrder } from "../lib/promo-stock";
 import { queueOrderPaidWhatsapp } from "../lib/order-paid-whatsapp";
+import { scheduleFilmagemPaidNotice } from "../lib/order-filmagem-whatsapp";
 
 const router: IRouter = Router();
 
@@ -294,7 +295,10 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
               .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
               .where(eq(ordersTable.id, existing[0].orderId));
 
-            if (newOrderStatus === "paid") await consumePromoStockForPaidOrder(existing[0].orderId);
+            if (newOrderStatus === "paid") {
+              await consumePromoStockForPaidOrder(existing[0].orderId);
+              await scheduleFilmagemPaidNotice(existing[0].orderId);
+            }
 
             broadcastNotification({ type: "order_paid", data: { id: existing[0].orderId, status: newOrderStatus } });
           }
@@ -513,7 +517,7 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
             data: { id: existing.orderId, status: newOrderStatus },
           });
           if (newOrderStatus === "paid" || newOrderStatus === "completed") {
-            queueOrderPaidWhatsapp(
+            await queueOrderPaidWhatsapp(
               existing.orderId,
               parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
             );
@@ -591,7 +595,7 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
           data: { id: existing.orderId, status: newOrderStatus },
         });
         if (newOrderStatus === "paid" || newOrderStatus === "completed") {
-          queueOrderPaidWhatsapp(
+          await queueOrderPaidWhatsapp(
             existing.orderId,
             parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
           );

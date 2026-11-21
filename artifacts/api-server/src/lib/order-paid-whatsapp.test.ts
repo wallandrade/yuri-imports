@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   POST_PAYMENT_INSURANCE_FULL_NOTICE,
@@ -10,6 +13,7 @@ import {
   buildOrderPaidWhatsappMessage,
   normalizeN8nWebhookUrl,
   orderPaidWhatsappPayload,
+  queueOrderPaidWhatsapp,
   toWhatsappPhone,
 } from "./order-paid-whatsapp";
 
@@ -81,6 +85,59 @@ test("payload sai com phone e message", () => {
   assert.equal(payload?.phone, "5535999768759");
   assert.match(payload?.message || "", /Pedido #1782/);
   assert.equal(orderPaidWhatsappPayload({ ...order, clientPhone: "" }), null);
+});
+
+test("primeiro pago espera a filmagem e repetição não agenda", async () => {
+  const events: string[] = [];
+  await queueOrderPaidWhatsapp("pedido1", false, {
+    sendPaid() {
+      events.push("pago");
+    },
+    scheduleFilmagem: async () => {
+      events.push("filmagem");
+      return { queued: true };
+    },
+  });
+  assert.deepEqual(events, ["pago"]);
+
+  let release = (): void => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let finished = false;
+  const pending = queueOrderPaidWhatsapp("pedido1", true, {
+    sendPaid() {
+      events.push("pago");
+    },
+    scheduleFilmagem: () => gate.then(() => {
+      events.push("filmagem");
+      return { queued: true };
+    }),
+  }).then(() => {
+    finished = true;
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(finished, false);
+  assert.deepEqual(events, ["pago", "pago"]);
+  release();
+  await pending;
+  assert.equal(finished, true);
+  assert.deepEqual(events, ["pago", "pago", "filmagem"]);
+});
+
+test("os caminhos que marcam pago esperam o agendamento", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const file of ["webhooks.ts", "orders.ts", "pix.ts", "checkout.ts", "custom-charges.ts"]) {
+    const source = fs.readFileSync(path.resolve(here, "../routes", file), "utf8");
+    const calls = source.match(/queueOrderPaidWhatsapp\s*\(/g) || [];
+    const awaited = source.match(/await\s+queueOrderPaidWhatsapp\s*\(/g) || [];
+    assert.equal(awaited.length, calls.length, file);
+    assert.ok(calls.length > 0, file);
+    const filmagem = source.match(/scheduleFilmagemPaidNotice\s*\(/g) || [];
+    const filmagemAwaited = source.match(/await\s+scheduleFilmagemPaidNotice\s*\(/g) || [];
+    assert.equal(filmagemAwaited.length, filmagem.length, file);
+  }
 });
 
 test("url do n8n precisa ser https", () => {

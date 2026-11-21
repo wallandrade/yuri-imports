@@ -668,7 +668,7 @@ router.post("/checkout/pix", async (req, res) => {
         coveredByAffiliateCredit: affiliateCreditUsed > 0,
         coveredByStoreCredit: storeCreditUsed > 0,
       });
-      queueOrderPaidWhatsapp(orderId, true);
+      await queueOrderPaidWhatsapp(orderId, true);
       void recordOrderActivity({
         orderId,
         type: "status",

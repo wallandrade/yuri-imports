@@ -76,6 +76,10 @@ function optionListText(value: unknown): string | null {
   }
 }
 
+function redactQueueLog(value: string): string {
+  return value.replace(/\d{8,}/g, (digits) => `****${digits.slice(-4)}`).slice(0, 160);
+}
+
 function clip(value: string | null | undefined, max: number): string | null {
   const text = String(value || "");
   if (!text) return null;
@@ -138,7 +142,7 @@ export async function enqueueWhatsappOutbound(draft: WhatsappOutboundDraft): Pro
     return { ok: true, id };
   } catch (err) {
     if (isDuplicateKey(err)) return { ok: true, id, duplicate: true };
-    console.warn("[WhatsApp fila] não entrou", draft.instance, draft.origin, err instanceof Error ? err.message.slice(0, 160) : "falha");
+    console.warn("[WhatsApp fila] não entrou", draft.instance, draft.origin, redactQueueLog(err instanceof Error ? err.message : "falha"));
     return { ok: false, error: "fila_indisponivel" };
   }
 }

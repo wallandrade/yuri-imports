@@ -68,6 +68,7 @@ import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { queueReportanaDraftComplete, queueReportanaOrderSync } from "../lib/reportana";
 import { queueOrderPaidWhatsapp } from "../lib/order-paid-whatsapp";
+import { scheduleFilmagemPaidNotice } from "../lib/order-filmagem-whatsapp";
 import { announceTrackingCode } from "../lib/order-tracking-whatsapp";
 import { customerVisibleObservation, isObservationVisibleToCustomer } from "../lib/order-observation-visibility";
 import { formatShippingForecastDateBR, normalizeShippingForecastDate } from "../lib/shipping-forecast";
@@ -1956,7 +1957,7 @@ router.post("/admin/orders/:id/apply-store-credit", requireAdminAuth, async (req
         source: "admin_store_credit",
         coveredByStoreCredit: true,
       });
-      queueOrderPaidWhatsapp(id, true);
+      await queueOrderPaidWhatsapp(id, true);
     }
     queueReportanaOrderSync(id);
 
@@ -2142,7 +2143,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
         total: existing[0]?.total,
         source: "admin_manual",
       });
-      queueOrderPaidWhatsapp(id, true);
+      await queueOrderPaidWhatsapp(id, true);
     }
     if (isBeingCancelled && !wasAlreadyCancelled) {
       void sendOutboundWebhook("order_cancelled", {
@@ -2481,7 +2482,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
         total: existing[0]?.total,
         source: "admin_proof",
       });
-      queueOrderPaidWhatsapp(id, true);
+      await queueOrderPaidWhatsapp(id, true);
     }
     recordAdminActivity(req, id, "proof", "Enviou comprovante");
     queueReportanaOrderSync(id);
@@ -2751,6 +2752,10 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     await db.update(ordersTable)
       .set(updates)
       .where(buildAdminOrderWhere(id, adminScope));
+
+    if (!isPaid && (newStatus === "paid" || newStatus === "completed")) {
+      await scheduleFilmagemPaidNotice(id);
+    }
 
     try {
       await syncOrderShipmentItems(id, resolvedProducts);

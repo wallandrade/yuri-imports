@@ -223,15 +223,37 @@ export async function sendOrderPaidWhatsapp(orderId: string): Promise<{ sent: bo
   }
 }
 
-/** `firstPaid` só no instante em que o pedido vira pago. Repetição e pedido antigo ficam de fora. */
-export function queueOrderPaidWhatsapp(orderId: string | null | undefined, firstPaid = false): void {
+export type PaidWhatsappQueueHooks = {
+  sendPaid?: (orderId: string) => void;
+  scheduleFilmagem?: (orderId: string) => Promise<{ queued: boolean; error?: string }>;
+};
+
+/**
+ * `firstPaid` só no instante em que o pedido vira pago. Repetição e pedido antigo ficam de fora.
+ * O aviso de pago continua em segundo plano. A filmagem espera o retorno, para o status pago já estar gravado.
+ */
+export async function queueOrderPaidWhatsapp(
+  orderId: string | null | undefined,
+  firstPaid = false,
+  hooks?: PaidWhatsappQueueHooks,
+): Promise<void> {
   const id = String(orderId || "").trim();
   if (!id) return;
-  void sendOrderPaidWhatsapp(id);
+  if (hooks?.sendPaid) hooks.sendPaid(id);
+  else void sendOrderPaidWhatsapp(id);
   if (!firstPaid) return;
-  void import("./order-filmagem-whatsapp").then(({ queueOrderFilmagemPaidNotice }) => {
-    queueOrderFilmagemPaidNotice(id);
-  }).catch((err: unknown) => {
-    console.warn("[WhatsApp filmagem] não agendou", id, err instanceof Error ? err.message.slice(0, 160) : "falha");
-  });
+  try {
+    const schedule = hooks?.scheduleFilmagem ?? (async (orderIdToSchedule: string) => {
+      const { scheduleFilmagemPaidNotice } = await import("./order-filmagem-whatsapp");
+      return scheduleFilmagemPaidNotice(orderIdToSchedule);
+    });
+    await schedule(id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "falha";
+    console.warn(
+      "[WhatsApp filmagem] não agendou",
+      id,
+      message.replace(/\d{8,}/g, (digits) => `****${digits.slice(-4)}`).slice(0, 160),
+    );
+  }
 }
