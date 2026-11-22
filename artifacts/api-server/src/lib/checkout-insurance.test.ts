@@ -105,17 +105,17 @@ test("sem produtos especiais usa so o % padrao", () => {
   assert.equal(amount, 20);
 });
 
-test("54% cobrado e 10% da loja em T.G. 733", () => {
-  const insurance = computeInsuranceAmount(733, true, 54);
+test("54% cobrado e 10% da loja em T.G. 740", () => {
+  const insurance = computeInsuranceAmount(740, true, 54);
   const snap = computeInsuranceSnapshot({
     includeInsurance: true,
-    subtotal: 733,
+    subtotal: 740,
     insuranceAmount: insurance,
     keepPercent: 10,
   });
-  assert.equal(insurance, 395.82);
-  assert.equal(snap.keepAmount, 73.3);
-  assert.equal(snap.cashbackAmount, 322.52);
+  assert.equal(insurance, 399.6);
+  assert.equal(snap.keepAmount, 74);
+  assert.equal(snap.cashbackAmount, 325.6);
   assert.equal(cashbackPercent(54, 10), 44);
 });
 

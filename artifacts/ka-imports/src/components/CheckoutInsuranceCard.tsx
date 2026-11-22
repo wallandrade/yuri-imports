@@ -493,7 +493,7 @@ export function CheckoutInsuranceCard({ settings, loading, products, onSave }: P
             {" "}· reduzido cobra {formatInsurancePercent(parseInsurancePercent(reducedPercent))}%
           </p>
           {(() => {
-            const example = 733;
+            const example = 740;
             const charged = computeInsuranceAmount(example, true, previewPercent);
             const snap = computeInsuranceSnapshot({
               includeInsurance: true,
