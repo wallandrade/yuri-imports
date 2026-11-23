@@ -170,6 +170,7 @@ export async function markShopeeRouteRequested(
   await db.update(ordersTable).set({
     shopeeRouteRequestedAt: now,
     shopeeRouteReviewReason: null,
+    shippingVia: "shopee",
     updatedAt: now,
   }).where(eq(ordersTable.id, order.id));
   const packageId = String(notice?.packageId || "").trim();

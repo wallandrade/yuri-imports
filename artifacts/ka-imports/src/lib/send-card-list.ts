@@ -220,6 +220,15 @@ export function isShopeeShippingVia(value: string | null | undefined): boolean {
   return String(value || "").trim().toLowerCase() === "shopee";
 }
 
+/** O WhatsApp da Rota Shopee já foi aceito. A linha do quadro fica verde. */
+export function isShopeeRouteCustomerNotified(order: {
+  shopeeRouteRequestedAt?: string | Date | null;
+} | null | undefined): boolean {
+  const value = order?.shopeeRouteRequestedAt;
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  return Boolean(String(value || "").trim());
+}
+
 /** Separa a fila já filtrada por `isOnSendCard`. Enviado ou etiqueta pronta não entra em nenhuma coluna. */
 export function splitSendCardOrders<T extends { shippingVia?: string | null }>(orders: T[]): { postal: T[]; shopee: T[] } {
   const postal: T[] = [];

@@ -38,6 +38,7 @@ type ShopeePatch = {
   shopeeRouteReviewReason?: string | null;
   shopeeWalletCreditedAt?: string | null;
   enviado?: boolean;
+  shippingVia?: "shopee" | null;
 };
 
 function adminHeaders(): Record<string, string> {
