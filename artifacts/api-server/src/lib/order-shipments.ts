@@ -91,6 +91,7 @@ export type OrderShipmentPublic = {
   superfreteServiceId: number | null;
   superfreteAccountId: string | null;
   manualTrackingCode: string | null;
+  shopeeRouteSentAt: string | null;
 };
 
 export function mapOrderShipmentPublic(row: OrderShipment): OrderShipmentPublic {
@@ -127,6 +128,7 @@ export function mapOrderShipmentPublic(row: OrderShipment): OrderShipmentPublic 
     superfreteServiceId: row.superfreteServiceId != null ? Number(row.superfreteServiceId) : null,
     superfreteAccountId: row.superfreteAccountId || null,
     manualTrackingCode: row.manualTrackingCode || null,
+    shopeeRouteSentAt: row.shopeeRouteSentAt?.toISOString?.() ?? null,
   };
 }
 

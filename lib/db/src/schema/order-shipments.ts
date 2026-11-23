@@ -34,6 +34,8 @@ export const orderShipmentsTable = mysqlTable("order_shipments", {
   superfreteAccountId: varchar("superfrete_account_id", { length: 64 }),
   /** Código colado no Admin, pago no balcão (Correios). Não é envio EnvioEcom. */
   manualTrackingCode: varchar("manual_tracking_code", { length: 64 }),
+  /** WhatsApp da Rota Shopee deste pacote já foi aceito. */
+  shopeeRouteSentAt: timestamp("shopee_route_sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

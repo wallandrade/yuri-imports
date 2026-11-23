@@ -1301,6 +1301,28 @@ async function sendList(phone: string, turn: Extract<SupportTurn, { kind: "list"
   return sendText(phone, supportListText(turn), line);
 }
 
+async function maybeShopeeRouteReply(
+  body: unknown,
+  phone: string,
+  line: "poly" | "main",
+): Promise<"stop" | "continue"> {
+  const { handleShopeeOnSupportMessage } = await import("./shopee-route-support");
+  const { phoneHasAwaitingShopeeRoute, receiveShopeeRouteInbound } = await import("./shopee-route");
+  return handleShopeeOnSupportMessage(body, {
+    hasAwaiting: (value) => phoneHasAwaitingShopeeRoute(value),
+    receive: async (input) => {
+      const result = await receiveShopeeRouteInbound(input);
+      if (!result.ok) return { ok: false, motivo: result.motivo };
+      return {
+        ok: true,
+        ja_processado: result.ja_processado,
+        mensagem_para_cliente: result.mensagem_para_cliente,
+      };
+    },
+    send: (message) => sendText(phone, message, line),
+  });
+}
+
 /** Responde uma mensagem recebida. Texto digitado na loja cala o menu. Aviso automático não. */
 export async function handleSupportInbound(body: unknown): Promise<{ ok: boolean; skipped?: boolean; silenced?: boolean; error?: string; line?: "poly" | "main" }> {
   const inbound = readSupportInbound(body);
@@ -1326,6 +1348,10 @@ export async function handleSupportInbound(body: unknown): Promise<{ ok: boolean
   const { supportLineCanReply } = await import("./whatsapp-outbound-policy");
   const line = await resolveWhatsappLine(inbound.instanceId);
   if (!supportLineCanReply(line)) return { ok: true, skipped: true, silenced: true, line };
+  if (inbound.text && !inbound.choiceId) {
+    const shopee = await maybeShopeeRouteReply(body, inbound.phone, line);
+    if (shopee === "stop") return { ok: true, line };
+  }
   const rate = supportRateDecision(inbound.phone);
   if (rate === "block") return { ok: true, skipped: true };
   if (rate === "warn") {

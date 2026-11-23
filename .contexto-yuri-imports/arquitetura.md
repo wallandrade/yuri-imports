@@ -1,6 +1,6 @@
 # Arquitetura — Yuri Import
 
-> **Última atualização:** 2026-11-21
+> **Última atualização:** 2026-11-23
 
 Stack, pastas e deploy **como existem no código**. Precedência: código > memória > tipagens.
 
@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-23 | Colunas da Rota Shopee | `orders`: `shopee_route_requested_at`, `shopee_order_id` varchar(32), `shopee_route_review_reason`, `shopee_wallet_credited_at`, com índice no ID e na hora. `order_shipments.shopee_route_sent_at`. O runtime só adiciona. Carteira: tipo `shopee_route_credit` | Sem tabela nova e sem `tenant_id`. PIX e estoque iguais |
 | 2026-11-21 | Loja no domínio `www.imports-py.com` | `yuri-imports-py.com` foi bloqueado. O apex e o `www` do domínio novo estão na Vercel | API continua em `yuri-imports-9483v.ondigitalocean.app` |
 | 2026-11-20 | Coluna `orders.filmagem_whatsapp_due_at` (+ runtime) e índice | Marca o prazo do texto 1 da filmagem. Pedido antigo fica nulo. A fila `whatsapp_outbound_queue` usa o `next_attempt_at` que já existia. `kind=gif` guarda o MP4 na coluna `image` | Sem tabela nova. Pedido, PIX e as outras colunas de WhatsApp iguais. Sem `tenant_id` |
 | 2026-11-19 | A fila do WhatsApp também esvazia `celltech` | O mesmo `whatsapp_outbound_queue` e o job de 30s. `instance` já é varchar(16). Sem coluna nova e sem token na tabela | Pedido, PIX e as sessões do atendimento iguais. Sem `tenant_id` |

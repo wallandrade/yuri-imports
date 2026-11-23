@@ -34,6 +34,7 @@ export type SplitShipmentPackage = {
   superfreteServiceId?: number | null;
   superfreteAccountId?: string | null;
   manualTrackingCode?: string | null;
+  shopeeRouteSentAt?: string | null;
 };
 
 const POOLS: Array<{ id: SplitPoolKind; label: string }> = [

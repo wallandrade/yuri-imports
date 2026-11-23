@@ -1,8 +1,10 @@
+import { zapiCredentials } from "./zapi-client";
 import {
   WHATSAPP_CHANNEL_SETTING,
   WHATSAPP_SUPPORT_DELIVERY_SETTING,
   parseSupportDelivery,
   parseWhatsappChannel,
+  whatsappRateLimitedError,
   type WhatsappChannel,
   type WhatsappNoticeOrigin,
   type WhatsappOutboundKind,
@@ -121,4 +123,51 @@ export async function dispatchWhatsappNotice(input: {
   if (immediate) return resolved.sendNow(draft);
   const queued = await resolved.enqueue(draft);
   return queued.ok ? { ok: true, queued: true } : { ok: false, error: queued.error || "fila_indisponivel" };
+}
+
+type PaceResult = { ok: true } | { ok: false; reason: "gap" | "hourly" };
+
+export async function sendCustomerWhatsapp(input: {
+  origin: WhatsappNoticeOrigin;
+  phone: string;
+  message?: string;
+  instance: WhatsappZapiInstance;
+  preferImmediate?: boolean;
+  n8nUrl?: string;
+  n8nBody?: unknown;
+}, deps?: Partial<DispatchDeps> & {
+  zapiReady?: (instance: WhatsappZapiInstance) => boolean;
+  pace?: (instance: WhatsappZapiInstance) => Promise<PaceResult>;
+}): Promise<{ ok: boolean; queued?: boolean; error?: string }> {
+  const resolved = deps?.readSetting && deps.enqueue && deps.sendNow && deps.postJson
+    ? deps as DispatchDeps
+    : { ...(await productionDeps()), ...deps };
+  const channel = parseWhatsappChannel(await resolved.readSetting(WHATSAPP_CHANNEL_SETTING[input.origin]));
+  if (channel === "n8n") {
+    const url = String(input.n8nUrl || "").trim();
+    if (!url) return { ok: false, error: "not_configured" };
+    const body = input.n8nBody ?? { phone: input.phone, message: input.message };
+    return resolved.postJson(url, body);
+  }
+  const ready = deps?.zapiReady ?? ((instance: WhatsappZapiInstance) => zapiCredentials(instance) != null);
+  if (!ready(input.instance)) return { ok: false, error: "zapi_not_configured" };
+  const draft: WhatsappOutboundDraft = {
+    instance: input.instance,
+    phone: input.phone,
+    kind: "text",
+    message: input.message,
+    origin: input.origin,
+  };
+  const queueOnly = async () => {
+    const queued = await resolved.enqueue(draft);
+    return queued.ok ? { ok: true, queued: true } : { ok: false, error: queued.error || "fila_indisponivel" };
+  };
+  if (input.preferImmediate !== true) return queueOnly();
+  const pace = deps?.pace ?? (await import("./whatsapp-outbound-queue")).whatsappImmediatePace;
+  const room = await pace(input.instance);
+  if (!room.ok) return queueOnly();
+  const sent = await resolved.sendNow(draft);
+  if (sent.ok) return { ok: true, queued: false };
+  if (whatsappRateLimitedError(sent.error)) return queueOnly();
+  return { ok: false, error: sent.error || "request_failed" };
 }

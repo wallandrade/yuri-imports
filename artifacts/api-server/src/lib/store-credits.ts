@@ -11,7 +11,8 @@ export type StoreCreditType =
   | "order_apply"
   | "product_refund"
   | "admin_adjust"
-  | "order_edit_surplus";
+  | "order_edit_surplus"
+  | "shopee_route_credit";
 
 function randomId(): string {
   return crypto.randomBytes(8).toString("hex");
@@ -80,6 +81,8 @@ export async function applyStoreCredit(input: {
   note?: string | null;
   /** Soma no lancamento existente do mesmo type+orderId (edicao de pedido pode reduzir mais de uma vez). */
   accumulate?: boolean;
+  /** Id estável. A Rota Shopee usa `shopee-route:${orderId}`. */
+  id?: string | null;
 }): Promise<{ applied: number; balance: number; duplicate: boolean }> {
   const userId = String(input.userId || "").trim();
   const amount = roundMoney(input.amount);
@@ -178,8 +181,9 @@ export async function applyStoreCredit(input: {
       });
     }
 
+    const ledgerId = String(input.id || "").trim();
     await tx.insert(customerStoreCreditLedgerTable).values({
-      id: randomId(),
+      id: ledgerId && ledgerId.length <= 255 ? ledgerId : randomId(),
       userId,
       amount: applied.toFixed(2),
       type: input.type,

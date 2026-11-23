@@ -252,6 +252,22 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       name: "shipping_forecast_date",
       sql: "ALTER TABLE orders ADD COLUMN shipping_forecast_date VARCHAR(10) NULL",
     },
+    {
+      name: "shopee_route_requested_at",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_route_requested_at TIMESTAMP NULL",
+    },
+    {
+      name: "shopee_order_id",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_order_id VARCHAR(32) NULL",
+    },
+    {
+      name: "shopee_route_review_reason",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_route_review_reason VARCHAR(32) NULL",
+    },
+    {
+      name: "shopee_wallet_credited_at",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_wallet_credited_at TIMESTAMP NULL",
+    },
   ];
 
   for (const definition of definitions) {
@@ -299,6 +315,14 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     {
       name: "orders_filmagem_whatsapp_due_idx",
       sql: "ALTER TABLE orders ADD KEY orders_filmagem_whatsapp_due_idx (filmagem_whatsapp_due_at, filmagem_whatsapp_sent_at)",
+    },
+    {
+      name: "orders_shopee_order_id_idx",
+      sql: "ALTER TABLE orders ADD KEY orders_shopee_order_id_idx (shopee_order_id)",
+    },
+    {
+      name: "orders_shopee_route_requested_at_idx",
+      sql: "ALTER TABLE orders ADD KEY orders_shopee_route_requested_at_idx (shopee_route_requested_at)",
     },
   ];
 
@@ -1175,6 +1199,7 @@ async function ensureOrderShipmentSuperfreteColumns(databaseName: string): Promi
     { name: "shipping_forecast_date", sql: "ALTER TABLE order_shipments ADD COLUMN shipping_forecast_date VARCHAR(10) NULL" },
     { name: "manual_tracking_code", sql: "ALTER TABLE order_shipments ADD COLUMN manual_tracking_code VARCHAR(64) NULL" },
     { name: "label_debit_waived", sql: "ALTER TABLE order_shipments ADD COLUMN label_debit_waived TINYINT(1) NOT NULL DEFAULT 0" },
+    { name: "shopee_route_sent_at", sql: "ALTER TABLE order_shipments ADD COLUMN shopee_route_sent_at TIMESTAMP NULL" },
   ];
   for (const definition of definitions) {
     if (!(await columnExists("order_shipments", definition.name, databaseName))) {
