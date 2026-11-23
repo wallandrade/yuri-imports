@@ -405,6 +405,9 @@ function SendQueueCard<T extends {
   transferLabel,
   transferIcon,
   transferBusyId,
+  isCustomerNotified,
+  onMarkSent,
+  markSentBusyId,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -425,6 +428,9 @@ function SendQueueCard<T extends {
   transferLabel?: string;
   transferIcon?: React.ReactNode;
   transferBusyId?: string | null;
+  isCustomerNotified?: (order: T) => boolean;
+  onMarkSent?: (order: T, event: React.MouseEvent<HTMLButtonElement>) => void;
+  markSentBusyId?: string | null;
 }) {
   const palette = tone === "orange"
     ? {
@@ -480,8 +486,17 @@ function SendQueueCard<T extends {
         <div className="space-y-1.5 max-h-[320px] overflow-y-auto" onScroll={onPhotoHoverEnd}>
           {orders.map((order) => {
             const lateDays = daysSince(order.createdAt);
-            const late = lateDays > 3;
+            const notified = isCustomerNotified?.(order) === true;
+            const late = !notified && lateDays > 3;
             const busy = transferBusyId === order.id;
+            const sending = markSentBusyId === order.id;
+            const rowClass = notified
+              ? "bg-emerald-50 border-emerald-300"
+              : late
+                ? "bg-red-50 border-red-300"
+                : palette.row;
+            const nameClass = notified ? "text-emerald-950" : late ? "text-red-950" : palette.name;
+            const metaClass = notified ? "text-emerald-800/80" : late ? "text-red-800/80" : palette.meta;
             return (
               <div
                 key={order.id}
@@ -490,7 +505,7 @@ function SendQueueCard<T extends {
                   event.stopPropagation();
                   onOpenOrder(order);
                 }}
-                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border cursor-pointer hover:brightness-[0.98] ${late ? "bg-red-50 border-red-300" : palette.row}`}
+                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border cursor-pointer hover:brightness-[0.98] ${rowClass}`}
               >
                 <SendCardProductThumbs
                   items={sendCardThumbProducts(order as SendCardOrder)}
@@ -500,17 +515,37 @@ function SendQueueCard<T extends {
                   onHoverEnd={onPhotoHoverEnd}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-medium truncate ${late ? "text-red-950" : palette.name}`}>{order.clientName}</p>
-                  <p className={`text-xs ${late ? "text-red-800/80" : palette.meta}`}>#{getOrderReference(order)} · {formatDateBR(order.createdAt)}</p>
+                  <p className={`text-sm font-medium truncate ${nameClass}`}>{order.clientName}</p>
+                  <p className={`text-xs ${metaClass}`}>#{getOrderReference(order)} · {formatDateBR(order.createdAt)}</p>
                 </div>
+                {notified ? (
+                  <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                    Cliente avisado
+                  </span>
+                ) : null}
                 {late ? (
                   <span className="text-[10px] font-semibold text-red-800 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full whitespace-nowrap">
                     {lateDays} dias sem enviar
                   </span>
                 ) : null}
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${late ? "text-red-800 bg-red-100" : palette.total}`}>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${notified ? "text-emerald-800 bg-emerald-100" : late ? "text-red-800 bg-red-100" : palette.total}`}>
                   {formatCurrency(Number(order.total))}
                 </span>
+                {onMarkSent ? (
+                  <button
+                    type="button"
+                    title="Marcar como enviado sem baixar estoque"
+                    disabled={sending || busy}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onMarkSent(order, event);
+                    }}
+                    className="shrink-0 h-7 px-2 rounded-full border border-emerald-600 bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {sending ? "..." : "Pedido enviado"}
+                  </button>
+                ) : null}
                 {onTransfer ? (
                   <button
                     type="button"
@@ -908,6 +943,8 @@ import {
   isCheckoutMotoboyOrder,
   isOnMotoboySendCard,
   isOnSendCard,
+  isShopeeRouteCustomerNotified,
+  sendCardOrderMarkedSent,
   sendCardBadgeCount,
   sendCardImageForProductName,
   sendCardProductImage,
@@ -1745,6 +1782,7 @@ export default function Admin() {
   const [dashboardImagePreview, setDashboardImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [dashboardPhotoHover, setDashboardPhotoHover] = useState<{ src: string; name: string; top: number; left: number } | null>(null);
   const [shippingViaSavingId, setShippingViaSavingId] = useState<string | null>(null);
+  const [shopeeBoardSentId, setShopeeBoardSentId] = useState<string | null>(null);
   // Financial summary (gateway fees/liquido real)
   const [financialSummary, setFinancialSummary] = React.useState<null | {
     totalRevenue: number;
@@ -4688,6 +4726,37 @@ export default function Admin() {
       setShippingViaSavingId(null);
     }
   };
+  const markShopeeBoardSent = async (
+    order: AdminOrder,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (shopeeBoardSentId) return;
+    const reference = getOrderReference(order);
+    if (!window.confirm(`Marcar o pedido #${reference} como enviado? O estoque não será baixado.`)) return;
+    const apply = (list: AdminOrder[]) => list.map((row) => (
+      row.id === order.id ? sendCardOrderMarkedSent(row) : row
+    ));
+    setShopeeBoardSentId(order.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${encodeURIComponent(order.id)}/enviado`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ enviado: true }),
+      });
+      const data = await res.json().catch(() => ({} as { message?: string }));
+      if (!res.ok) throw new Error(data.message || "save failed");
+      setOrders(apply);
+      setSellerAllOrders(apply);
+      setStatsOrdersData(apply);
+      toast.success(`Pedido #${reference} marcado como enviado. O estoque não foi baixado.`);
+    } catch (err) {
+      toast.error(err instanceof Error && err.message !== "save failed" ? err.message : "Nao foi possivel marcar o pedido como enviado.");
+    } finally {
+      setShopeeBoardSentId(null);
+    }
+  };
   const sendCardCatalog: SendCardCatalogProduct[] = products.map((product) => ({
     id: String(product.id),
     name: String(product.name || ""),
@@ -5546,6 +5615,9 @@ export default function Admin() {
               transferLabel="Voltar para Pedidos para enviar"
               transferIcon={<ArrowLeft className="w-3.5 h-3.5" />}
               transferBusyId={shippingViaSavingId}
+              isCustomerNotified={(order) => isShopeeRouteCustomerNotified(order)}
+              onMarkSent={(order, event) => { void markShopeeBoardSent(order, event); }}
+              markSentBusyId={shopeeBoardSentId}
             />
           </div>
           <SendQueueCard
@@ -14627,6 +14699,7 @@ function OrdersPanel({
                               ...order,
                               shopeeRouteRequestedAt: sentAt,
                               shopeeRouteReviewReason: null,
+                              shippingVia: "shopee",
                               envioecomPackages: (order.envioecomPackages || []).map((entry) => (
                                 entry?.id === packageId ? { ...entry, shopeeRouteSentAt: sentAt } : entry
                               )),

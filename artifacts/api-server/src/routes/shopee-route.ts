@@ -94,7 +94,7 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
     res.json({
       ok: true,
       queued: posted.queued,
-      order: shopeeRouteAdminFields(saved),
+      order: { ...shopeeRouteAdminFields(saved), shippingVia: "shopee" as const },
       packageId: selected.packageId,
       shopeeRouteSentAt: saved.shopeeRouteRequestedAt ? saved.shopeeRouteRequestedAt.toISOString() : null,
     });

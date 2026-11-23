@@ -220,6 +220,30 @@ export function isShopeeShippingVia(value: string | null | undefined): boolean {
   return String(value || "").trim().toLowerCase() === "shopee";
 }
 
+/** O botão Pedido enviado marca o pedido e cada pacote. No dividido, o quadro só solta quando todos os pacotes saem. */
+export function sendCardOrderMarkedSent<T extends {
+  enviado?: boolean | null;
+  aguardandoEstoque?: boolean | null;
+  envioecomPackages?: Array<{ enviado?: boolean | null } | null> | null;
+}>(order: T): T {
+  const packages = Array.isArray(order.envioecomPackages) ? order.envioecomPackages : null;
+  return {
+    ...order,
+    enviado: true,
+    aguardandoEstoque: false,
+    ...(packages ? { envioecomPackages: packages.map((pkg) => (pkg ? { ...pkg, enviado: true } : pkg)) } : {}),
+  };
+}
+
+/** O WhatsApp da Rota Shopee já foi aceito. A linha do quadro fica verde. */
+export function isShopeeRouteCustomerNotified(order: {
+  shopeeRouteRequestedAt?: string | Date | null;
+} | null | undefined): boolean {
+  const value = order?.shopeeRouteRequestedAt;
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  return Boolean(String(value || "").trim());
+}
+
 /** Separa a fila já filtrada por `isOnSendCard`. Enviado ou etiqueta pronta não entra em nenhuma coluna. */
 export function splitSendCardOrders<T extends { shippingVia?: string | null }>(orders: T[]): { postal: T[]; shopee: T[] } {
   const postal: T[] = [];
