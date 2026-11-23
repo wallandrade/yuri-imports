@@ -220,6 +220,21 @@ export function isShopeeShippingVia(value: string | null | undefined): boolean {
   return String(value || "").trim().toLowerCase() === "shopee";
 }
 
+/** O botão Pedido enviado marca o pedido e cada pacote. No dividido, o quadro só solta quando todos os pacotes saem. */
+export function sendCardOrderMarkedSent<T extends {
+  enviado?: boolean | null;
+  aguardandoEstoque?: boolean | null;
+  envioecomPackages?: Array<{ enviado?: boolean | null } | null> | null;
+}>(order: T): T {
+  const packages = Array.isArray(order.envioecomPackages) ? order.envioecomPackages : null;
+  return {
+    ...order,
+    enviado: true,
+    aguardandoEstoque: false,
+    ...(packages ? { envioecomPackages: packages.map((pkg) => (pkg ? { ...pkg, enviado: true } : pkg)) } : {}),
+  };
+}
+
 /** O WhatsApp da Rota Shopee já foi aceito. A linha do quadro fica verde. */
 export function isShopeeRouteCustomerNotified(order: {
   shopeeRouteRequestedAt?: string | Date | null;

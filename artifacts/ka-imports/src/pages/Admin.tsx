@@ -944,6 +944,7 @@ import {
   isOnMotoboySendCard,
   isOnSendCard,
   isShopeeRouteCustomerNotified,
+  sendCardOrderMarkedSent,
   sendCardBadgeCount,
   sendCardImageForProductName,
   sendCardProductImage,
@@ -4735,7 +4736,7 @@ export default function Admin() {
     const reference = getOrderReference(order);
     if (!window.confirm(`Marcar o pedido #${reference} como enviado? O estoque não será baixado.`)) return;
     const apply = (list: AdminOrder[]) => list.map((row) => (
-      row.id === order.id ? { ...row, enviado: true, aguardandoEstoque: false } : row
+      row.id === order.id ? sendCardOrderMarkedSent(row) : row
     ));
     setShopeeBoardSentId(order.id);
     try {
