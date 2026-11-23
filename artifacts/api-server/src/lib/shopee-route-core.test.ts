@@ -201,6 +201,8 @@ test("atendimento só trata mensagem que parece ID da Shopee", () => {
   assert.equal(supportMessageHasShopeeId("segue o id 241116ABCDEFGH obrigado"), true);
   assert.equal(supportMessageHasShopeeId("241116123456789012"), true);
   assert.equal(numericShopeeIdIsTheReply("id 241116123456789012", "241116123456789012"), true);
+  assert.equal(supportMessageHasShopeeId("segue o id 241116123456789012"), true);
+  assert.equal(supportMessageHasShopeeId("id da compra 241116123456789012"), true);
   assert.equal(supportMessageHasShopeeId("comprovante 4111111111111111 do cartão"), false);
   assert.equal(supportMessageHasShopeeId("241116ABCDEFGH e 241117ZYXWVU12"), true);
 });

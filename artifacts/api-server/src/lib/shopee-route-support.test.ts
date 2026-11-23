@@ -170,7 +170,7 @@ test("oi e comprovante com número longo não marcam revisão nem enviado", asyn
 
 test("número sozinho de 14 a 20 dígitos ainda grava o ID", async () => {
   const store = memoryStore([blank("a")]);
-  const result = await executeShopeeRouteInbound({ telefone: PHONE, texto: "id 241116123456789012" }, store);
+  const result = await executeShopeeRouteInbound({ telefone: PHONE, texto: "segue o id 241116123456789012" }, store);
   assert.equal(result.ok, true);
   assert.equal(store.rows[0]?.shopeeOrderId, "241116123456789012");
   assert.equal(store.rows[0]?.enviado, true);

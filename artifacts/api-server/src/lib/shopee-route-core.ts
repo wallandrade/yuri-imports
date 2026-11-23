@@ -271,9 +271,9 @@ export function shopeeRouteCreditKey(orderId: string): string {
   return `shopee-route:${String(orderId || "").trim()}`;
 }
 
-const NUMERIC_REPLY_WORD = /^(id|codigo|shopee|compra|pedido|segue)$/;
+const NUMERIC_REPLY_WORD = /^(id|codigo|shopee|compra|pedido|segue|aqui|obrigado|obrigada|ok|sim|o|a|os|as|de|da|do|das|dos|e|em|no|na|nos|nas|um|uma)$/;
 
-/** Número de 14–20 dígitos só vale se a mensagem for o próprio ID, com um rótulo curto. */
+/** Número de 14–20 dígitos vale se a sobra for só um rótulo curto, com artigo. */
 export function numericShopeeIdIsTheReply(text: string, id: string): boolean {
   const without = String(text || "").replace(new RegExp(id, "g"), " ");
   const words = without
@@ -283,7 +283,9 @@ export function numericShopeeIdIsTheReply(text: string, id: string): boolean {
     .replace(/[^a-z]+/g, " ")
     .trim();
   if (!words) return true;
-  return words.split(/\s+/).every((word) => NUMERIC_REPLY_WORD.test(word));
+  const tokens = words.split(/\s+/);
+  if (tokens.length > 6) return false;
+  return tokens.every((word) => NUMERIC_REPLY_WORD.test(word));
 }
 
 /**
