@@ -930,6 +930,8 @@ import WhatsAppGroupCampaignCard from "@/components/admin/WhatsAppGroupCampaignC
 import WhatsAppSupportAiCard from "@/components/admin/WhatsAppSupportAiCard";
 import WhatsAppSupportMenuCard from "@/components/admin/WhatsAppSupportMenuCard";
 import WhatsappDispatchCard from "@/components/admin/WhatsappDispatchCard";
+import { ShopeeRouteBadge, ShopeeRouteOrderControls, ShopeeRouteSettingsCard } from "@/components/admin/ShopeeRouteAdmin";
+import { ShopeeRouteButton } from "@/components/admin/ShopeeRouteButton";
 import AdminEnvioEcomAccountsPanel, { type EnvioEcomAccountPublic } from "@/pages/AdminEnvioEcomAccountsPanel";
 import { envioecomAccountsForLabelPicker } from "@/lib/envioecom-label-accounts";
 import AdminSuperfreteAccountsPanel, { type SuperfreteAccountPublic } from "@/pages/AdminSuperfreteAccountsPanel";
@@ -14366,6 +14368,25 @@ function OrdersPanel({
                     }}
                   />
                   {!isCancelledCard && (
+                  <div className="flex flex-col gap-2">
+                    <ShopeeRouteBadge
+                      requestedAt={order.shopeeRouteRequestedAt}
+                      shopeeOrderId={order.shopeeOrderId}
+                      reviewReason={order.shopeeRouteReviewReason}
+                    />
+                    <div className="flex gap-2 flex-wrap items-center">
+                      <ShopeeRouteOrderControls
+                        order={order}
+                        canCredit={isPrimary}
+                        hideSend={isSplitShipment}
+                        onPatched={(patch) => {
+                          onSetOrderPatched({ ...order, ...patch });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  )}
+                  {!isCancelledCard && (
                   <div className="flex gap-2 flex-wrap items-center">
                   <Button
                     size="sm"
@@ -14589,6 +14610,28 @@ function OrdersPanel({
                           value={pkg.shippingForecastDate}
                           saving={!!shippingForecastSaving[`${order.id}:${pkg.id}`]}
                           onChange={(date) => { void saveShippingForecast(order, date, pkg.id); }}
+                        />
+                      )}
+                      {!isCancelledCard && pkg.id && (
+                        <ShopeeRouteButton
+                          orderId={order.id}
+                          packageId={pkg.id}
+                          sentAt={pkg.shopeeRouteSentAt}
+                          items={(pkg.items || []).map((item) => ({
+                            quantity: item.quantity,
+                            name: item.productName,
+                          }))}
+                          onSent={(sentAt) => {
+                            const packageId = String(pkg.id);
+                            onSetOrderPatched({
+                              ...order,
+                              shopeeRouteRequestedAt: sentAt,
+                              shopeeRouteReviewReason: null,
+                              envioecomPackages: (order.envioecomPackages || []).map((entry) => (
+                                entry?.id === packageId ? { ...entry, shopeeRouteSentAt: sentAt } : entry
+                              )),
+                            });
+                          }}
                         />
                       )}
                       {!isCancelledCard && pkg.id && !pkg.inventoryReserved && (
@@ -21793,6 +21836,7 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
           </p>
         </div>
         <WhatsappDispatchCard settings={settings} loading={loading} onSave={onSave} />
+        <ShopeeRouteSettingsCard settings={settings} loading={loading} onSave={onSave} onDelete={onDelete} />
         <div>
           <label className="block text-xs font-medium mb-1">URL de produção do webhook</label>
           <div className="flex gap-2">

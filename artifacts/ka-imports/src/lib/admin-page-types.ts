@@ -75,6 +75,10 @@ export type AdminOrder = {
   inventoryReserved?: boolean | null;
   shippingForecastDate?: string | null;
   shippingVia?: string | null;
+  shopeeRouteRequestedAt?: string | null;
+  shopeeOrderId?: string | null;
+  shopeeRouteReviewReason?: string | null;
+  shopeeWalletCreditedAt?: string | null;
   trackingCode?: string | null;
   trackingLabelUrl?: string | null;
   envioecomBarcode?: string | null;

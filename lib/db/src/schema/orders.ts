@@ -104,6 +104,11 @@ export const ordersTable = mysqlTable("orders", {
   deliveredWhatsappKeys: text("delivered_whatsapp_keys"),
   /** Pacotes que já receberam o WhatsApp de saiu para entrega. JSON. */
   outForDeliveryWhatsappKeys: text("out_for_delivery_whatsapp_keys"),
+  /** Cliente avisado para comprar o produto da Shopee. Sem estoque. */
+  shopeeRouteRequestedAt: timestamp("shopee_route_requested_at"),
+  shopeeOrderId: varchar("shopee_order_id", { length: 32 }),
+  shopeeRouteReviewReason: varchar("shopee_route_review_reason", { length: 32 }),
+  shopeeWalletCreditedAt: timestamp("shopee_wallet_credited_at"),
   trackingCode: varchar("tracking_code", { length: 255 }),
   trackingLabelUrl: mediumtext("tracking_label_url"),
   trackingLabelText: mediumtext("tracking_label_text"),

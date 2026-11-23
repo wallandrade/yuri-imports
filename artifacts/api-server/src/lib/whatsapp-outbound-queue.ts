@@ -10,6 +10,7 @@ import {
   WHATSAPP_ZAPI_INSTANCES,
   maskWhatsappPhone,
   whatsappBackoffMs,
+  whatsappInstanceCanSend,
   whatsappTickChoice,
   type WhatsappOutboundKind,
   type WhatsappZapiInstance,
@@ -177,6 +178,14 @@ async function rememberImmediate(draft: WhatsappOutboundDraft, sent: { ok: boole
       sent.ok ? null : clip(sent.error, 400),
     ],
   );
+}
+
+export async function whatsappImmediatePace(instance: WhatsappZapiInstance): Promise<{ ok: true } | { ok: false; reason: "gap" | "hourly" }> {
+  const pace = await paceSnapshot(instance);
+  return whatsappInstanceCanSend({
+    sentInLastHour: pace.sentInLastHour,
+    sentInLastGap: pace.gapBlocked,
+  });
 }
 
 async function paceSnapshot(instance: WhatsappZapiInstance): Promise<{ sentInLastHour: number; gapBlocked: boolean }> {

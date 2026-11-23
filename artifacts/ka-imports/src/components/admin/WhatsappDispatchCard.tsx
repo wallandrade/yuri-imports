@@ -14,6 +14,7 @@ const CHANNELS = [
   ["zapi_channel_support", "Atendimento"],
   ["zapi_channel_support_menu", "Menu do atendimento"],
   ["zapi_channel_cell_tech", "Cell Tech"],
+  ["zapi_channel_shopee_route", "Rota Shopee"],
 ] as const;
 
 type QueueRow = {

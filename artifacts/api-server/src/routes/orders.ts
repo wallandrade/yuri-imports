@@ -3213,12 +3213,25 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     bankDepositPayerName:   (o as any).bankDepositPayerName ?? null,
     bankDepositPostedAt:    (o as any).bankDepositPostedAt ?? null,
     bankDepositMatchedAt:   (o as any).bankDepositMatchedAt?.toISOString?.() ?? null,
+    shopeeRouteRequestedAt: o.shopeeRouteRequestedAt?.toISOString?.() ?? null,
+    shopeeOrderId:          String(o.shopeeOrderId || "").trim() || null,
+    shopeeRouteReviewReason: String(o.shopeeRouteReviewReason || "").trim() || null,
+    shopeeWalletCreditedAt: o.shopeeWalletCreditedAt?.toISOString?.() ?? null,
   };
 }
 
 function mapOrderForCustomer(o: typeof ordersTable.$inferSelect) {
   const mapped = mapOrder(o);
-  const { observationVisibleToCustomer: _flag, aguardandoEstoque: _park, shippingVia: _via, ...rest } = mapped;
+  const {
+    observationVisibleToCustomer: _flag,
+    aguardandoEstoque: _park,
+    shippingVia: _via,
+    shopeeRouteRequestedAt: _shopeeAt,
+    shopeeOrderId: _shopeeId,
+    shopeeRouteReviewReason: _shopeeReview,
+    shopeeWalletCreditedAt: _shopeeCredit,
+    ...rest
+  } = mapped;
   return {
     ...rest,
     observation: customerVisibleObservation({

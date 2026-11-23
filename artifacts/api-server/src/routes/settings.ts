@@ -23,6 +23,12 @@ import {
   whatsappChannelSaveError,
   whatsappSupportDeliverySaveError,
 } from "../lib/whatsapp-outbound-policy";
+import {
+  SHOPEE_ROUTE_MESSAGE_KEY,
+  SHOPEE_ROUTE_PRODUCT_URL_KEY,
+  normalizeShopeeProductUrl,
+  parseShopeeRouteMessage,
+} from "../lib/shopee-route-core";
 
 const router: IRouter = Router();
 
@@ -120,6 +126,8 @@ const ALLOWED_KEYS = [
   SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
   SHIPPING_QUEUE_MANUAL_HOURS_KEY,
   CHECKOUT_CARRIER_PRIORITY_KEY,
+  SHOPEE_ROUTE_PRODUCT_URL_KEY,
+  SHOPEE_ROUTE_MESSAGE_KEY,
 ];
 
 const IMAGE_SETTING_KEYS = new Set([
@@ -273,6 +281,27 @@ router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
           return;
         }
         storedValue = parsed.id;
+      }
+      if (key === SHOPEE_ROUTE_PRODUCT_URL_KEY) {
+        const normalized = normalizeShopeeProductUrl(value);
+        if (!normalized) {
+          res.status(400).json({ error: "INVALID_VALUE", message: "O link da Shopee precisa ser https, sem usuário na URL." });
+          return;
+        }
+        storedValue = normalized;
+      }
+      if (key === SHOPEE_ROUTE_MESSAGE_KEY) {
+        const parsed = parseShopeeRouteMessage(value);
+        if (!parsed.ok) {
+          res.status(400).json({ error: "INVALID_VALUE", message: parsed.message });
+          return;
+        }
+        if (!parsed.value) {
+          await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
+          res.json({ ok: true });
+          return;
+        }
+        storedValue = parsed.value;
       }
       if (key === WHATSAPP_SUPPORT_MENU_SETTING) {
         const parsed = supportMenuSaveError(value);

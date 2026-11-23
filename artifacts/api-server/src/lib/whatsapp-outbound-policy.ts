@@ -24,6 +24,7 @@ export const WHATSAPP_CHANNEL_SETTING = {
   atendimento: "zapi_channel_support",
   atendimento_menu: "zapi_channel_support_menu",
   cell_tech: "zapi_channel_cell_tech",
+  shopee_route: "zapi_channel_shopee_route",
 } as const;
 
 export const WHATSAPP_CHANNEL_SETTING_KEYS = [
@@ -144,6 +145,12 @@ export function whatsappAttemptCountsForPace(row: {
     hour: sentInHour || triedInHour,
     gap: sentInGap || triedInGap || sendingInGap,
   };
+}
+
+/** Recusa da Z-API por ritmo. Outra falha não entra na fila. */
+export function whatsappRateLimitedError(error: string | undefined): boolean {
+  const text = String(error || "").toLowerCase();
+  return /\b429\b/.test(text) || text.includes("rate") || text.includes("too many") || text.includes("limite");
 }
 
 export function maskWhatsappPhone(phone: string): string {
