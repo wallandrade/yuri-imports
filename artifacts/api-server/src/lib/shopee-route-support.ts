@@ -3,6 +3,7 @@ import {
   decideShopeeInbound,
   extractShopeeOrderId,
   phonesMatch,
+  supportMessageHasShopeeId,
   reviewSummary,
   shopeeRouteCustomerReply,
   type ShopeeInboundMotivo,
@@ -100,6 +101,9 @@ export async function executeShopeeRouteInbound(
     return { ok: false, motivo: "payload_invalido" };
   }
   const extracted = extractShopeeOrderId(input.texto);
+  if (!supportMessageHasShopeeId(input.texto)) {
+    return { ok: false, motivo: extracted.motivo || "id_invalido" };
+  }
   const awaitingRows = await store.listAwaiting();
   const awaiting = awaitingRows
     .filter((row) => phonesMatch(row.clientPhone, telefone))
@@ -173,6 +177,7 @@ async function handleShopeeOnSupportMessageInner(
 ): Promise<"stop" | "continue"> {
   const customer = customerText(body);
   if (!customer) return "continue";
+  if (!supportMessageHasShopeeId(customer.text)) return "continue";
   if (!await deps.hasAwaiting(customer.phone)) return "continue";
   const result = await deps.receive({ telefone: customer.phone, texto: customer.text.slice(0, 2000) });
   if (!result.ok) return "continue";

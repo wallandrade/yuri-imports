@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   DEFAULT_SHOPEE_ROUTE_MESSAGE,
+  numericShopeeIdIsTheReply,
+  supportMessageHasShopeeId,
   decideShopeeInbound,
   extractShopeeOrderId,
   formatBrl,
@@ -192,4 +194,13 @@ test("pacote da Rota Shopee lista só os itens daquele envio", () => {
   const whole = selectShopeeRouteProducts({ split: false, orderProducts, packages });
   assert.equal(whole.ok, true);
   if (whole.ok) assert.equal(summarizeOrderProducts(whole.products).texto, "1x Tirzepatida, 1x Retatrutide, 1x BIOGENISES GHK, 1x Lipoless");
+});
+
+test("atendimento só trata mensagem que parece ID da Shopee", () => {
+  assert.equal(supportMessageHasShopeeId("oi, meu pedido"), false);
+  assert.equal(supportMessageHasShopeeId("segue o id 241116ABCDEFGH obrigado"), true);
+  assert.equal(supportMessageHasShopeeId("241116123456789012"), true);
+  assert.equal(numericShopeeIdIsTheReply("id 241116123456789012", "241116123456789012"), true);
+  assert.equal(supportMessageHasShopeeId("comprovante 4111111111111111 do cartão"), false);
+  assert.equal(supportMessageHasShopeeId("241116ABCDEFGH e 241117ZYXWVU12"), true);
 });

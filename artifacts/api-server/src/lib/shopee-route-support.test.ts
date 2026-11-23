@@ -150,6 +150,33 @@ test("confirmação sai e, se o envio falha, o menu segue", async () => {
   assert.equal(failed, "continue");
 });
 
+test("oi e comprovante com número longo não marcam revisão nem enviado", async () => {
+  const store = memoryStore([blank("a")]);
+  const chat = await executeShopeeRouteInbound({ telefone: PHONE, texto: "oi, meu pedido" }, store);
+  assert.equal(chat.ok, false);
+  assert.equal(store.rows[0]?.shopeeRouteReviewReason, null);
+  assert.equal(store.rows[0]?.enviado, false);
+  assert.equal(store.rows[0]?.shopeeOrderId, null);
+
+  const receipt = await executeShopeeRouteInbound({
+    telefone: PHONE,
+    texto: "segue o comprovante 4111111111111111 do cartão",
+  }, store);
+  assert.equal(receipt.ok, false);
+  assert.equal(store.rows[0]?.enviado, false);
+  assert.equal(store.rows[0]?.shopeeOrderId, null);
+  assert.equal(store.rows[0]?.inventoryReserved, false);
+});
+
+test("número sozinho de 14 a 20 dígitos ainda grava o ID", async () => {
+  const store = memoryStore([blank("a")]);
+  const result = await executeShopeeRouteInbound({ telefone: PHONE, texto: "id 241116123456789012" }, store);
+  assert.equal(result.ok, true);
+  assert.equal(store.rows[0]?.shopeeOrderId, "241116123456789012");
+  assert.equal(store.rows[0]?.enviado, true);
+  assert.equal(store.rows[0]?.inventoryReserved, false);
+});
+
 test("mensagem da loja e clique de menu não gravam ID", async () => {
   let looked = 0;
   const outcome = await handleShopeeOnSupportMessage({

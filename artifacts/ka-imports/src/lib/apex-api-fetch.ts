@@ -4,7 +4,7 @@ const API_ORIGIN = "https://yuri-imports-9483v.ondigitalocean.app";
 /**
  * O domínio sem www responde 307 para www antes do rewrite da API.
  * O Safari devolve esse 307 no POST, sem a mensagem da rota.
- * www também fica de fora do connect-src. A API direta já está liberada.
+ * Só a Rota Shopee usa isto. O restante do /api fica no mesmo host, com o cookie.
  */
 export function rewriteApexApiUrl(raw: string, hostname: string): string | null {
   if (!APEX_HOSTS.has(hostname)) return null;
@@ -16,20 +16,4 @@ export function rewriteApexApiUrl(raw: string, hostname: string): string | null 
     return `${API_ORIGIN}${raw.slice(absolute.length)}`;
   }
   return null;
-}
-
-export function installApexApiFetch(): void {
-  if (typeof window === "undefined" || !APEX_HOSTS.has(window.location.hostname)) return;
-  const native = window.fetch.bind(window);
-  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
-    const raw = typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input.url;
-    const next = rewriteApexApiUrl(raw, window.location.hostname);
-    if (!next) return native(input, init);
-    if (typeof input === "string" || input instanceof URL) return native(next, init);
-    return native(new Request(next, input), init);
-  };
 }

@@ -271,6 +271,34 @@ export function shopeeRouteCreditKey(orderId: string): string {
   return `shopee-route:${String(orderId || "").trim()}`;
 }
 
+const NUMERIC_REPLY_WORD = /^(id|codigo|shopee|compra|pedido|segue)$/;
+
+/** Número de 14–20 dígitos só vale se a mensagem for o próprio ID, com um rótulo curto. */
+export function numericShopeeIdIsTheReply(text: string, id: string): boolean {
+  const without = String(text || "").replace(new RegExp(id, "g"), " ");
+  const words = without
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]+/g, " ")
+    .trim();
+  if (!words) return true;
+  return words.split(/\s+/).every((word) => NUMERIC_REPLY_WORD.test(word));
+}
+
+/**
+ * Conversa comum do atendimento não é ID. Código com letra pode vir numa frase curta.
+ * Número puro só entra se a mensagem for esse número. Dois IDs continuam ambíguos.
+ */
+export function supportMessageHasShopeeId(text: string): boolean {
+  const raw = String(text || "").trim();
+  const extracted = extractShopeeOrderId(raw);
+  if (extracted.motivo === "id_ambiguo") return raw.length <= 80;
+  if (!extracted.id) return false;
+  if (/[A-Z]/.test(extracted.id)) return true;
+  return numericShopeeIdIsTheReply(raw, extracted.id);
+}
+
 export function reviewSummary(motivo: string): string {
   if (motivo === "id_invalido") return "ID inválido";
   if (motivo === "id_ambiguo") return "Mais de um ID na mensagem";
