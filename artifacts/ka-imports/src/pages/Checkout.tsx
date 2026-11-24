@@ -124,8 +124,8 @@ function formatCPF(value: string) {
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
 
-function formatPhone(value: string) {
-  const d = nationalCheckoutPhoneDigits(value);
+function formatPhone(value: string, fromAutofill = false) {
+  const d = nationalCheckoutPhoneDigits(value, fromAutofill);
   if (d.length <= 2) return d.length ? `(${d}` : "";
   if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
   if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
@@ -1258,7 +1258,7 @@ export default function Checkout() {
         if (draft.clientName) setValue("name", draft.clientName);
         if (draft.clientEmail) setValue("email", draft.clientEmail);
         if (draft.clientPhone) {
-          const phone = formatPhone(draft.clientPhone);
+          const phone = formatPhone(draft.clientPhone, true);
           setPhoneDisplay(phone);
           setValue("phone", phone);
         }
@@ -1347,8 +1347,8 @@ export default function Checkout() {
     return () => window.clearTimeout(timer);
   }, [JSON.stringify(draftWatch), items, subtotal, total]);
 
-  const syncPhoneField = useCallback((raw: string) => {
-    const formatted = formatPhone(raw);
+  const syncPhoneField = useCallback((raw: string, fromAutofill = false) => {
+    const formatted = formatPhone(raw, fromAutofill);
     setPhoneDisplay(formatted);
     setValue("phone", formatted, { shouldDirty: true, shouldTouch: true });
   }, [setValue]);
@@ -1365,7 +1365,7 @@ export default function Checkout() {
     const phoneEl = document.getElementById("checkout-phone");
     const documentEl = document.getElementById("checkout-document");
     const cepEl = document.getElementById("checkout-cep");
-    if (phoneEl instanceof HTMLInputElement) syncPhoneField(phoneEl.value);
+    if (phoneEl instanceof HTMLInputElement) syncPhoneField(phoneEl.value, true);
     if (documentEl instanceof HTMLInputElement) syncDocumentField(documentEl.value);
     if (cepEl instanceof HTMLInputElement && formatCEP(cepEl.value) !== getValues("cep")) {
       void applyCheckoutCepRef.current(cepEl.value);
@@ -2305,7 +2305,7 @@ export default function Checkout() {
                       aria-invalid={errors.phone ? true : undefined}
                       value={phoneDisplay}
                       onChange={handlePhoneChange}
-                      onBlur={(event) => syncPhoneField(event.currentTarget.value)}
+                      onBlur={(event) => syncPhoneField(event.currentTarget.value, true)}
                       placeholder="(11) 99999-9999"
                       className={`flex h-12 w-full rounded-xl border-2 border-border bg-white px-4 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10 transition-all duration-200 ${errors.phone ? "border-destructive" : ""}`}
                     />
