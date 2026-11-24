@@ -328,6 +328,25 @@ export function schedulePlanSignature(plan: SchedulePlan): string {
   return `${plan.mode}|${plan.scheduledAt}|${plan.times.join(",")}|${plan.intervalHours}|${planDurationDays(plan)}`;
 }
 
+/**
+ * Mantém o primeiro horário do dia quando o relógio diário não mudou.
+ * `15:03` com o daily em `10:00` continua `15:03`. Trocar o relógio grava o horário novo.
+ */
+export function dailyScheduledAt(input: {
+  time: string;
+  startDay: string;
+  previousAt?: string;
+  previousTime?: string;
+}): string {
+  const time = input.time.trim();
+  if (!time) return "";
+  const previousAt = String(input.previousAt || "");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(previousAt) && String(input.previousTime || "") === time) {
+    return previousAt;
+  }
+  return `${input.startDay}T${time}`;
+}
+
 export function schedulePlanError(plan: SchedulePlan, now: Date, keepPast: boolean): string | null {
   if (plan.mode === "daily") {
     if (plan.times.length === 0) return "Escolha o horário.";

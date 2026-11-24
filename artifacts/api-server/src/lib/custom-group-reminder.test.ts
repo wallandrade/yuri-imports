@@ -6,6 +6,7 @@ import {
   CUSTOM_REMINDER_TEXT,
   buildReminderSeed,
   chatsForCustomPost,
+  reminderAlreadySeeded,
   reminderFirstLocal,
   reminderTargetChats,
 } from "./custom-group-reminder";
@@ -27,6 +28,9 @@ test("o lembrete diário não duplica e não grava telefone do grupo 7", () => {
   assert.equal(CUSTOM_REMINDER_TEXT, TEXT);
   assert.equal(first.action, "insert");
   assert.equal(again.action, "skip");
+  assert.equal(reminderAlreadySeeded(false, true), true);
+  assert.equal(reminderAlreadySeeded(true, false), true);
+  assert.equal(reminderAlreadySeeded(false, false), false);
   assert.equal(nextDay.action, "skip");
   if (first.action !== "insert") return;
   const repeat = buildReminderSeed({ alreadyExists: false, storedChats: stored, now });

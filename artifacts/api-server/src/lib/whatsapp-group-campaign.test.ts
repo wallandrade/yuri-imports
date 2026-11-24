@@ -16,6 +16,7 @@ import {
   parseScheduleTimes,
   scheduleLocal,
   scheduleTimeError,
+  dailyScheduledAt,
   schedulePlanError,
   customGroupDue,
   groupChatsSaveError,
@@ -259,6 +260,8 @@ test("o modo daily repete o horário sem data de fim", () => {
   assert.equal(customSlotKey({ ...plan, active: false }, new Date("2026-12-01T13:00:30.000Z"), 0), null);
   assert.equal(customSlotKey({ ...plan, scheduledAt: "2026-10-13T10:00" }, new Date("2026-10-12T13:00:30.000Z"), 0), null);
   assert.equal(schedulePlanError(plan, new Date("2026-12-01T00:00:00.000Z"), false), null);
+  assert.equal(dailyScheduledAt({ time: "10:00", startDay: "2026-10-12", previousAt: "2026-10-12T15:03", previousTime: "10:00" }), "2026-10-12T15:03");
+  assert.equal(dailyScheduledAt({ time: "11:00", startDay: "2026-10-12", previousAt: "2026-10-12T15:03", previousTime: "10:00" }), "2026-10-12T11:00");
   assert.equal(schedulePlanError({ ...plan, times: [] }, new Date("2026-10-12T13:00:30.000Z"), false), "Escolha o horário.");
   const catchup = { ...plan, scheduledAt: "2026-10-12T15:03" };
   assert.equal(customSlotKey(catchup, new Date("2026-10-12T18:03:30.000Z"), 0), "daily-first:2026-10-12T15:03");

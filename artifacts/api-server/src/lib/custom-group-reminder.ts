@@ -13,6 +13,8 @@ import {
 } from "./whatsapp-group-campaign";
 
 export const CUSTOM_REMINDER_POST_ID = "seed-filmagem-abertura";
+/** Marca que o lembrete já foi oferecido. Apagar o aviso no admin não cria outro na próxima subida. */
+export const CUSTOM_REMINDER_SEEDED_SETTING = "whatsapp_custom_reminder_seeded";
 export const REMINDER_DAILY_TIME = "10:00";
 export const REMINDER_EXTRA_GROUP_NAME = "Yuri imports 7";
 /** Folga para o job de 60s pegar o primeiro envio depois que a linha existe. */
@@ -131,6 +133,11 @@ export function reminderAudienceRule(): string {
   return JSON.stringify({ kind: "default-plus-named", name: REMINDER_EXTRA_GROUP_NAME });
 }
 
+/** Linha existente ou marca na setting: não cria de novo. */
+export function reminderAlreadySeeded(rowExists: boolean, markerSet: boolean): boolean {
+  return rowExists || markerSet;
+}
+
 export function buildReminderSeed(input: {
   alreadyExists: boolean;
   storedChats: readonly GroupChat[];
@@ -156,24 +163,38 @@ export function buildReminderSeed(input: {
   };
 }
 
-/** Insere o lembrete uma vez. Não chama a Z-API. Se o id já existe, não mexe na linha. */
+async function markReminderSeeded(query: { query: (sql: string, values: unknown[]) => Promise<unknown> }): Promise<void> {
+  await query.query(
+    "INSERT INTO site_settings (`key`, value, updated_at) VALUES (?, '1', CURRENT_TIMESTAMP) ON DUPLICATE KEY UPDATE value = '1', updated_at = CURRENT_TIMESTAMP",
+    [CUSTOM_REMINDER_SEEDED_SETTING],
+  );
+}
+
+/** Insere o lembrete uma vez. Não chama a Z-API. Apagar ou desligar no admin não volta na próxima subida. */
 export async function ensureCustomGroupReminder(now = new Date()): Promise<void> {
   const { pool } = await import("@workspace/db");
   const [found] = await pool.query(
     "SELECT id FROM whatsapp_group_custom_posts WHERE id = ? LIMIT 1",
     [CUSTOM_REMINDER_POST_ID],
   );
-  const exists = Array.isArray(found) && found.length > 0;
-  let stored: GroupChat[] = [];
-  if (!exists) {
-    const [settings] = await pool.query(
-      "SELECT value FROM site_settings WHERE `key` = ? LIMIT 1",
-      [GROUP_CHATS_SETTING],
-    );
-    const rows = Array.isArray(settings) ? settings as Array<{ value?: string }> : [];
-    stored = parseStoredGroupChats(String(rows[0]?.value || ""));
+  const rowExists = Array.isArray(found) && found.length > 0;
+  const [markerRows] = await pool.query(
+    "SELECT value FROM site_settings WHERE `key` = ? LIMIT 1",
+    [CUSTOM_REMINDER_SEEDED_SETTING],
+  );
+  const markerList = Array.isArray(markerRows) ? markerRows as Array<{ value?: string }> : [];
+  const markerSet = String(markerList[0]?.value || "") === "1";
+  if (reminderAlreadySeeded(rowExists, markerSet)) {
+    if (!markerSet) await markReminderSeeded(pool);
+    return;
   }
-  const plan = buildReminderSeed({ alreadyExists: exists, storedChats: stored, now });
+  const [settings] = await pool.query(
+    "SELECT value FROM site_settings WHERE `key` = ? LIMIT 1",
+    [GROUP_CHATS_SETTING],
+  );
+  const rows = Array.isArray(settings) ? settings as Array<{ value?: string }> : [];
+  const stored = parseStoredGroupChats(String(rows[0]?.value || ""));
+  const plan = buildReminderSeed({ alreadyExists: false, storedChats: stored, now });
   if (plan.action === "skip") return;
   const inserted = await pool.query(
     `INSERT IGNORE INTO whatsapp_group_custom_posts
@@ -189,6 +210,7 @@ export async function ensureCustomGroupReminder(now = new Date()): Promise<void>
       plan.row.targetChats,
     ],
   );
+  await markReminderSeeded(pool);
   if (mysqlAffectedRows(inserted) > 0) {
     console.log("[Grupos WhatsApp] lembrete diário cadastrado");
   }

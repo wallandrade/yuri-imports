@@ -12,6 +12,7 @@ import {
   GROUP_PEPTIDE_PRODUCT_IDS_SETTING,
   GROUP_PRODUCT_IDS_SETTING,
   customCaptionError,
+  dailyScheduledAt,
   customImageError,
   customLink,
   customLinkFieldError,
@@ -231,7 +232,12 @@ function readCustomPost(
   const scheduledAt = mode === "times"
     ? scheduleLocal(`${date}T${times[0] || "00:00"}`)
     : mode === "daily"
-      ? (times[0] ? `${dailyStart}T${times[0]}` : "")
+      ? dailyScheduledAt({
+        time: times[0] || "",
+        startDay: dailyStart,
+        previousAt: previous?.mode === "daily" ? previous.scheduledAt : "",
+        previousTime: previous?.mode === "daily" ? (previous.times[0] || "") : "",
+      })
       : typedAt || (previous?.scheduledAt || "");
   const plan: SchedulePlan = {
     mode,
