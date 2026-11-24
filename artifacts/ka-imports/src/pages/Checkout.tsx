@@ -16,7 +16,7 @@ import { CheckoutLayout } from "@/components/layout/CheckoutLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
-import { CHECKOUT_INVALID_TOAST, firstInvalidCheckoutField, nationalCheckoutPhoneDigits } from "@/lib/checkout-invalid";
+import { CHECKOUT_INVALID_TOAST, firstInvalidCheckoutField, isBulkCheckoutPhoneChange, nationalCheckoutPhoneDigits } from "@/lib/checkout-invalid";
 import { cartLineId } from "@/lib/product-variants";
 import { isProductUnavailable, useCart, type ServerUnitPrice } from "@/store/use-cart";
 
@@ -1394,8 +1394,13 @@ export default function Checkout() {
   }, [syncDocumentField]);
 
   const handlePhoneChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    syncPhoneField(e.target.value);
-  }, [syncPhoneField]);
+    const inputType = (e.nativeEvent as { inputType?: string }).inputType;
+    syncPhoneField(e.target.value, isBulkCheckoutPhoneChange({
+      inputType,
+      previousValue: phoneDisplay,
+      nextValue: e.target.value,
+    }));
+  }, [phoneDisplay, syncPhoneField]);
 
   const applyCheckoutCep = useCallback(async (raw: string) => {
     const formatted = formatCEP(raw);

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CHECKOUT_INVALID_TOAST, firstInvalidCheckoutField, nationalCheckoutPhoneDigits } from "./checkout-invalid";
+import {
+  CHECKOUT_INVALID_TOAST,
+  checkoutPhoneDigitsFromChange,
+  firstInvalidCheckoutField,
+  nationalCheckoutPhoneDigits,
+} from "./checkout-invalid";
 
 test("o primeiro erro segue a ordem da tela, de cima para baixo", () => {
   assert.equal(
@@ -40,7 +45,34 @@ test("DDD 55 com 11 dígitos não perde o DDD", () => {
 test("um dígito a mais no celular de DDD 55 não troca o DDD", () => {
   assert.equal(nationalCheckoutPhoneDigits("559999999991"), "55999999999");
   assert.equal(nationalCheckoutPhoneDigits("(55) 99999-99991"), "55999999999");
-  assert.equal(nationalCheckoutPhoneDigits("559999999991", true), "55999999999");
+  assert.equal(checkoutPhoneDigitsFromChange({
+    inputType: "insertText",
+    previousValue: "(55) 99999-9999",
+    nextValue: "(55) 99999-99991",
+  }), "55999999999");
+});
+
+test("colar +55, 5511 e 011 normaliza o valor cru", () => {
+  assert.equal(checkoutPhoneDigitsFromChange({
+    inputType: "insertFromPaste",
+    previousValue: "",
+    nextValue: "+55 11 99999-9999",
+  }), "11999999999");
+  assert.equal(checkoutPhoneDigitsFromChange({
+    inputType: "insertFromPaste",
+    previousValue: "",
+    nextValue: "5511999999999",
+  }), "11999999999");
+  assert.equal(checkoutPhoneDigitsFromChange({
+    inputType: "insertFromPaste",
+    previousValue: "",
+    nextValue: "011999999999",
+  }), "11999999999");
+  assert.equal(checkoutPhoneDigitsFromChange({
+    inputType: undefined,
+    previousValue: "",
+    nextValue: "5511999999999",
+  }), "11999999999");
 });
 
 test("13 dígitos com 55 só viram número nacional no autofill", () => {

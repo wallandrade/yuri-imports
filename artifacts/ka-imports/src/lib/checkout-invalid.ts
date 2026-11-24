@@ -16,9 +16,8 @@ export type CheckoutFieldName = (typeof CHECKOUT_FIELD_ORDER)[number];
 export const CHECKOUT_INVALID_TOAST = "Preencha os dados de cima para finalizar";
 
 /**
- * Digitado: só corta em 11 dígitos.
- * Código 55 sai se o texto começa com +55 ou 0055, ou no blur/autofill
- * quando há 13 dígitos começando em 55. O 0 de tronco sai só nesse blur.
+ * Tecla a tecla: só corta em 11 dígitos.
+ * Colagem, autofill ou blur: +55, 0055, 13 dígitos com 55 e o 0 de tronco saem antes do corte.
  */
 export function nationalCheckoutPhoneDigits(raw: string, fromAutofill = false): string {
   const text = String(raw || "").trim();
@@ -32,6 +31,31 @@ export function nationalCheckoutPhoneDigits(raw: string, fromAutofill = false): 
     if (digits.length === 13 && digits.startsWith("55")) digits = digits.slice(2);
   }
   return digits.slice(0, 11);
+}
+
+export function isBulkCheckoutPhoneChange(input: {
+  inputType?: string;
+  previousValue: string;
+  nextValue: string;
+}): boolean {
+  if (
+    input.inputType === undefined
+    || input.inputType === "insertFromPaste"
+    || input.inputType === "insertReplacementText"
+  ) {
+    return true;
+  }
+  const previousDigits = input.previousValue.replace(/\D/g, "").length;
+  const nextDigits = input.nextValue.replace(/\D/g, "").length;
+  return nextDigits - previousDigits > 1;
+}
+
+export function checkoutPhoneDigitsFromChange(input: {
+  inputType?: string;
+  previousValue: string;
+  nextValue: string;
+}): string {
+  return nationalCheckoutPhoneDigits(input.nextValue, isBulkCheckoutPhoneChange(input));
 }
 
 export function firstInvalidCheckoutField(
