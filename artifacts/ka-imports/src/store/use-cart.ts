@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartItem, Product } from "@workspace/api-client-react";
 import { catalogBaseUnitPrice, catalogUnitPrice } from "@/lib/catalog-unit-price";
+import { isProductUnavailable } from "@/lib/product-availability";
 import {
   buildVariantLabel,
   cartLineKey,
@@ -12,25 +13,14 @@ import {
   type SelectedVariant,
 } from "@/lib/product-variants";
 
+export { isProductUnavailable };
+
 type BulkDiscountTier = {
   minQty: number;
   maxQty: number | null;
   unitPrice: number;
   label?: string | null;
 };
-
-type ProductAvailability = Product & {
-  isSoldOut?: boolean;
-  isActive?: boolean;
-  stock?: number | null;
-};
-
-export function isProductUnavailable(product: Product): boolean {
-  const candidate = product as ProductAvailability;
-  if (candidate.isActive === false) return true;
-  if (candidate.isSoldOut === true) return true;
-  return false;
-}
 
 type CartItemExtended = CartItem & {
   image?: string;

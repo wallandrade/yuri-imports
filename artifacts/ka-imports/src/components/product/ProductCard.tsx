@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import type { Product } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { parseVariantGroups } from "@/lib/product-variants";
-import { isProductUnavailable, useCart } from "@/store/use-cart";
+import { isCatalogSoldOut } from "@/lib/product-availability";
+import { useCart } from "@/store/use-cart";
 import { pharmaOffPercent, pharmaSalePrice } from "@/lib/pharma-catalog-query";
 import { usePharmaAddedNotice } from "@/components/pharma/PharmaAddedNotice";
 
@@ -55,7 +56,7 @@ function hasVariantGroups(product: Product): boolean {
 
 export function ProductCard({ product, sellerSlug, priority = false, salesRank, layout = "default" }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
-  const isSoldOut = isProductUnavailable(product);
+  const isSoldOut = isCatalogSoldOut(product);
   const isLaunch = (product as Product & { isLaunch?: boolean }).isLaunch === true;
   const bulkDiscountEnabled = (product as Product & { bulkDiscountEnabled?: boolean }).bulkDiscountEnabled === true;
   const bulkDiscountTiers = parseBulkDiscountTiers((product as Product & { bulkDiscountTiers?: unknown }).bulkDiscountTiers);
@@ -80,7 +81,6 @@ export function ProductCard({ product, sellerSlug, priority = false, salesRank, 
   function handlePharmaAdd(event: React.MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
-    if (isSoldOut) return;
     if (requiresVariantSelection) {
       setLocation(href);
       return;
@@ -103,10 +103,14 @@ export function ProductCard({ product, sellerSlug, priority = false, salesRank, 
               Até {pharmaOff}% OFF
             </span>
           )}
+          {isSoldOut && (
+            <span className="absolute bottom-2 left-2 rounded-full bg-red-600 px-2 py-1 text-[11px] font-bold text-white">
+              Esgotado
+            </span>
+          )}
           <button
             type="button"
-            aria-label={isSoldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
-            disabled={isSoldOut}
+            aria-label="Adicionar ao carrinho"
             onClick={handlePharmaAdd}
             className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--pharma-green)] text-white disabled:bg-neutral-300"
           >
@@ -143,7 +147,6 @@ export function ProductCard({ product, sellerSlug, priority = false, salesRank, 
 
   function handleAddToCart(e: React.MouseEvent) {
     e.preventDefault();
-    if (isSoldOut) return;
     if (requiresVariantSelection) {
       setLocation(href);
       return;
@@ -236,10 +239,9 @@ export function ProductCard({ product, sellerSlug, priority = false, salesRank, 
               variant="outline"
               className="w-full rounded-xl text-sm"
               onClick={handleAddToCart}
-              disabled={isSoldOut}
             >
               <ShoppingCart className="w-4 h-4 mr-1.5" />
-              {isSoldOut ? "Produto esgotado" : requiresVariantSelection ? "Escolher variantes" : "Adicionar ao carrinho"}
+              {requiresVariantSelection ? "Escolher variantes" : "Adicionar ao carrinho"}
             </Button>
           </div>
         </div>

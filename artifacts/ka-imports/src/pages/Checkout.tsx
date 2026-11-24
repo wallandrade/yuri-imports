@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
-import { useForm } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -16,6 +16,7 @@ import { CheckoutLayout } from "@/components/layout/CheckoutLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
+import { CHECKOUT_INVALID_TOAST, firstInvalidCheckoutField } from "@/lib/checkout-invalid";
 import { cartLineId } from "@/lib/product-variants";
 import { isProductUnavailable, useCart, type ServerUnitPrice } from "@/store/use-cart";
 
@@ -550,6 +551,7 @@ export default function Checkout() {
 
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [isWhatsAppSubmitting, setIsWhatsAppSubmitting] = useState(false);
   const isLoading = isCreatingOrder || isCheckingOut;
 
   const createOrderWithSecurity = useCallback(async (payload: Record<string, unknown>) => {
@@ -1345,17 +1347,49 @@ export default function Checkout() {
     return () => window.clearTimeout(timer);
   }, [JSON.stringify(draftWatch), items, subtotal, total]);
 
-  const handleCPFChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatCPF(e.target.value);
-    setCpfDisplay(formatted);
-    setValue("document", formatted, { shouldValidate: false });
+  const syncPhoneField = useCallback((raw: string) => {
+    const formatted = formatPhone(raw);
+    setPhoneDisplay(formatted);
+    setValue("phone", formatted, { shouldDirty: true, shouldTouch: true });
   }, [setValue]);
 
-  const handlePhoneChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatPhone(e.target.value);
-    setPhoneDisplay(formatted);
-    setValue("phone", formatted, { shouldValidate: false });
+  const syncDocumentField = useCallback((raw: string) => {
+    const formatted = formatCPF(raw);
+    setCpfDisplay(formatted);
+    setValue("document", formatted, { shouldDirty: true, shouldTouch: true });
   }, [setValue]);
+
+  const flushCheckoutAutofill = useCallback(() => {
+    const phoneEl = document.getElementById("checkout-phone");
+    const documentEl = document.getElementById("checkout-document");
+    if (phoneEl instanceof HTMLInputElement) syncPhoneField(phoneEl.value);
+    if (documentEl instanceof HTMLInputElement) syncDocumentField(documentEl.value);
+  }, [syncDocumentField, syncPhoneField]);
+
+  const focusCheckoutField = useCallback((field: NonNullable<ReturnType<typeof firstInvalidCheckoutField>>) => {
+    const el = field === "phone"
+      ? document.getElementById("checkout-phone")
+      : field === "document"
+        ? document.getElementById("checkout-document")
+        : document.querySelector<HTMLElement>(`[name="${field}"]`);
+    if (!(el instanceof HTMLElement)) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => el.focus({ preventScroll: true }), 250);
+  }, []);
+
+  const onInvalidCheckout = useCallback((formErrors: FieldErrors<CheckoutFormData>) => {
+    toast.error(CHECKOUT_INVALID_TOAST);
+    const field = firstInvalidCheckoutField(formErrors);
+    if (field) focusCheckoutField(field);
+  }, [focusCheckoutField]);
+
+  const handleCPFChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    syncDocumentField(e.target.value);
+  }, [syncDocumentField]);
+
+  const handlePhoneChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    syncPhoneField(e.target.value);
+  }, [syncPhoneField]);
 
   const handleCEPChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCEP(e.target.value);
@@ -1739,6 +1773,7 @@ export default function Checkout() {
       return;
     }
 
+    flushCheckoutAutofill();
     handleSubmit(async () => {
       if (!validateLanderGoldRule()) return;
       if (!requireMotoboySlot()) return;
@@ -1773,7 +1808,7 @@ export default function Checkout() {
       const hasPromo = cardSubtotal > subtotal;
       setCardModalStep(hasPromo ? "card_pricing" : "kyc_notice");
       setShowCardModal(true);
-    })();
+    }, onInvalidCheckout)();
   };
 
   const handleWhatsAppPayment = async (data: CheckoutFormData) => {
@@ -1787,6 +1822,8 @@ export default function Checkout() {
 
     if (!validateLanderGoldRule()) return;
 
+    setIsWhatsAppSubmitting(true);
+    try {
     const cartAvailable = await validateCartAvailability();
     if (!cartAvailable) return;
 
@@ -1936,6 +1973,9 @@ export default function Checkout() {
       }
       toast.error(apiError?.data?.message || "Erro ao registrar pedido via WhatsApp. Tente novamente.");
     }
+    } finally {
+      setIsWhatsAppSubmitting(false);
+    }
   };
 
   const handleWhatsAppCheckout = () => {
@@ -1943,7 +1983,8 @@ export default function Checkout() {
       toast.error("Pagamento via WhatsApp está desativado no momento.");
       return;
     }
-    handleSubmit(handleWhatsAppPayment)();
+    flushCheckoutAutofill();
+    handleSubmit(handleWhatsAppPayment, onInvalidCheckout)();
   };
 
   const finalizeCardPayment = async () => {
@@ -2216,7 +2257,14 @@ export default function Checkout() {
             {/* Personal Data */}
             <div className="bg-card p-6 rounded-2xl shadow-sm border border-border/50">
               <h2 className="text-2xl font-bold mb-6">Dados do Comprador</h2>
-              <form id="checkout-form" onSubmit={handleSubmit(handlePixPayment)} className="space-y-4">
+              <form
+                id="checkout-form"
+                onSubmit={(event) => {
+                  flushCheckoutAutofill();
+                  void handleSubmit(handlePixPayment, onInvalidCheckout)(event);
+                }}
+                className="space-y-4"
+              >
                 <Input
                   label="Nome Completo *"
                   placeholder="João da Silva"
@@ -2232,11 +2280,18 @@ export default function Checkout() {
                     error={errors.email?.message}
                   />
                   <div className="w-full space-y-1.5">
-                    <label className="text-sm font-medium text-foreground ml-1">Telefone (WhatsApp) *</label>
+                    <label htmlFor="checkout-phone" className="text-sm font-medium text-foreground ml-1">Telefone (WhatsApp) *</label>
                     <input
+                      id="checkout-phone"
+                      name="phone"
                       type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      autoCorrect="off"
+                      aria-invalid={errors.phone ? true : undefined}
                       value={phoneDisplay}
                       onChange={handlePhoneChange}
+                      onBlur={(event) => syncPhoneField(event.currentTarget.value)}
                       placeholder="(11) 99999-9999"
                       className={`flex h-12 w-full rounded-xl border-2 border-border bg-white px-4 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10 transition-all duration-200 ${errors.phone ? "border-destructive" : ""}`}
                     />
@@ -2244,12 +2299,18 @@ export default function Checkout() {
                   </div>
                 </div>
                 <div className="w-full space-y-1.5">
-                  <label className="text-sm font-medium text-foreground ml-1">CPF *</label>
+                  <label htmlFor="checkout-document" className="text-sm font-medium text-foreground ml-1">CPF *</label>
                   <input
+                    id="checkout-document"
+                    name="cpf"
                     type="text"
                     inputMode="numeric"
+                    autoComplete="on"
+                    autoCorrect="off"
+                    aria-invalid={errors.document ? true : undefined}
                     value={cpfDisplay}
                     onChange={handleCPFChange}
+                    onBlur={(event) => syncDocumentField(event.currentTarget.value)}
                     placeholder="000.000.000-00"
                     className={`flex h-12 w-full rounded-xl border-2 border-border bg-white px-4 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10 transition-all duration-200 ${errors.document ? "border-destructive" : ""}`}
                   />
@@ -2271,7 +2332,9 @@ export default function Checkout() {
                   <div className="relative">
                     <input
                       type="text"
+                      name="cep"
                       inputMode="numeric"
+                      autoComplete="postal-code"
                       value={cepDisplay}
                       onChange={handleCEPChange}
                       placeholder="00000-000"
@@ -3109,10 +3172,19 @@ export default function Checkout() {
                     size="lg"
                     className="w-full text-lg border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50"
                     onClick={handleWhatsAppCheckout}
-                    disabled={isLoading || shouldBlockLanderGoldOnlyCheckout}
+                    disabled={isLoading || isWhatsAppSubmitting || shouldBlockLanderGoldOnlyCheckout}
                   >
-                    <MessageCircle className="w-5 h-5 mr-2" />
-                    Finalizar via WhatsApp
+                    {isWhatsAppSubmitting ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Enviando…
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <MessageCircle className="w-5 h-5" />
+                        Finalizar via WhatsApp
+                      </span>
+                    )}
                   </Button>
                 )}
 
