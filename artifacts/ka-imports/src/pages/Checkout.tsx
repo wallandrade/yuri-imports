@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
-import { useForm } from "react-hook-form";
+import { useForm, type FieldErrors } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -16,6 +16,7 @@ import { CheckoutLayout } from "@/components/layout/CheckoutLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
+import { CHECKOUT_INVALID_TOAST, firstInvalidCheckoutField, isBulkCheckoutPhoneChange, nationalCheckoutPhoneDigits } from "@/lib/checkout-invalid";
 import { cartLineId } from "@/lib/product-variants";
 import { isProductUnavailable, useCart, type ServerUnitPrice } from "@/store/use-cart";
 
@@ -123,8 +124,8 @@ function formatCPF(value: string) {
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
 
-function formatPhone(value: string) {
-  const d = value.replace(/\D/g, "").slice(0, 11);
+function formatPhone(value: string, fromAutofill = false) {
+  const d = nationalCheckoutPhoneDigits(value, fromAutofill);
   if (d.length <= 2) return d.length ? `(${d}` : "";
   if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
   if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
@@ -550,6 +551,7 @@ export default function Checkout() {
 
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [isWhatsAppSubmitting, setIsWhatsAppSubmitting] = useState(false);
   const isLoading = isCreatingOrder || isCheckingOut;
 
   const createOrderWithSecurity = useCallback(async (payload: Record<string, unknown>) => {
@@ -1256,7 +1258,7 @@ export default function Checkout() {
         if (draft.clientName) setValue("name", draft.clientName);
         if (draft.clientEmail) setValue("email", draft.clientEmail);
         if (draft.clientPhone) {
-          const phone = formatPhone(draft.clientPhone);
+          const phone = formatPhone(draft.clientPhone, true);
           setPhoneDisplay(phone);
           setValue("phone", phone);
         }
@@ -1345,20 +1347,63 @@ export default function Checkout() {
     return () => window.clearTimeout(timer);
   }, [JSON.stringify(draftWatch), items, subtotal, total]);
 
-  const handleCPFChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatCPF(e.target.value);
-    setCpfDisplay(formatted);
-    setValue("document", formatted, { shouldValidate: false });
+  const syncPhoneField = useCallback((raw: string, fromAutofill = false) => {
+    const formatted = formatPhone(raw, fromAutofill);
+    setPhoneDisplay(formatted);
+    setValue("phone", formatted, { shouldDirty: true, shouldTouch: true });
   }, [setValue]);
+
+  const syncDocumentField = useCallback((raw: string) => {
+    const formatted = formatCPF(raw);
+    setCpfDisplay(formatted);
+    setValue("document", formatted, { shouldDirty: true, shouldTouch: true });
+  }, [setValue]);
+
+  const applyCheckoutCepRef = useRef<(raw: string) => void>(() => {});
+
+  const flushCheckoutAutofill = useCallback(() => {
+    const phoneEl = document.getElementById("checkout-phone");
+    const documentEl = document.getElementById("checkout-document");
+    const cepEl = document.getElementById("checkout-cep");
+    if (phoneEl instanceof HTMLInputElement) syncPhoneField(phoneEl.value, true);
+    if (documentEl instanceof HTMLInputElement) syncDocumentField(documentEl.value);
+    if (cepEl instanceof HTMLInputElement && formatCEP(cepEl.value) !== getValues("cep")) {
+      void applyCheckoutCepRef.current(cepEl.value);
+    }
+  }, [getValues, syncDocumentField, syncPhoneField]);
+
+  const focusCheckoutField = useCallback((field: NonNullable<ReturnType<typeof firstInvalidCheckoutField>>) => {
+    const el = field === "phone"
+      ? document.getElementById("checkout-phone")
+      : field === "document"
+        ? document.getElementById("checkout-document")
+        : document.querySelector<HTMLElement>(`[name="${field}"]`);
+    if (!(el instanceof HTMLElement)) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => el.focus({ preventScroll: true }), 250);
+  }, []);
+
+  const onInvalidCheckout = useCallback((formErrors: FieldErrors<CheckoutFormData>) => {
+    toast.error(CHECKOUT_INVALID_TOAST);
+    const field = firstInvalidCheckoutField(formErrors);
+    if (field) focusCheckoutField(field);
+  }, [focusCheckoutField]);
+
+  const handleCPFChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    syncDocumentField(e.target.value);
+  }, [syncDocumentField]);
 
   const handlePhoneChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatPhone(e.target.value);
-    setPhoneDisplay(formatted);
-    setValue("phone", formatted, { shouldValidate: false });
-  }, [setValue]);
+    const inputType = (e.nativeEvent as { inputType?: string }).inputType;
+    syncPhoneField(e.target.value, isBulkCheckoutPhoneChange({
+      inputType,
+      previousValue: phoneDisplay,
+      nextValue: e.target.value,
+    }));
+  }, [phoneDisplay, syncPhoneField]);
 
-  const handleCEPChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatCEP(e.target.value);
+  const applyCheckoutCep = useCallback(async (raw: string) => {
+    const formatted = formatCEP(raw);
     setCepDisplay(formatted);
     setValue("cep", formatted, { shouldValidate: false });
 
@@ -1421,6 +1466,14 @@ export default function Checkout() {
       }
     }
   }, [setValue]);
+
+  applyCheckoutCepRef.current = (raw: string) => {
+    void applyCheckoutCep(raw);
+  };
+
+  const handleCEPChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    void applyCheckoutCep(e.target.value);
+  }, [applyCheckoutCep]);
 
   if (pendingCheck) {
     return (
@@ -1739,6 +1792,7 @@ export default function Checkout() {
       return;
     }
 
+    flushCheckoutAutofill();
     handleSubmit(async () => {
       if (!validateLanderGoldRule()) return;
       if (!requireMotoboySlot()) return;
@@ -1773,7 +1827,7 @@ export default function Checkout() {
       const hasPromo = cardSubtotal > subtotal;
       setCardModalStep(hasPromo ? "card_pricing" : "kyc_notice");
       setShowCardModal(true);
-    })();
+    }, onInvalidCheckout)();
   };
 
   const handleWhatsAppPayment = async (data: CheckoutFormData) => {
@@ -1787,6 +1841,8 @@ export default function Checkout() {
 
     if (!validateLanderGoldRule()) return;
 
+    setIsWhatsAppSubmitting(true);
+    try {
     const cartAvailable = await validateCartAvailability();
     if (!cartAvailable) return;
 
@@ -1936,6 +1992,9 @@ export default function Checkout() {
       }
       toast.error(apiError?.data?.message || "Erro ao registrar pedido via WhatsApp. Tente novamente.");
     }
+    } finally {
+      setIsWhatsAppSubmitting(false);
+    }
   };
 
   const handleWhatsAppCheckout = () => {
@@ -1943,7 +2002,8 @@ export default function Checkout() {
       toast.error("Pagamento via WhatsApp está desativado no momento.");
       return;
     }
-    handleSubmit(handleWhatsAppPayment)();
+    flushCheckoutAutofill();
+    handleSubmit(handleWhatsAppPayment, onInvalidCheckout)();
   };
 
   const finalizeCardPayment = async () => {
@@ -2216,7 +2276,14 @@ export default function Checkout() {
             {/* Personal Data */}
             <div className="bg-card p-6 rounded-2xl shadow-sm border border-border/50">
               <h2 className="text-2xl font-bold mb-6">Dados do Comprador</h2>
-              <form id="checkout-form" onSubmit={handleSubmit(handlePixPayment)} className="space-y-4">
+              <form
+                id="checkout-form"
+                onSubmit={(event) => {
+                  flushCheckoutAutofill();
+                  void handleSubmit(handlePixPayment, onInvalidCheckout)(event);
+                }}
+                className="space-y-4"
+              >
                 <Input
                   label="Nome Completo *"
                   placeholder="João da Silva"
@@ -2232,11 +2299,18 @@ export default function Checkout() {
                     error={errors.email?.message}
                   />
                   <div className="w-full space-y-1.5">
-                    <label className="text-sm font-medium text-foreground ml-1">Telefone (WhatsApp) *</label>
+                    <label htmlFor="checkout-phone" className="text-sm font-medium text-foreground ml-1">Telefone (WhatsApp) *</label>
                     <input
+                      id="checkout-phone"
+                      name="phone"
                       type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      autoCorrect="off"
+                      aria-invalid={errors.phone ? true : undefined}
                       value={phoneDisplay}
                       onChange={handlePhoneChange}
+                      onBlur={(event) => syncPhoneField(event.currentTarget.value, true)}
                       placeholder="(11) 99999-9999"
                       className={`flex h-12 w-full rounded-xl border-2 border-border bg-white px-4 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10 transition-all duration-200 ${errors.phone ? "border-destructive" : ""}`}
                     />
@@ -2244,12 +2318,18 @@ export default function Checkout() {
                   </div>
                 </div>
                 <div className="w-full space-y-1.5">
-                  <label className="text-sm font-medium text-foreground ml-1">CPF *</label>
+                  <label htmlFor="checkout-document" className="text-sm font-medium text-foreground ml-1">CPF *</label>
                   <input
+                    id="checkout-document"
+                    name="cpf"
                     type="text"
                     inputMode="numeric"
+                    autoComplete="on"
+                    autoCorrect="off"
+                    aria-invalid={errors.document ? true : undefined}
                     value={cpfDisplay}
                     onChange={handleCPFChange}
+                    onBlur={(event) => syncDocumentField(event.currentTarget.value)}
                     placeholder="000.000.000-00"
                     className={`flex h-12 w-full rounded-xl border-2 border-border bg-white px-4 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10 transition-all duration-200 ${errors.document ? "border-destructive" : ""}`}
                   />
@@ -2267,15 +2347,23 @@ export default function Checkout() {
               <div className="space-y-4">
                 {/* CEP */}
                 <div className="w-full space-y-1.5">
-                  <label className="text-sm font-medium text-foreground ml-1">CEP *</label>
+                  <label htmlFor="checkout-cep" className="text-sm font-medium text-foreground ml-1">CEP *</label>
                   <div className="relative">
                     <input
+                      id="checkout-cep"
                       type="text"
+                      name="cep"
                       inputMode="numeric"
+                      autoComplete="postal-code"
                       value={cepDisplay}
                       onChange={handleCEPChange}
+                      onBlur={(event) => {
+                        if (formatCEP(event.currentTarget.value) !== getValues("cep")) {
+                          void applyCheckoutCep(event.currentTarget.value);
+                        }
+                      }}
                       placeholder="00000-000"
-                      maxLength={9}
+                      maxLength={16}
                       className={`flex h-12 w-full rounded-xl border-2 border-border bg-white px-4 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10 transition-all duration-200 pr-10 ${errors.cep ? "border-destructive" : ""}`}
                     />
                     {cepLoading && (
@@ -3109,10 +3197,19 @@ export default function Checkout() {
                     size="lg"
                     className="w-full text-lg border-2 border-emerald-500 text-emerald-700 hover:bg-emerald-50"
                     onClick={handleWhatsAppCheckout}
-                    disabled={isLoading || shouldBlockLanderGoldOnlyCheckout}
+                    disabled={isLoading || isWhatsAppSubmitting || shouldBlockLanderGoldOnlyCheckout}
                   >
-                    <MessageCircle className="w-5 h-5 mr-2" />
-                    Finalizar via WhatsApp
+                    {isWhatsAppSubmitting ? (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Enviando…
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <MessageCircle className="w-5 h-5" />
+                        Finalizar via WhatsApp
+                      </span>
+                    )}
                   </Button>
                 )}
 

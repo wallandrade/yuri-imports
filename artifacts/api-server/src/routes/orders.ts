@@ -90,6 +90,7 @@ import { getChannelPixGateway, isChannelPaymentMethodEnabled } from "../lib/chec
 import { resolveCheckoutSeller } from "../lib/assign-checkout-seller";
 import { claimGuestOrdersForCustomer } from "../lib/claim-guest-orders";
 import { consumePromoStockForPaidOrder, promoPriceStillApplies } from "../lib/promo-stock";
+import { isOrderProductBlocked } from "../lib/product-purchase";
 import {
   FlashCheckoutError,
   FlashOfferExpiredError,
@@ -819,13 +820,6 @@ function parseBulkDiscountTiers(raw: unknown): BulkDiscountTierInput[] {
   }
 }
 
-function isProductUnavailable(product: {
-  isActive: boolean;
-}): boolean {
-  if (product.isActive === false) return true;
-  return false;
-}
-
 function resolveBaseUnitPrice(product: {
   price: string;
   promoPrice: string | null;
@@ -1169,7 +1163,7 @@ router.post("/orders", async (req, res) => {
         if (!productId || quantity <= 0) return null;
 
         const current = productRows.get(productId);
-        if (!current || isProductUnavailable(current)) {
+        if (!current || isOrderProductBlocked(current)) {
           unavailableProducts.push(productId);
           return null;
         }

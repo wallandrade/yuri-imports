@@ -1,6 +1,6 @@
 # Padrões de código — Yuri Import
 
-> **Última atualização:** 2026-11-23
+> **Última atualização:** 2026-11-24
 
 Convenções **observadas no repo** + anti-padrões + **manutenção da memória viva**.
 
@@ -8,6 +8,7 @@ Convenções **observadas no repo** + anti-padrões + **manutenção da memória
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-24 | `isProductUnavailable` ignora `isSoldOut` | O selo usa `isCatalogSoldOut`. A compra usa `isOrderProductBlocked` | Produto inativo continua fora. Baixa de estoque igual |
 | 2026-11-23 | Apex não segue o 307 da Rota Shopee | Só o POST desse botão, em `yury-imports.com`, `imports-py.com` e `yuri-imports-py.com`, vai direto para `https://yuri-imports-9483v.ondigitalocean.app`. O resto do `/api` continua no mesmo host, com o cookie | `connect-src` igual. O link da Shopee não foi preenchido |
 | 2026-11-17 | Painel do admin acima do menu em todas as telas | O bloco dos cards não depende mais de `tab === "inicio" \|\| tab === "orders"`. `AdminGroupedNav` continua depois de Produtos mais vendidos | Atalhos do Início, desenho horizontal, grupos e rotas iguais. Sem segundo GET de pedidos |
 | 2026-11-17 | Menu do admin abaixo do painel em Início e Pedidos | `AdminGroupedNav` entra depois do bloco `inicio`/`orders`. Não subir o menu para cima dos cards | Desenho horizontal, grupos e rotas iguais. Outras telas: menu no topo do conteúdo |

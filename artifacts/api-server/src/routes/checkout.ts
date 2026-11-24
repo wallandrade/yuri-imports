@@ -28,6 +28,7 @@ import { resolveCheckoutInsurance, computeInsuranceSnapshotForPlan } from "../li
 import { getCheckoutInsuranceConfig } from "../lib/checkout-insurance-settings";
 import { applyStoreCreditToOrder } from "../lib/store-credits";
 import { consumePromoStockForPaidOrder, promoPriceStillApplies } from "../lib/promo-stock";
+import { isOrderProductBlocked } from "../lib/product-purchase";
 import {
   FlashCheckoutError,
   FlashOfferExpiredError,
@@ -96,13 +97,6 @@ function parseBulkDiscountTiers(raw: unknown): BulkDiscountTierInput[] {
   } catch {
     return [];
   }
-}
-
-function isProductUnavailable(product: {
-  isActive: boolean;
-}): boolean {
-  if (product.isActive === false) return true;
-  return false;
 }
 
 function resolveBaseUnitPrice(product: {
@@ -330,7 +324,7 @@ router.post("/checkout/pix", async (req, res) => {
         if (!productId || quantity <= 0) return null;
 
         const current = productRows.get(productId);
-        if (!current || isProductUnavailable(current)) {
+        if (!current || isOrderProductBlocked(current)) {
           unavailableProducts.push(productId);
           return null;
         }
