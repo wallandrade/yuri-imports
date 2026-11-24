@@ -27,7 +27,7 @@ function nextPeptideHour(hours: number[]): number {
   return hours[0] ?? 10;
 }
 type ProductRow = { id: string; name: string; image: string | null; isActive: boolean; isSoldOut: boolean };
-type ScheduleMode = "once" | "times" | "interval";
+type ScheduleMode = "once" | "times" | "interval" | "daily";
 type CustomPost = {
   id: string;
   imageUrl: string;
@@ -38,10 +38,15 @@ type CustomPost = {
   times?: string[];
   intervalHours?: number;
   durationDays?: number;
+  active?: boolean;
 };
 
 function postWhen(post: CustomPost): string {
   const days = post.durationDays && post.durationDays > 1 ? ` · ${post.durationDays} dias` : "";
+  if (post.scheduleMode === "daily") {
+    const time = (post.times && post.times[0]) || post.scheduledAt.slice(11, 16);
+    return `todo dia às ${time} · ${post.active === false ? "desligado" : "ligado"}`;
+  }
   if (post.scheduleMode === "times") return `${post.scheduledAt.slice(0, 10)} · ${(post.times || []).join(", ")}${days}`;
   if (post.scheduleMode === "interval") return `${post.scheduledAt.replace("T", " ")} · de ${post.intervalHours} em ${post.intervalHours} horas${days}`;
   return post.scheduledAt.replace("T", " ");
@@ -66,6 +71,7 @@ export default function WhatsAppGroupCampaignCard() {
   const [times, setTimes] = useState<string[]>(["09:00"]);
   const [intervalHours, setIntervalHours] = useState(4);
   const [durationDays, setDurationDays] = useState(1);
+  const [postActive, setPostActive] = useState(true);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -199,6 +205,7 @@ export default function WhatsAppGroupCampaignCard() {
     setTimes(["09:00"]);
     setIntervalHours(4);
     setDurationDays(1);
+    setPostActive(true);
   };
 
   const addPost = async () => {
@@ -208,7 +215,7 @@ export default function WhatsAppGroupCampaignCard() {
         method: editingId ? "PUT" : "POST",
         headers: authHeaders(),
         credentials: "include",
-        body: JSON.stringify({ imageUrl, caption, linkUrl, scheduledAt, scheduleDate, scheduleMode, times, intervalHours, durationDays }),
+        body: JSON.stringify({ imageUrl, caption, linkUrl, scheduledAt, scheduleDate, scheduleMode, times, intervalHours, durationDays, active: postActive }),
       });
       const data = await res.json().catch(() => ({})) as { error?: string };
       if (!res.ok) {
@@ -232,10 +239,26 @@ export default function WhatsAppGroupCampaignCard() {
     setLinkUrl(post.caption?.includes(post.linkUrl) ? "" : post.linkUrl);
     setScheduledAt(match ? `${match[1]}T${match[2]}` : post.scheduledAt.slice(0, 16));
     setScheduleDate(match?.[1] || post.scheduledAt.slice(0, 10));
-    setScheduleMode(post.scheduleMode === "times" || post.scheduleMode === "interval" ? post.scheduleMode : "once");
-    setTimes(post.times && post.times.length > 0 ? post.times : ["09:00"]);
+    setScheduleMode(post.scheduleMode === "times" || post.scheduleMode === "interval" || post.scheduleMode === "daily" ? post.scheduleMode : "once");
+    setTimes(post.times && post.times.length > 0 ? post.times : [post.scheduleMode === "daily" ? "10:00" : "09:00"]);
     setIntervalHours(post.intervalHours && post.intervalHours > 0 ? post.intervalHours : 4);
     setDurationDays(post.durationDays && post.durationDays > 0 ? post.durationDays : 1);
+    setPostActive(post.active !== false);
+  };
+
+  const setActive = async (post: CustomPost, active: boolean) => {
+    const res = await fetch(`${BASE}/api/admin/whatsapp/groups/custom/${post.id}/active`, {
+      method: "PUT",
+      headers: authHeaders(),
+      credentials: "include",
+      body: JSON.stringify({ active }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      toast.error(data.error || "Não consegui atualizar o aviso.");
+      return;
+    }
+    await refresh();
   };
 
   const removePost = async (id: string) => {
@@ -407,9 +430,9 @@ export default function WhatsAppGroupCampaignCard() {
       </section>
 
       <section className="rounded-2xl border border-border bg-white p-4 space-y-3">
-        <h2 className="text-sm font-semibold">Imagem e link avulso</h2>
+        <h2 className="text-sm font-semibold">Mensagem personalizada</h2>
         <p className="text-xs text-muted-foreground">
-          Carregue a foto e escreva o texto. Se o link https já estiver no texto, o outro campo pode ficar vazio. No horário escolhido, a mensagem vai para os mesmos grupos, com 10 minutos entre cada um. O horário é o de São Paulo.
+          Escreva o texto. A imagem e o link são opcionais. Sem imagem, os grupos recebem só o texto. Com imagem, a foto segue junto. Se informar imagem ou link, o endereço precisa ser https. No horário escolhido, a mensagem vai para os grupos, com 10 minutos entre cada um, no fuso de São Paulo. Só sai entre 08:00 e 19:00. Se o horário cair fora, espera a próxima abertura, às 08:00.
         </p>
         <input
           ref={fileRef}
@@ -448,16 +471,24 @@ export default function WhatsAppGroupCampaignCard() {
             Copiar URL
           </Button>
         </div>
-        <textarea value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Texto que vai junto com a imagem" rows={4} maxLength={1000} className="w-full px-3 py-2 rounded-xl border-2 border-border text-sm" />
-        <input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="Link https, só se ainda não estiver no texto" className="w-full h-10 px-3 rounded-xl border-2 border-border text-sm" />
+        <textarea value={caption} onChange={(event) => setCaption(event.target.value)} placeholder="Texto da mensagem" rows={4} maxLength={1000} className="w-full px-3 py-2 rounded-xl border-2 border-border text-sm" />
+        <input value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="Link https, opcional" className="w-full h-10 px-3 rounded-xl border-2 border-border text-sm" />
         <div className="flex flex-wrap gap-3 text-sm">
           {([
             ["once", "Uma vez"],
             ["times", "Vários horários"],
             ["interval", "De X em X horas"],
+            ["daily", "Todo dia"],
           ] as const).map(([mode, label]) => (
             <label key={mode} className="flex items-center gap-2">
-              <input type="radio" checked={scheduleMode === mode} onChange={() => setScheduleMode(mode)} />
+              <input
+                type="radio"
+                checked={scheduleMode === mode}
+                onChange={() => {
+                  setScheduleMode(mode);
+                  if (mode === "daily") setTimes((current) => [current[0] || "10:00"]);
+                }}
+              />
               {label}
             </label>
           ))}
@@ -501,6 +532,16 @@ export default function WhatsAppGroupCampaignCard() {
             </label>
             <p className="text-xs text-muted-foreground">A partir desse horário, de {intervalHours} em {intervalHours} horas, por {durationDays} {durationDays === 1 ? "dia" : "dias"}. No máximo 30 dias, com 10 minutos entre os grupos.</p>
           </div>
+        ) : scheduleMode === "daily" ? (
+          <div className="space-y-2">
+            <input
+              type="time"
+              value={times[0] || "10:00"}
+              onChange={(event) => setTimes([event.target.value || "10:00"])}
+              className="h-10 px-3 rounded-xl border-2 border-border text-sm"
+            />
+            <p className="text-xs text-muted-foreground">Todo dia nesse horário, até você desligar. Sem data para acabar. Os grupos seguem com 10 minutos de intervalo, e só dentro de 08:00 às 19:00.</p>
+          </div>
         ) : (
           <input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} className="h-10 px-3 rounded-xl border-2 border-border text-sm" />
         )}
@@ -518,8 +559,17 @@ export default function WhatsAppGroupCampaignCard() {
               {post.imageUrl.startsWith("https://") ? (
                 <img src={post.imageUrl} alt="" className="h-14 w-14 shrink-0 rounded-lg border border-border object-cover" />
               ) : null}
-              <span className="min-w-0 flex-1 break-words">{postWhen(post)} · {post.caption || post.linkUrl}</span>
+              <span className="min-w-0 flex-1 break-words">
+                {postWhen(post)}
+                {post.scheduleMode !== "daily" && post.active === false ? " · desligado" : ""}
+                {" · "}
+                {post.imageUrl.startsWith("https://") ? "" : "só texto · "}
+                {post.caption || post.linkUrl}
+              </span>
               <span className="flex shrink-0 gap-1">
+                <Button type="button" variant="outline" className="h-8 px-2" onClick={() => void setActive(post, post.active === false)}>
+                  {post.active === false ? "Ligar" : "Desligar"}
+                </Button>
                 <Button type="button" size="icon" variant="outline" className="h-8 w-8" onClick={() => startEdit(post)} aria-label="Editar">
                   <Pencil className="w-4 h-4" />
                 </Button>

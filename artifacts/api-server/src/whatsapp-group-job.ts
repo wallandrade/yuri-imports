@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { chatsForCustomPost } from "./lib/custom-group-reminder";
 import { zapiCall, zapiCredentials } from "./lib/zapi-client";
 import { pool } from "@workspace/db";
 import {
@@ -9,8 +10,12 @@ import {
   GROUP_PEPTIDE_PRODUCT_IDS_SETTING,
   GROUP_PRODUCT_IDS_SETTING,
   customCaption,
+  customGroupSend,
+  customPostActive,
   customSlotKey,
+  normalizeScheduleMode,
   parseScheduleTimes,
+  parseStoredGroupChats,
   groupSlotDue,
   groupImageSendAllowed,
   GROUP_IMAGE_HOURLY_LIMIT,
@@ -90,6 +95,35 @@ async function recentImageSends(): Promise<number> {
   }
 }
 
+async function deliverCustom(baseId: string, phone: string, image: string, caption: string, label: string): Promise<void> {
+  const request = customGroupSend({ phone, imageUrl: image, caption });
+  if ("error" in request) return;
+  const text = request.suffix === "/send-text";
+  if (!text) {
+    const sentInHour = await recentImageSends();
+    if (!groupImageSendAllowed(sentInHour)) {
+      console.log("[Grupos WhatsApp] adiado pelo limite", label);
+      return;
+    }
+  }
+  const claimId = `${text ? "t" : "c"}:${baseId}`.slice(0, 191);
+  if (!await claim(claimId)) return;
+  const result = await zapiCall({
+    instance: "main",
+    method: "POST",
+    suffix: request.suffix,
+    body: request.body,
+    timeoutMs: 20000,
+    accept: "http",
+  });
+  if (!result.ok) {
+    await release(claimId);
+    console.warn("[Grupos WhatsApp] falha", label);
+    return;
+  }
+  console.log("[Grupos WhatsApp] enviado", label);
+}
+
 async function deliver(claimId: string, phone: string, image: string, caption: string, label: string): Promise<void> {
   const sentInHour = await recentImageSends();
   if (!groupImageSendAllowed(sentInHour)) {
@@ -108,7 +142,9 @@ async function deliver(claimId: string, phone: string, image: string, caption: s
 
 export async function runWhatsappGroupTick(now = new Date()): Promise<void> {
   if (!zapiCredentials("main")) return;
-  const chats = parseGroupChats(await settingValue(GROUP_CHATS_SETTING));
+  const rawChats = await settingValue(GROUP_CHATS_SETTING);
+  const chats = parseGroupChats(rawChats);
+  const storedChats = parseStoredGroupChats(rawChats);
   const parts = saoPauloParts(now);
   const products = await catalog();
   if ((await settingValue(GROUP_CAMPAIGN_ENABLED_SETTING)) === "1") {
@@ -160,9 +196,11 @@ export async function runWhatsappGroupTick(now = new Date()): Promise<void> {
   const { db, whatsappGroupCustomPostsTable } = await import("@workspace/db");
   const posts = await db.select().from(whatsappGroupCustomPostsTable);
   for (const post of posts) {
-    for (let index = 0; index < chats.length; index += 1) {
-      const chat = chats[index];
-      const mode = post.scheduleMode === "times" || post.scheduleMode === "interval" ? post.scheduleMode : "once";
+    if (!customPostActive(post.active)) continue;
+    const targets = chatsForCustomPost(post.targetChats, storedChats, chats);
+    for (let index = 0; index < targets.length; index += 1) {
+      const chat = targets[index];
+      const mode = normalizeScheduleMode(post.scheduleMode);
       let times: string[] = [];
       try {
         times = parseScheduleTimes(JSON.parse(post.scheduleTimes || "null"));
@@ -175,10 +213,13 @@ export async function runWhatsappGroupTick(now = new Date()): Promise<void> {
         times,
         intervalHours: Number(post.intervalHours) || 0,
         durationDays: Number(post.durationDays) || 1,
+        active: true,
       }, now, index);
       if (!chat || !slot) continue;
-      const claimId = slot === "once" ? `c:${post.id}:${chat.phone}` : `c:${post.id}:${slot}:${chat.phone}`;
-      await deliver(claimId, chat.phone, post.imageUrl, customCaption(post.caption || "", post.linkUrl, post.imageUrl), `${chat.name} avulso`);
+      const caption = customCaption(post.caption || "", post.linkUrl || "", post.imageUrl || "");
+      if (!caption) continue;
+      const baseId = slot === "once" ? `${post.id}:${chat.phone}` : `${post.id}:${slot}:${chat.phone}`;
+      await deliverCustom(baseId, chat.phone, post.imageUrl || "", caption, `${chat.name} avulso`);
     }
   }
 }

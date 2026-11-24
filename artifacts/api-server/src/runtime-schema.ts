@@ -1517,6 +1517,8 @@ async function ensureWhatsappGroupCampaignTables(databaseName: string): Promise<
         schedule_times TEXT NULL,
         interval_hours INT NULL,
         duration_days INT NULL,
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        target_chats TEXT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -1536,6 +1538,14 @@ async function ensureWhatsappGroupCampaignTables(databaseName: string): Promise<
   if (await tableExists("whatsapp_group_custom_posts", databaseName) && !(await columnExists("whatsapp_group_custom_posts", "duration_days", databaseName))) {
     await pool.query("ALTER TABLE whatsapp_group_custom_posts ADD COLUMN duration_days INT NULL");
   }
+  if (await tableExists("whatsapp_group_custom_posts", databaseName) && !(await columnExists("whatsapp_group_custom_posts", "active", databaseName))) {
+    await pool.query("ALTER TABLE whatsapp_group_custom_posts ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1");
+  }
+  if (await tableExists("whatsapp_group_custom_posts", databaseName) && !(await columnExists("whatsapp_group_custom_posts", "target_chats", databaseName))) {
+    await pool.query("ALTER TABLE whatsapp_group_custom_posts ADD COLUMN target_chats TEXT NULL");
+  }
+  const { ensureCustomGroupReminder } = await import("./lib/custom-group-reminder");
+  await ensureCustomGroupReminder();
   if (!(await tableExists("whatsapp_group_send_log", databaseName))) {
     await pool.query(`
       CREATE TABLE whatsapp_group_send_log (
