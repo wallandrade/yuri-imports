@@ -16,7 +16,7 @@ import { CheckoutLayout } from "@/components/layout/CheckoutLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
-import { CHECKOUT_INVALID_TOAST, firstInvalidCheckoutField } from "@/lib/checkout-invalid";
+import { CHECKOUT_INVALID_TOAST, firstInvalidCheckoutField, nationalCheckoutPhoneDigits } from "@/lib/checkout-invalid";
 import { cartLineId } from "@/lib/product-variants";
 import { isProductUnavailable, useCart, type ServerUnitPrice } from "@/store/use-cart";
 
@@ -125,7 +125,7 @@ function formatCPF(value: string) {
 }
 
 function formatPhone(value: string) {
-  const d = value.replace(/\D/g, "").slice(0, 11);
+  const d = nationalCheckoutPhoneDigits(value);
   if (d.length <= 2) return d.length ? `(${d}` : "";
   if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
   if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
@@ -1359,12 +1359,18 @@ export default function Checkout() {
     setValue("document", formatted, { shouldDirty: true, shouldTouch: true });
   }, [setValue]);
 
+  const applyCheckoutCepRef = useRef<(raw: string) => void>(() => {});
+
   const flushCheckoutAutofill = useCallback(() => {
     const phoneEl = document.getElementById("checkout-phone");
     const documentEl = document.getElementById("checkout-document");
+    const cepEl = document.getElementById("checkout-cep");
     if (phoneEl instanceof HTMLInputElement) syncPhoneField(phoneEl.value);
     if (documentEl instanceof HTMLInputElement) syncDocumentField(documentEl.value);
-  }, [syncDocumentField, syncPhoneField]);
+    if (cepEl instanceof HTMLInputElement && formatCEP(cepEl.value) !== getValues("cep")) {
+      void applyCheckoutCepRef.current(cepEl.value);
+    }
+  }, [getValues, syncDocumentField, syncPhoneField]);
 
   const focusCheckoutField = useCallback((field: NonNullable<ReturnType<typeof firstInvalidCheckoutField>>) => {
     const el = field === "phone"
@@ -1391,8 +1397,8 @@ export default function Checkout() {
     syncPhoneField(e.target.value);
   }, [syncPhoneField]);
 
-  const handleCEPChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatCEP(e.target.value);
+  const applyCheckoutCep = useCallback(async (raw: string) => {
+    const formatted = formatCEP(raw);
     setCepDisplay(formatted);
     setValue("cep", formatted, { shouldValidate: false });
 
@@ -1455,6 +1461,14 @@ export default function Checkout() {
       }
     }
   }, [setValue]);
+
+  applyCheckoutCepRef.current = (raw: string) => {
+    void applyCheckoutCep(raw);
+  };
+
+  const handleCEPChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    void applyCheckoutCep(e.target.value);
+  }, [applyCheckoutCep]);
 
   if (pendingCheck) {
     return (
@@ -2328,17 +2342,23 @@ export default function Checkout() {
               <div className="space-y-4">
                 {/* CEP */}
                 <div className="w-full space-y-1.5">
-                  <label className="text-sm font-medium text-foreground ml-1">CEP *</label>
+                  <label htmlFor="checkout-cep" className="text-sm font-medium text-foreground ml-1">CEP *</label>
                   <div className="relative">
                     <input
+                      id="checkout-cep"
                       type="text"
                       name="cep"
                       inputMode="numeric"
                       autoComplete="postal-code"
                       value={cepDisplay}
                       onChange={handleCEPChange}
+                      onBlur={(event) => {
+                        if (formatCEP(event.currentTarget.value) !== getValues("cep")) {
+                          void applyCheckoutCep(event.currentTarget.value);
+                        }
+                      }}
                       placeholder="00000-000"
-                      maxLength={9}
+                      maxLength={16}
                       className={`flex h-12 w-full rounded-xl border-2 border-border bg-white px-4 py-2 text-base placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-primary focus-visible:ring-4 focus-visible:ring-primary/10 transition-all duration-200 pr-10 ${errors.cep ? "border-destructive" : ""}`}
                     />
                     {cepLoading && (
