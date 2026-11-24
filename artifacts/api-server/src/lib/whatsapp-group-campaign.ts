@@ -1,7 +1,13 @@
+import { zapiOutboundRequest } from "./zapi-client";
 import { STORE_ORIGIN } from "./whatsapp-line";
 
 export const GROUP_SLOTS = [9, 13, 17, 21] as const;
 export const GROUP_STAGGER_MINUTES = 10;
+/** 08:00 inclusive. O envio personalizado não sai antes disso. */
+export const SEND_WINDOW_OPEN_MINUTES = 8 * 60;
+/** 19:00 exclusive. 19:00 já espera a abertura do dia seguinte. */
+export const SEND_WINDOW_CLOSE_MINUTES = 19 * 60;
+const GROUP_PHONE_PATTERN = /^[0-9]{8,20}(-[0-9]+|-group)?$/;
 export const GROUP_LIMIT = 6;
 export const GROUP_IMAGE_HOURLY_LIMIT = 6;
 export const GROUP_CAMPAIGN_ENABLED_SETTING = "whatsapp_group_campaign_enabled";
@@ -113,19 +119,38 @@ export function customLink(text: string, link: string, imageUrl = ""): string | 
   return found ? found.slice(0, 500) : null;
 }
 
+export function isGroupPhone(phone: string): boolean {
+  return GROUP_PHONE_PATTERN.test(phone);
+}
+
+function readGroupChat(item: unknown): GroupChat | null {
+  if (!item || typeof item !== "object") return null;
+  const row = item as { name?: unknown; phone?: unknown };
+  const phone = String(row.phone || "").trim();
+  const name = String(row.name || "").trim() || phone;
+  if (!isGroupPhone(phone)) return null;
+  return { name: name.slice(0, 80), phone };
+}
+
+/** Lista gravada, sem cortar no 6º e sem trocar por padrão. JSON inválido vira lista vazia. */
+export function parseStoredGroupChats(raw: string): GroupChat[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      const chat = readGroupChat(item);
+      return chat ? [chat] : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
 export function parseGroupChats(raw: string): GroupChat[] {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_GROUP_CHATS;
-    const chats = parsed.flatMap((item) => {
-      if (!item || typeof item !== "object") return [];
-      const row = item as { name?: unknown; phone?: unknown };
-      const phone = String(row.phone || "").trim();
-      const name = String(row.name || "").trim() || phone;
-      if (!/^[0-9]{8,20}(-[0-9]+|-group)?$/.test(phone)) return [];
-      return [{ name: name.slice(0, 80), phone }];
-    });
-    return chats.slice(0, GROUP_LIMIT);
+    return parseStoredGroupChats(raw).slice(0, GROUP_LIMIT);
   } catch {
     return DEFAULT_GROUP_CHATS;
   }
@@ -137,6 +162,40 @@ export function groupChatsSaveError(raw: unknown): { chats: GroupChat[] } | { er
   const chats = parseGroupChats(JSON.stringify(raw));
   if (chats.length !== raw.length) return { error: "Tem um grupo com o identificador inválido." };
   return { chats };
+}
+
+export function customImageError(imageUrl: string): string | null {
+  const image = imageUrl.trim();
+  if (!image) return null;
+  return httpsUrlError(image, "A imagem", 2000);
+}
+
+export function customLinkFieldError(linkUrl: string): string | null {
+  const link = linkUrl.trim();
+  if (!link) return null;
+  return httpsUrlError(link, "O link", 500);
+}
+
+/** Ausente continua ligado. Só false, 0 ou "0" desliga. */
+export function customPostActive(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (value === false || value === 0 || value === "0") return false;
+  return true;
+}
+
+/** Sem imagem https, o texto sai em send-text. Com imagem, continua send-image. */
+export function customGroupSend(input: {
+  phone: string;
+  imageUrl: string;
+  caption: string;
+}): { suffix: string; body: Record<string, unknown> } | { error: string } {
+  const image = input.imageUrl.trim();
+  if (image) {
+    if (!image.startsWith("https://")) return { error: "invalid_image" };
+    return zapiOutboundRequest({ phone: input.phone, kind: "image", image, caption: input.caption });
+  }
+  if (!input.caption.trim()) return { error: "missing_message" };
+  return zapiOutboundRequest({ phone: input.phone, kind: "text", message: input.caption });
 }
 
 export function httpsUrlError(value: string, label: string, max = 2000): string | null {
@@ -165,20 +224,75 @@ export function saoPauloInstant(local: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export function customGroupDue(scheduledLocal: string, now: Date, groupIndex: number): boolean {
+function minutesOnClock(date: Date): { dayKey: string; minutes: number } {
+  const parts = saoPauloParts(date);
+  return { dayKey: parts.dayKey, minutes: parts.hour * 60 + parts.minute };
+}
+
+function instantAt(dayKey: string, minutes: number): Date | null {
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  return saoPauloInstant(`${dayKey}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
+}
+
+/**
+ * Horário do grupo, já com 10 minutos de intervalo.
+ * Antes das 08:00 a série anda até a abertura. Da 19:00 em diante, o que passou
+ * começa na abertura do dia seguinte, também de 10 em 10 minutos.
+ */
+export function placeGroupInstant(base: Date, groupIndex: number): Date | null {
+  const index = Number.isInteger(groupIndex) && groupIndex > 0 ? groupIndex : 0;
+  const clock = minutesOnClock(base);
+  let dayKey = clock.dayKey;
+  let start = clock.minutes;
+  if (start < SEND_WINDOW_OPEN_MINUTES) {
+    start = SEND_WINDOW_OPEN_MINUTES;
+  } else if (start >= SEND_WINDOW_CLOSE_MINUTES) {
+    dayKey = addDayKey(dayKey, 1);
+    start = SEND_WINDOW_OPEN_MINUTES;
+  }
+  const placed = start + index * GROUP_STAGGER_MINUTES;
+  if (placed < SEND_WINDOW_CLOSE_MINUTES) return instantAt(dayKey, placed);
+  const overflow = placed - SEND_WINDOW_CLOSE_MINUTES;
+  const span = SEND_WINDOW_CLOSE_MINUTES - SEND_WINDOW_OPEN_MINUTES;
+  const extraDays = Math.floor(overflow / span);
+  let day = dayKey;
+  for (let step = 0; step < extraDays + 1; step += 1) day = addDayKey(day, 1);
+  return instantAt(day, SEND_WINDOW_OPEN_MINUTES + (overflow % span));
+}
+
+function dueAfter(scheduledLocal: string, now: Date, groupIndex: number, windowMs: number): boolean {
   const start = saoPauloInstant(scheduledLocal);
   if (!start) return false;
-  const due = start.getTime() + groupIndex * GROUP_STAGGER_MINUTES * 60 * 1000;
-  const delta = now.getTime() - due;
-  return delta >= 0 && delta < 2 * 60 * 1000;
+  const due = placeGroupInstant(start, groupIndex);
+  if (!due) return false;
+  const delta = now.getTime() - due.getTime();
+  return delta >= 0 && delta < windowMs;
+}
+
+export function customGroupDue(scheduledLocal: string, now: Date, groupIndex: number): boolean {
+  return dueAfter(scheduledLocal, now, groupIndex, 2 * 60 * 1000);
+}
+
+/** Primeiro envio depois do deploy: cabe um atraso curto sem juntar o grupo seguinte. */
+export function customFirstDue(scheduledLocal: string, now: Date, groupIndex: number): boolean {
+  return dueAfter(scheduledLocal, now, groupIndex, GROUP_STAGGER_MINUTES * 60 * 1000);
+}
+
+export type ScheduleMode = "once" | "times" | "interval" | "daily";
+
+export function normalizeScheduleMode(value: unknown): ScheduleMode {
+  if (value === "times" || value === "interval" || value === "daily") return value;
+  return "once";
 }
 
 export type SchedulePlan = {
-  mode: "once" | "times" | "interval";
+  mode: ScheduleMode;
   scheduledAt: string;
   times: string[];
   intervalHours: number;
   durationDays: number;
+  active?: boolean;
 };
 
 export function parseScheduleTimes(raw: unknown): string[] {
@@ -214,7 +328,30 @@ export function schedulePlanSignature(plan: SchedulePlan): string {
   return `${plan.mode}|${plan.scheduledAt}|${plan.times.join(",")}|${plan.intervalHours}|${planDurationDays(plan)}`;
 }
 
+/**
+ * Mantém o primeiro horário do dia quando o relógio diário não mudou.
+ * `15:03` com o daily em `10:00` continua `15:03`. Trocar o relógio grava o horário novo.
+ */
+export function dailyScheduledAt(input: {
+  time: string;
+  startDay: string;
+  previousAt?: string;
+  previousTime?: string;
+}): string {
+  const time = input.time.trim();
+  if (!time) return "";
+  const previousAt = String(input.previousAt || "");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(previousAt) && String(input.previousTime || "") === time) {
+    return previousAt;
+  }
+  return `${input.startDay}T${time}`;
+}
+
 export function schedulePlanError(plan: SchedulePlan, now: Date, keepPast: boolean): string | null {
+  if (plan.mode === "daily") {
+    if (plan.times.length === 0) return "Escolha o horário.";
+    return null;
+  }
   if (plan.mode === "times") {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(plan.scheduledAt.slice(0, 10))) return "Escolha a data.";
     if (plan.times.length === 0) return "Escolha pelo menos um horário.";
@@ -245,14 +382,33 @@ function localFromDate(date: Date): string {
 
 /** Chave do envio se este grupo está na janela. `once` mantém o aviso de um horário só. */
 export function customSlotKey(plan: SchedulePlan, now: Date, groupIndex: number): string | null {
+  if (plan.active === false) return null;
+  if (plan.mode === "daily") {
+    const time = plan.times[0];
+    if (!time) return null;
+    const startDay = plan.scheduledAt.slice(0, 10);
+    const anchorTime = plan.scheduledAt.slice(11, 16);
+    if (anchorTime && anchorTime !== time && customFirstDue(plan.scheduledAt, now, groupIndex)) {
+      return `daily-first:${plan.scheduledAt}`;
+    }
+    const today = saoPauloParts(now).dayKey;
+    for (const day of [addDayKey(today, -1), today]) {
+      if (day < startDay) continue;
+      const local = `${day}T${time}`;
+      if (customGroupDue(local, now, groupIndex)) return `daily:${local}`;
+    }
+    return null;
+  }
   if (plan.mode === "times") {
     const today = saoPauloParts(now).dayKey;
     const startDay = plan.scheduledAt.slice(0, 10);
     const endDay = addDayKey(startDay, planDurationDays(plan) - 1);
-    if (today < startDay || today > endDay) return null;
-    for (const time of plan.times) {
-      const local = `${today}T${time}`;
-      if (customGroupDue(local, now, groupIndex)) return `times:${local}`;
+    for (const day of [addDayKey(today, -1), today]) {
+      if (day < startDay || day > endDay) continue;
+      for (const time of plan.times) {
+        const local = `${day}T${time}`;
+        if (customGroupDue(local, now, groupIndex)) return `times:${local}`;
+      }
     }
     return null;
   }
@@ -260,15 +416,18 @@ export function customSlotKey(plan: SchedulePlan, now: Date, groupIndex: number)
     const start = saoPauloInstant(plan.scheduledAt);
     const end = periodEnd(plan);
     if (!start || !end || plan.intervalHours < 1) return null;
-    const probe = now.getTime() - groupIndex * GROUP_STAGGER_MINUTES * 60 * 1000;
-    if (probe < start.getTime()) return null;
     const step = plan.intervalHours * 60 * 60 * 1000;
-    const index = Math.floor((probe - start.getTime()) / step);
-    if (index < 0) return null;
-    const slot = start.getTime() + index * step;
-    if (slot > end.getTime()) return null;
-    const local = localFromDate(new Date(slot));
-    if (customGroupDue(local, now, groupIndex)) return `interval:${local}`;
+    const earliest = now.getTime() - 36 * 60 * 60 * 1000;
+    let slot = start.getTime();
+    if (earliest > slot) {
+      slot += Math.floor((earliest - slot) / step) * step;
+    }
+    const latest = Math.min(end.getTime(), now.getTime() + step);
+    for (let guard = 0; slot <= latest && guard < 48; guard += 1) {
+      const local = localFromDate(new Date(slot));
+      if (customGroupDue(local, now, groupIndex)) return `interval:${local}`;
+      slot += step;
+    }
     return null;
   }
   return customGroupDue(plan.scheduledAt, now, groupIndex) ? "once" : null;
@@ -655,6 +814,7 @@ export function sendsInRollingHour(sentAt: number[], at: number, windowMs = 60 *
  * A janela fica no relógio do MySQL. `sent_at` nasce de CURRENT_TIMESTAMP e a sessão
  * guarda TIMESTAMP em UTC. Um Date do Node, com TZ America/Sao_Paulo, viraria texto
  * 3 horas atrás e a hora viraria cerca de 4.
+ * Texto puro grava id `t:` e não entra na conta das imagens.
  */
 export const RECENT_GROUP_IMAGE_SENDS_SQL =
-  "SELECT COUNT(*) AS total FROM whatsapp_group_send_log WHERE sent_at > DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 60 MINUTE)";
+  "SELECT COUNT(*) AS total FROM whatsapp_group_send_log WHERE sent_at > DATE_SUB(CURRENT_TIMESTAMP(), INTERVAL 60 MINUTE) AND id NOT LIKE 't:%'";

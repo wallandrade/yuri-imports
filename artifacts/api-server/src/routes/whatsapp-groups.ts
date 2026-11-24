@@ -12,9 +12,13 @@ import {
   GROUP_PEPTIDE_PRODUCT_IDS_SETTING,
   GROUP_PRODUCT_IDS_SETTING,
   customCaptionError,
+  dailyScheduledAt,
+  customImageError,
   customLink,
+  customLinkFieldError,
+  customPostActive,
   groupChatsSaveError,
-  httpsUrlError,
+  normalizeScheduleMode,
   parseGroupChats,
   parseScheduleTimes,
   peptideAdminLines,
@@ -66,8 +70,9 @@ router.get("/admin/whatsapp/groups", requirePrimaryAdmin, async (_req, res) => {
   }
   const { db, productsTable, whatsappGroupCustomPostsTable } = await import("@workspace/db");
   const { peptideBriefs } = await import("../lib/peptide-group-daily");
-  const [posts, catalog] = await Promise.all([
+  const [recentPosts, dailyPosts, catalog] = await Promise.all([
     db.select().from(whatsappGroupCustomPostsTable).orderBy(desc(whatsappGroupCustomPostsTable.createdAt)).limit(30),
+    db.select().from(whatsappGroupCustomPostsTable).where(eq(whatsappGroupCustomPostsTable.scheduleMode, "daily")),
     db.select({
       id: productsTable.id,
       name: productsTable.name,
@@ -76,6 +81,12 @@ router.get("/admin/whatsapp/groups", requirePrimaryAdmin, async (_req, res) => {
       isActive: productsTable.isActive,
     }).from(productsTable),
   ]);
+  const seenPosts = new Set<string>();
+  const posts = [...dailyPosts, ...recentPosts].filter((post) => {
+    if (seenPosts.has(post.id)) return false;
+    seenPosts.add(post.id);
+    return true;
+  });
   const peptideCatalog = catalog.filter((row) => row.isActive !== false).map((row) => ({
     id: String(row.id),
     name: String(row.name || "").trim(),
@@ -112,10 +123,11 @@ router.get("/admin/whatsapp/groups", requirePrimaryAdmin, async (_req, res) => {
       caption: post.caption || "",
       linkUrl: post.linkUrl,
       scheduledAt: post.scheduledAt,
-      scheduleMode: post.scheduleMode === "times" || post.scheduleMode === "interval" ? post.scheduleMode : "once",
+      scheduleMode: normalizeScheduleMode(post.scheduleMode),
       times: parseScheduleTimes(safeJson(post.scheduleTimes)),
       intervalHours: Number(post.intervalHours) || 0,
       durationDays: Number(post.durationDays) || 1,
+      active: customPostActive(post.active),
     })),
   });
 });
@@ -199,33 +211,44 @@ function readCustomPost(
     times?: unknown;
     intervalHours?: unknown;
     durationDays?: unknown;
+    active?: unknown;
   },
   previous: SchedulePlan | null = null,
 ):
-  | { imageUrl: string; caption: string; linkUrl: string; scheduledAt: string; scheduleMode: string; scheduleTimes: string | null; intervalHours: number | null; durationDays: number | null }
+  | { imageUrl: string; caption: string; linkUrl: string; scheduledAt: string; scheduleMode: string; scheduleTimes: string | null; intervalHours: number | null; durationDays: number | null; active: boolean }
   | { error: string } {
   const imageUrl = String(body.imageUrl || "").trim();
   const caption = String(body.caption || "").trim().slice(0, 1000);
   const linkUrl = customLink(caption, String(body.linkUrl || ""), imageUrl) || "";
-  const mode = body.scheduleMode === "times" || body.scheduleMode === "interval" ? body.scheduleMode : "once";
+  const mode = normalizeScheduleMode(body.scheduleMode);
   const times = parseScheduleTimes(body.times);
   const intervalHours = Math.min(12, Math.max(0, Math.round(Number(body.intervalHours) || 0)));
   const durationDays = Math.min(30, Math.max(1, Math.round(Number(body.durationDays) || 1)));
   const typedAt = scheduleLocal(String(body.scheduledAt || ""));
+  const today = saoPauloParts(new Date()).dayKey;
   const date = String(body.scheduleDate || typedAt || previous?.scheduledAt || "").slice(0, 10);
+  const previousDay = previous?.mode === "daily" ? previous.scheduledAt.slice(0, 10) : "";
+  const dailyStart = /^\d{4}-\d{2}-\d{2}$/.test(previousDay) ? previousDay : today;
   const scheduledAt = mode === "times"
     ? scheduleLocal(`${date}T${times[0] || "00:00"}`)
-    : typedAt || (previous?.scheduledAt || "");
+    : mode === "daily"
+      ? dailyScheduledAt({
+        time: times[0] || "",
+        startDay: dailyStart,
+        previousAt: previous?.mode === "daily" ? previous.scheduledAt : "",
+        previousTime: previous?.mode === "daily" ? (previous.times[0] || "") : "",
+      })
+      : typedAt || (previous?.scheduledAt || "");
   const plan: SchedulePlan = {
     mode,
     scheduledAt,
-    times,
+    times: mode === "daily" ? times.slice(0, 1) : times,
     intervalHours: mode === "interval" ? intervalHours : 0,
-    durationDays: mode === "once" ? 1 : durationDays,
+    durationDays: mode === "once" || mode === "daily" ? 1 : durationDays,
   };
-  const imageError = httpsUrlError(imageUrl, "A imagem", 2000);
+  const imageError = customImageError(imageUrl);
   const captionError = customCaptionError(caption);
-  const linkError = linkUrl ? httpsUrlError(linkUrl, "O link", 500) : "Coloque um link https no texto.";
+  const linkError = customLinkFieldError(linkUrl);
   if (imageError || captionError || linkError) return { error: imageError || captionError || linkError || "Confira o aviso." };
   const keepPast = Boolean(previous) && schedulePlanSignature(plan) === schedulePlanSignature(previous as SchedulePlan);
   const timeError = schedulePlanError(plan, new Date(), keepPast);
@@ -236,9 +259,10 @@ function readCustomPost(
     linkUrl,
     scheduledAt,
     scheduleMode: mode,
-    scheduleTimes: mode === "times" ? JSON.stringify(times) : null,
+    scheduleTimes: mode === "times" || mode === "daily" ? JSON.stringify(plan.times) : null,
     intervalHours: mode === "interval" ? intervalHours : null,
-    durationDays: mode === "once" ? null : durationDays,
+    durationDays: mode === "once" || mode === "daily" ? null : durationDays,
+    active: customPostActive(body.active),
   };
 }
 
@@ -269,7 +293,7 @@ router.put("/admin/whatsapp/groups/custom/:id", requirePrimaryAdmin, async (req,
     res.status(404).json({ error: "Aviso não encontrado." });
     return;
   }
-  const previousMode = existing[0].scheduleMode === "times" || existing[0].scheduleMode === "interval" ? existing[0].scheduleMode : "once";
+  const previousMode = normalizeScheduleMode(existing[0].scheduleMode);
   const parsed = readCustomPost(req.body || {}, {
     mode: previousMode,
     scheduledAt: existing[0].scheduledAt,
@@ -283,6 +307,22 @@ router.put("/admin/whatsapp/groups/custom/:id", requirePrimaryAdmin, async (req,
   }
   await db.update(whatsappGroupCustomPostsTable).set(parsed).where(eq(whatsappGroupCustomPostsTable.id, id));
   res.json({ ok: true });
+});
+
+router.put("/admin/whatsapp/groups/custom/:id/active", requirePrimaryAdmin, async (req, res) => {
+  const id = String(req.params.id || "");
+  const active = req.body?.active === true;
+  const { db, whatsappGroupCustomPostsTable } = await import("@workspace/db");
+  const existing = await db.select({ id: whatsappGroupCustomPostsTable.id })
+    .from(whatsappGroupCustomPostsTable)
+    .where(eq(whatsappGroupCustomPostsTable.id, id))
+    .limit(1);
+  if (!existing[0]) {
+    res.status(404).json({ error: "Aviso não encontrado." });
+    return;
+  }
+  await db.update(whatsappGroupCustomPostsTable).set({ active }).where(eq(whatsappGroupCustomPostsTable.id, id));
+  res.json({ ok: true, active });
 });
 
 router.delete("/admin/whatsapp/groups/custom/:id", requirePrimaryAdmin, async (req, res) => {
