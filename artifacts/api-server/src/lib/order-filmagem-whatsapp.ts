@@ -55,6 +55,10 @@ const SUSPENDED_VIDEO_HOSTS = new Set([
   "yury-imports.com",
   "www.yury-imports.com",
   "api.yury-imports.com",
+  "yuri-imports-py.com",
+  "www.yuri-imports-py.com",
+  "imports-py.com",
+  "www.imports-py.com",
 ]);
 
 export type FilmagemPlan =

@@ -598,8 +598,8 @@ export function supportListText(turn: Extract<SupportTurn, { kind: "list" }>): s
 
 function comparableSupportText(value: string): string {
   return value
-    .replace(/https:\/\/(?:www\.)?(?:yury-imports\.com|yuri-imports-py\.com)(?:\/(?:yuri|poly))?\b/g, STORE_ORIGIN)
-    .replace(/https:\/\/www\.imports-py\.com\/(?:yuri|poly)\b/g, STORE_ORIGIN)
+    .replace(/https:\/\/(?:www\.)?(?:yury-imports\.com|yuri-imports-py\.com|imports-py\.com)(?:\/(?:yuri|poly))?\b/g, STORE_ORIGIN)
+    .replace(/https:\/\/(?:www\.)?compras-yu\.com\/(?:yuri|poly)\b/g, STORE_ORIGIN)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\*/g, "")

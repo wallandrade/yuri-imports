@@ -19,6 +19,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "https://www.yuri-imports-py.com",
   "https://imports-py.com",
   "https://www.imports-py.com",
+  "https://compras-yu.com",
+  "https://www.compras-yu.com",
   "https://barbearia-ka-imports.vercel.app",
 ];
 

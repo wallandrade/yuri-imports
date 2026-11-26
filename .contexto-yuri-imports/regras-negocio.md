@@ -1,6 +1,6 @@
 # Regras de negócio — Yuri Import
 
-> **Última atualização:** 2026-11-24
+> **Última atualização:** 2026-11-26
 
 Descreve o que **já existe no código** do e-commerce Yuri Import (grafia no app/domínio frequentemente **Yury**). Não especula features futuras.
 
@@ -49,6 +49,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-26 | Loja pública em `www.compras-yu.com` | Senha, afiliado, Reportana, menu e grupos, sem variável de loja, usam esse endereço. Link com host `imports-py.com`, `yuri-imports-py.com` ou `yury-imports.com` abre no domínio da página | Pedido, PIX, comissão e a senha de baixa iguais |
 | 2026-11-24 | Lembrete diário nos grupos do WhatsApp | Mensagem personalizada aceita só texto e o modo todo dia. Só sai das 08:00 às 19:00 em Brasília. A subida cadastra uma vez o texto da filmagem da caixa, às 10:00, para Yuri imports 1–6 e o 7 se o grupo já existir | PIX, estoque, senha de baixa, rodada de produto e n8n iguais |
 | 2026-11-24 | Colar ou autofill do telefone normaliza antes de cortar | `+55`, `5511…` com 13 dígitos e `011…` entram certos no `onChange`. Uma tecla a mais no DDD 55 não troca o DDD | CEP, CPF, PIX antigo, senha de baixa e a cópia 48h iguais |
 | 2026-11-24 | Finalizar via WhatsApp avisa campo vazio | Toast "Preencha os dados de cima para finalizar", a tela sobe até o primeiro erro e o foco vai nele. Telefone, CPF e CEP gravam o preenchimento do iPhone no blur e antes de enviar. `+55` e o `0` de tronco saem do telefone. O botão fica **Enviando…** | Confirmação do PIX antigo, senha de baixa, Cell Tech, n8n e a cópia 48h iguais |
@@ -445,7 +446,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 ## Identidade do produto
 
 - Nome comercial na memória: **Yuri Import**.
-- No código/UI o domínio público da loja é `www.imports-py.com`. `yuri-imports-py.com` e `yury-imports.com` só permanecem como hosts antigos a reescrever.
+- No código/UI o domínio público da loja é `www.compras-yu.com`. `imports-py.com`, `yuri-imports-py.com` e `yury-imports.com` só permanecem como hosts antigos a reescrever.
 - Pasta GitHub/workspace `barbearia` e package `@workspace/ka-imports` são **nomes legados**; **não** tratar como barbearia, agendamento ou salão.
 - DB de exemplo em scripts: `oficialkaimports` — legado.
 
@@ -461,7 +462,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 - **Filmagem no WhatsApp:** o texto longo sai 2 horas depois que o pedido vira `paid` ou `completed` pela primeira vez. A marca `filmagem_whatsapp_due_at` é gravada nesse momento, só se a coluna ainda está nula, e só depois que o status pago já está no banco. Pedido que já estava pago não ganha a marca e não recebe o texto. Quando a transportadora grava saiu para entrega, sai primeiro o aviso da main ("Fique de olho para receber", com pedido e código) e depois, uma vez, o texto curto. Os dois textos novos podem ser seguidos do vídeo de abrir a caixa. Sem a URL, segue só o texto. A foto antiga da filmagem não é enviada. O aviso de pago, o de postado e o de rastreio continuam. Compra de esgotado continua permitida.
 - Métodos de pagamento observados: `pix`, cartão simulado (`card_simulation` / fluxos de cartão), WhatsApp (`whatsapp_pix`), crédito de afiliado (`affiliate_credit`), saldo da loja (`store_credit`).
 - Guest orders: `guestAccessToken` para acesso sem conta.
-- **Senha da conta:** o cliente pede em Esqueci minha senha (`POST /api/auth/forgot-password`). A resposta diz se o link foi enviado, se o e-mail não tem conta, se estourou o limite ou se o envio falhou. O sucesso só aparece quando o Brevo devolve `messageId`. O link `https://www.imports-py.com/redefinir-senha?token=` vale 1 hora, uma vez, salvo `brevo_reset_base_url` ou `PASSWORD_RESET_BASE_URL`. A página nova grava a senha com o mesmo PBKDF2 do admin. O WhatsApp continua como alternativa. O botão Senha do admin continua.
+- **Senha da conta:** o cliente pede em Esqueci minha senha (`POST /api/auth/forgot-password`). A resposta diz se o link foi enviado, se o e-mail não tem conta, se estourou o limite ou se o envio falhou. O sucesso só aparece quando o Brevo devolve `messageId`. O link `https://www.compras-yu.com/redefinir-senha?token=` vale 1 hora, uma vez, salvo `brevo_reset_base_url` ou `PASSWORD_RESET_BASE_URL`. A página nova grava a senha com o mesmo PBKDF2 do admin. O WhatsApp continua como alternativa. O botão Senha do admin continua.
 - Comprovantes: `proofUrl` + `proofUrls` (galeria; uploads anexam sem apagar anteriores).
 - **Extrato OFX (Inter):** aba **Extrato** — só pedidos manuais (`whatsapp_pix` ou sem `transactionId`; exclui PIX gateway). Upload `.ofx` → analyze; FITID já em `ok`/`confirmed_100` é **ignorado**. Score = tokens de nome; se CPF/CNPJ do crédito (NAME/MEMO) = `clientDocument` do pedido → **100%**. Lista UI **Valor bateu, nome diferente** = match valor/data com score abaixo de 100%. **Buscar no extrato** filtra créditos por nome e permite **Vincular** ao nº do pedido (valor deve bater). **Aplicar só 100%** → `confirmed_100`. Aba **Depósitos** lista histórico persistente (`GET /api/admin/bank-deposits`); **Desfazer** zera `bank_deposit_*` (`POST .../clear`) sem mudar pago. **Não** altera `status` pago automaticamente.
 - Edição de pedido (admin primário): troca de itens/quantidades; endereço; **contato** (telefone, e-mail, CPF/CNPJ); **desconto por produto** (`lineDiscount` no JSON, em reais, teto = preço × qtd cobrada). O preço de catálogo permanece; subtotal, seguro e lucro da linha usam o líquido. Cupom / Desconto do pedido continua à parte. PIX de diferença via cobrança/gateway quando o valor sobe. Quando o novo total fica **abaixo** do já pago, a diferença vai para a **carteira** (`order_edit_surplus` + `store_credit_from_edit`), salvo se o admin marcar **Não enviar saldo para a carteira do cliente**. Marcada, a sobra fica na loja (`store_credit_withheld_from_edit`) e não credita agora nem no cadastro/login depois. `paidAmount` continua o PIX recebido; prepaid efetivo = pago − já creditado − já retido. Sem conta e sem a opção: não credita na hora; cadastro/login depois (`claimGuestOrdersForCustomer`) libera a sobra.
@@ -531,7 +532,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 ## Afiliados
 
 - Cadastro, código, referrals, comissões e uso de crédito — `routes/affiliate.ts`, `lib/affiliates.ts`, schemas `affiliates*`.
-- Link de divulgação (`GET /api/me/affiliate/dashboard`): `STOREFRONT_URL`, senão `FRONTEND_URL`, senão `PUBLIC_SITE_URL`, senão `https://www.imports-py.com`, no formato `/r/{código}`. Na Minha conta, host `ka-imports.com`, `www.ka-imports.com`, `yury-imports.com`, `www.yury-imports.com`, `yuri-imports-py.com` ou `www.yuri-imports-py.com` vira o domínio da página aberta, com o mesmo caminho.
+- Link de divulgação (`GET /api/me/affiliate/dashboard`): `STOREFRONT_URL`, senão `FRONTEND_URL`, senão `PUBLIC_SITE_URL`, senão `https://www.compras-yu.com`, no formato `/r/{código}`. Na Minha conta, host `ka-imports.com`, `www.ka-imports.com`, `yury-imports.com`, `www.yury-imports.com`, `yuri-imports-py.com`, `www.yuri-imports-py.com`, `imports-py.com` ou `www.imports-py.com` vira o domínio da página aberta, com o mesmo caminho.
 
 ## Cobranças customizadas
 

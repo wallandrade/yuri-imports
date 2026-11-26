@@ -22298,11 +22298,11 @@ function ConfiguracoesPanel({ sections, settings, loading, products, productsLoa
             type="url"
             value={brevoResetBaseUrl}
             onChange={(e) => setBrevoResetBaseUrl(e.target.value)}
-            placeholder="https://www.imports-py.com"
+            placeholder="https://www.compras-yu.com"
             className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            Se ficar vazio, o link usa https://www.imports-py.com/redefinir-senha. Sem chave ou sem e-mail do remetente, a loja não envia e o cliente vê a mesma mensagem genérica.
+            Se ficar vazio, o link usa https://www.compras-yu.com/redefinir-senha. Sem chave ou sem e-mail do remetente, a loja não envia e o cliente vê a mesma mensagem genérica.
           </p>
         </div>
         <div className="flex justify-end">
