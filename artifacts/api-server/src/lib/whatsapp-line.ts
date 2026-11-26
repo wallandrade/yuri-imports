@@ -20,8 +20,10 @@ export const POLY_N8N_SETTING_KEYS = [
 
 export type WhatsappLine = "poly" | "main";
 
-export const STORE_ORIGIN = "https://www.imports-py.com";
+export const STORE_ORIGIN = "https://www.compras-yu.com";
 const PREVIOUS_STORE_ORIGINS = [
+  "https://www.imports-py.com",
+  "https://imports-py.com",
   "https://www.yuri-imports-py.com",
   "https://yuri-imports-py.com",
   "https://www.yury-imports.com",

@@ -1,6 +1,8 @@
+import { STORE_ORIGIN } from "./whatsapp-line";
+
 export const WHATSAPP_SUPPORT_MENU_SETTING = "whatsapp_support_menu";
 
-const STORE_URL = "https://www.imports-py.com";
+const STORE_URL = STORE_ORIGIN;
 export const SUPPORT_PIX_KEY_ID = "chave-pix";
 
 /** Texto da chave. `SUPPORT_PIX_KEY_MESSAGE` troca este padrão. */

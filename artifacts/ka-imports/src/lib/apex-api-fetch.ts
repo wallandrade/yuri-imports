@@ -1,4 +1,4 @@
-const APEX_HOSTS = new Set(["yury-imports.com", "imports-py.com", "yuri-imports-py.com"]);
+const APEX_HOSTS = new Set(["yury-imports.com", "imports-py.com", "yuri-imports-py.com", "compras-yu.com"]);
 const API_ORIGIN = "https://yuri-imports-9483v.ondigitalocean.app";
 
 /**

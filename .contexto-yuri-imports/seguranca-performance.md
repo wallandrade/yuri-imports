@@ -1,6 +1,6 @@
 # Segurança e performance — Yuri Import
 
-> **Última atualização:** 2026-11-21
+> **Última atualização:** 2026-11-26
 
 Controles de segurança/performance **no código** (`artifacts/api-server/src/app.ts` e afins).
 
@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-26 | CORS aceita `compras-yu.com` | Cadastro e checkout em `https://www.compras-yu.com` e `https://compras-yu.com` entram na allowlist. Os hosts anteriores continuam | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-21 | Log da filmagem não leva telefone nem token | Sucesso e falha do agendamento usam o número do pedido. Telefone, se aparecer numa mensagem de erro, fica só com os 4 finais | O token do atendimento e o da Z-API iguais |
 | 2026-11-21 | CORS aceita `imports-py.com` | Cadastro e checkout no domínio novo entram na allowlist. Os hosts anteriores continuam | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-19 | Conexão da Cell Tech não mostra a instância Z-API | `zapiConfigured` é só sim ou não. O log de instância ausente não leva ID nem token | O token do Gestão Click, o checkout token e a fila (só os 4 últimos dígitos) iguais |
@@ -36,7 +37,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 ## CORS e headers
 
-- CORS com allowlist de origens oficiais (`imports-py.com`, `yuri-imports-py.com`, Yury antigo, KA, Vercel + `CORS_ALLOWED_ORIGINS`). Exceção: `POST /api/whatsapp/support/inbound` aceita a origem da Z-API; a senha da rota é o controle.
+- CORS com allowlist de origens oficiais (`compras-yu.com`, `imports-py.com`, `yuri-imports-py.com`, Yury antigo, KA, Vercel + `CORS_ALLOWED_ORIGINS`). Exceção: `POST /api/whatsapp/support/inbound` aceita a origem da Z-API; a senha da rota é o controle.
 - `credentials: true`; métodos REST padrão; `allowedHeaders`: `Content-Type`, `Authorization`.
 - Headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`.
 - Body JSON/urlencoded até ~15mb (uploads/base64).

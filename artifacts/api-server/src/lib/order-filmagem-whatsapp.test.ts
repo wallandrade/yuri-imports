@@ -155,6 +155,9 @@ test("sem URL pública o aviso fica só no texto e o domínio suspenso não entr
   assert.equal(filmagemVideoUrl("http://projeto.vercel.app/filmagem/como-abrir-caixa.mp4"), "");
   assert.equal(filmagemVideoUrl("https://www.yury-imports.com/filmagem/como-abrir-caixa.mp4"), "");
   assert.equal(filmagemVideoUrl("https://api.yury-imports.com/filmagem/como-abrir-caixa.mp4"), "");
+  assert.equal(filmagemVideoUrl("https://www.imports-py.com/filmagem/como-abrir-caixa.mp4"), "");
+  assert.equal(filmagemVideoUrl("https://www.yuri-imports-py.com/filmagem/como-abrir-caixa.mp4"), "");
+  assert.equal(filmagemVideoUrl("https://www.compras-yu.com/filmagem/como-abrir-caixa.mp4"), "https://www.compras-yu.com/filmagem/como-abrir-caixa.mp4");
   assert.equal(filmagemVideoUrl("nota-e-url"), "");
   assert.equal(filmagemVideoUrl(VIDEO), VIDEO);
 });

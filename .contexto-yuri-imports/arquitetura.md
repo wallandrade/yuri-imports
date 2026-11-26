@@ -1,6 +1,6 @@
 # Arquitetura — Yuri Import
 
-> **Última atualização:** 2026-11-24
+> **Última atualização:** 2026-11-26
 
 Stack, pastas e deploy **como existem no código**. Precedência: código > memória > tipagens.
 
@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-26 | Loja no domínio `www.compras-yu.com` | O apex `compras-yu.com` redireciona para `www`. Os hosts antigos continuam na allowlist de CORS | API continua em `yuri-imports-9483v.ondigitalocean.app`. O rewrite `/api` da Vercel igual |
 | 2026-11-24 | Colunas `whatsapp_group_custom_posts.active` e `target_chats` (+ runtime) | Aviso personalizado pode ficar desligado e guardar o público. O lembrete `seed-filmagem-abertura` entra uma vez na subida. Imagem e link vazios continuam nas colunas que já existiam | Sem tabela nova e sem `tenant_id`. PIX, estoque e senha de baixa iguais |
 | 2026-11-23 | Colunas da Rota Shopee | `orders`: `shopee_route_requested_at`, `shopee_order_id` varchar(32), `shopee_route_review_reason`, `shopee_wallet_credited_at`, com índice no ID e na hora. `order_shipments.shopee_route_sent_at`. O runtime só adiciona. Carteira: tipo `shopee_route_credit` | Sem tabela nova e sem `tenant_id`. PIX e estoque iguais |
 | 2026-11-21 | Loja no domínio `www.imports-py.com` | `yuri-imports-py.com` foi bloqueado. O apex e o `www` do domínio novo estão na Vercel | API continua em `yuri-imports-9483v.ondigitalocean.app` |
@@ -137,6 +138,6 @@ APPCNPay, DentPeg, webhooks, Cloudflare R2, Brevo, WhatsApp (links), SSE admin, 
 
 ## Incertezas
 
-- Domínio público da loja: `www.imports-py.com` (Vercel). `yuri-imports-py.com` e `yury-imports.com` ficam só como hosts antigos.
+- Domínio público da loja: `www.compras-yu.com` (Vercel). O apex redireciona para `www`. `imports-py.com`, `yuri-imports-py.com` e `yury-imports.com` ficam só como hosts antigos.
 - TODO confirmar: DentPeg em produção vs fallback experimental.
 - TODO confirmar: Google Sheets removido de vez (parece sim).

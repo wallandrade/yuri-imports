@@ -17,7 +17,12 @@ test("apex manda /api direto para a API e não segue o 307 para www", () => {
     rewriteApexApiUrl("/api/admin/orders/1/shopee-route", "imports-py.com"),
     `${API}/api/admin/orders/1/shopee-route`,
   );
+  assert.equal(
+    rewriteApexApiUrl("/api/admin/orders/1/shopee-route", "compras-yu.com"),
+    `${API}/api/admin/orders/1/shopee-route`,
+  );
   assert.equal(rewriteApexApiUrl("/api/admin/orders/1/shopee-route", "www.yury-imports.com"), null);
   assert.equal(rewriteApexApiUrl("/api/admin/orders/1/shopee-route", "www.imports-py.com"), null);
+  assert.equal(rewriteApexApiUrl("/api/admin/orders/1/shopee-route", "www.compras-yu.com"), null);
   assert.equal(rewriteApexApiUrl("/assets/index.js", "yury-imports.com"), null);
 });

@@ -1,6 +1,6 @@
 import { eq, or, sql } from "drizzle-orm";
 import { promoPriceStillApplies } from "./promo-stock-logic";
-import { STORE_ORIGIN, whatsappSellerStoreUrl, type WhatsappLine } from "./whatsapp-line";
+import { STORE_ORIGIN, whatsappSellerStoreUrl, withWhatsappSellerStoreLink, type WhatsappLine } from "./whatsapp-line";
 
 export const WHATSAPP_SUPPORT_AI_SETTING = "whatsapp_support_ai_enabled";
 
@@ -257,10 +257,11 @@ export async function trySupportAiReply(question: string, line: WhatsappLine): P
     const messages = buildSupportAiMessages(question, line, examples, matchSupportCatalog(question, catalog).slice(0, 8));
     const accepted = acceptSupportAiReply(await completeSupportAi(messages, apiKey));
     if (!accepted) return null;
-    return accepted.replace(
-      /https:\/\/www\.yury-imports\.com\/(?:poly|yuri)\b/g,
+    const sellerLink = accepted.replace(
+      /https:\/\/(?:www\.)?(?:yury-imports\.com|yuri-imports-py\.com|imports-py\.com)\/(?:poly|yuri)\b/g,
       whatsappSellerStoreUrl(line),
     );
+    return withWhatsappSellerStoreLink(sellerLink, line);
   } catch (err) {
     console.warn("[WhatsApp atendimento] ia", err instanceof Error ? err.message : err);
     return null;
