@@ -1,6 +1,6 @@
 # Auth e permissões — Yuri Import
 
-> **Última atualização:** 2026-11-23
+> **Última atualização:** 2026-11-27
 
 RBAC/admin e auth de cliente **como implementados**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | Papel vendedora no login do admin | Conta própria, PBKDF2, desativar e trocar senha só o admin principal. Ela vê pedidos e o resumo financeiro. Pré-confirma pagamento. Preço, desconto, estoque, produto, cupom, configuração, usuário e envio respondem 403 | Sessão de 12 h, cookie e o admin primário iguais. Senha de baixa não foi aberta. Sem filial |
 | 2026-11-23 | Crédito da Rota Shopee só com acesso global | `POST /api/admin/orders/:id/shopee-wallet-credit` exige `hasGlobalAccess`. O botão some para o admin de vendedor. Avisar o cliente e gravar o ID seguem o escopo do pedido | Sessão, senha de baixa e PIX iguais |
 | 2026-11-17 | Menu esconde Conciliação, DRE, Despesas e Webhook do PIX de quem não é primário | `PRIMARY_ONLY_TABS` em `adminNav.ts`. O restante do que já era só primário continua | API de extrato, depósitos, DRE e despesas segue `requireAdminAuth`. Webhook PIX público não foi mexido |
 | 2026-11-16 | Senha de baixa vale para Santa Catarina | Dar baixa agora desse pool pede a mesma senha de Motoboy/Minas. O espelho baixa `santa_catarina` só com o token | Foz Guaçu continua sem senha. Janela de 30 min igual |
@@ -39,7 +40,9 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 - Sessão persistida em `admin_sessions`; token no JSON + cookie httpOnly `admin_session`.
 - Seed se `admin_users` vazio: `ADMIN_USERNAME`/`ADMIN_PASSWORD` (primário) e `ADMIN_USERNAME_2`/`ADMIN_PASSWORD_2` (secundário). O seed grava PBKDF2.
 - Hash de senha admin: PBKDF2 nas senhas novas. SHA-256 + salt ainda valida o que já está no banco. Comparação em tempo constante. `?token=` só com `ADMIN_ALLOW_QUERY_TOKEN=true`.
-- Middlewares: `requireAdminAuth`, `requirePrimaryAdmin` (mesmo arquivo de rotas/auth).
+- Middlewares: `requireAdminAuth`, `requirePrimaryAdmin` (mesmo arquivo de rotas/auth). `forbidSellerStaff` bloqueia a vendedora nas rotas de escrita de preço, desconto, estoque, produto, cupom, configuração, usuário e envio.
+- Papel `vendedora` fica em `admin_user_roles` (migration). Sem a tabela, o login continua admin. Conta inativa não entra e a sessão cai.
+- A vendedora enxerga a loja inteira nas rotas liberadas (não é filial). O restante do `/api/admin` responde 403 dentro do `requireAdminAuth`.
 
 ### Escopo
 

@@ -3,6 +3,7 @@ import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTa
 import { eq, asc, desc, gte, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
 import { loadPaidProductSoldMaps } from "../lib/product-sales-db";
 import { emptyProductSoldMaps, soldQtyForProduct } from "../lib/product-sales";
@@ -417,7 +418,7 @@ router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res
 });
 
 /** POST /api/admin/products */
-router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/products", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const {
       name, description, category, brand, unit, price,
@@ -623,7 +624,7 @@ router.post("/admin/products/restore-backup", requirePrimaryAdmin, async (req, r
 });
 
 /** PATCH /api/admin/products/:id */
-router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/products/:id", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];

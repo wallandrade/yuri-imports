@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { db, ordersTable, orderShipmentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { inventoryPoolForEnvioEcomAccount } from "../lib/envioecom";
 import { listEnvioEcomAccountsPublic } from "../lib/envioecom-accounts";
 import { labelDebitAccountPool, labelDebitLane, labelDebitStockPool, type LabelDebitCandidate, type LabelDebitLane } from "../lib/label-debit-queue";
@@ -283,7 +284,7 @@ async function kaQueueRows(): Promise<ReturnType<typeof kaQueueRow>[]> {
   return labels.map(kaQueueRow);
 }
 
-router.post("/admin/inventory/label-debits", requireAdminAuth, async (req, res) => {
+router.post("/admin/inventory/label-debits", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const scope = scopeOf(req, res);
     if (!scope) return;

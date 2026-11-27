@@ -165,6 +165,8 @@ export type AdminUser = {
   id: string;
   username: string;
   isPrimary?: boolean | null;
+  role?: "admin" | "vendedora" | null;
+  active?: boolean | null;
   createdAt?: string | Date | null;
 };
 

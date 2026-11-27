@@ -38,6 +38,7 @@ import {
   unlockInventoryExit,
 } from "../lib/inventory-exit-access";
 import { requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 
 const router: IRouter = Router();
 
@@ -199,7 +200,7 @@ router.post("/integrations/inventory/unlock", async (req, res) => {
  * GET /api/admin/integrations/inventory/exit-access
  * PUT /api/admin/integrations/inventory/exit-password
  */
-router.get("/admin/integrations/inventory/exit-access", requireAdminAuth, async (_req, res) => {
+router.get("/admin/integrations/inventory/exit-access", requireAdminAuth, forbidSellerStaff, async (_req, res) => {
   try {
     const status = await getInventoryExitAccessStatus();
     res.json({
@@ -214,7 +215,7 @@ router.get("/admin/integrations/inventory/exit-access", requireAdminAuth, async 
   }
 });
 
-router.post("/admin/integrations/inventory/unlock", requireAdminAuth, async (req, res) => {
+router.post("/admin/integrations/inventory/unlock", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const unlocked = await unlockInventoryExit(readPasswordFromBody(req.body));
     if (!unlocked.ok) {
@@ -238,7 +239,7 @@ router.post("/admin/integrations/inventory/unlock", requireAdminAuth, async (req
   }
 });
 
-router.put("/admin/integrations/inventory/exit-password", requirePrimaryAdmin, async (req, res) => {
+router.put("/admin/integrations/inventory/exit-password", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const password = readPasswordFromBody(req.body);
     await setInventoryExitPassword(password);

@@ -4,6 +4,7 @@ import { allocateShippingSlot, releaseShippingSlot, reallocateShippingSlot, isSt
 import { desc, and, gte, lte, eq, inArray, isNull, ne, sql, not, type SQL } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin, verifyCurrentAdminPassword } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { broadcastNotification } from "./notifications";
 import { evaluateCouponForProducts, incrementCouponUse } from "./coupons";
 import {
@@ -1860,7 +1861,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/:id/apply-store-credit  (protected)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/:id/apply-store-credit", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/:id/apply-store-credit", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2019,7 +2020,7 @@ router.get("/admin/orders/:id/activity", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/status  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/status", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2169,7 +2170,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/observation  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/observation", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2207,7 +2208,7 @@ router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res)
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/whatsapp-group  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/whatsapp-group", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/whatsapp-group", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2413,7 +2414,7 @@ router.patch("/admin/orders/:id/seller", requirePrimaryAdmin, async (req, res) =
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/proof  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/proof", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2490,7 +2491,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/edit  (protected, full-access only)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/edit", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2844,7 +2845,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/:id/difference-charge  (protected, full-access only)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/:id/difference-charge", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2925,7 +2926,7 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
 // ---------------------------------------------------------------------------
 // GET /api/admin/export  (protected)
 // ---------------------------------------------------------------------------
-router.get("/admin/export", requireAdminAuth, async (req, res) => {
+router.get("/admin/export", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3393,7 +3394,7 @@ async function presentCustomerOrders(rows: Array<typeof ordersTable.$inferSelect
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/prioridade  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/prioridade", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/prioridade", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3462,7 +3463,7 @@ router.patch("/admin/orders/:id/prioridade", requireAdminAuth, async (req, res) 
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/aguardando-estoque  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3531,7 +3532,7 @@ router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, async (re
 // PATCH /api/admin/orders/:id/shipping-forecast
 // Data de calendário visível na conta do cliente. Não marca enviado nem baixa estoque.
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/shipping-forecast", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/shipping-forecast", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3619,7 +3620,7 @@ router.patch("/admin/orders/:id/shipping-forecast", requireAdminAuth, async (req
 // PATCH /api/admin/orders/:id/shipping-channel
 // Marca o pedido na coluna Envio Shopee. Não muda status, PIX nem estoque.
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/shipping-channel", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/shipping-channel", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3669,7 +3670,7 @@ router.patch("/admin/orders/:id/shipping-channel", requireAdminAuth, async (req,
 // ---------------------------------------------------------------------------
 // GET /api/admin/orders/:id/related-shipments — histórico do CPF antes de cotar
 // ---------------------------------------------------------------------------
-router.get("/admin/orders/:id/related-shipments", requireAdminAuth, async (req, res) => {
+router.get("/admin/orders/:id/related-shipments", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3765,7 +3766,7 @@ router.get("/admin/orders/:id/related-shipments", requireAdminAuth, async (req, 
 // ---------------------------------------------------------------------------
 // GET/PUT /api/admin/orders/:id/shipments — divisão EnvioEcom por estoque
 // ---------------------------------------------------------------------------
-router.get("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => {
+router.get("/admin/orders/:id/shipments", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3784,7 +3785,7 @@ router.get("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => 
   }
 });
 
-router.put("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => {
+router.put("/admin/orders/:id/shipments", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3828,7 +3829,7 @@ router.put("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => 
 // (botão "Dar baixa agora"). Enviado ainda permite baixa atrasada se
 // inventory_reserved ainda for falso; troca de pool após baixa exige Pendente.
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4010,7 +4011,7 @@ router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, r
 // PATCH /api/admin/orders/:id/shipments/:shipmentId/inventory  (protected)
 // Baixa manual de um pacote do envio dividido (Dar baixa agora).
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/shipments/:shipmentId/inventory", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/shipments/:shipmentId/inventory", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4094,7 +4095,7 @@ router.patch("/admin/orders/:id/shipments/:shipmentId/inventory", requireAdminAu
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/enviado  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/enviado", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4253,7 +4254,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
 // PATCH /api/admin/orders/:id/manual-tracking
 // Código pago no balcão (Correios). Fica no pacote, marca enviado e não baixa estoque.
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/manual-tracking", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/manual-tracking", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4329,7 +4330,7 @@ router.patch("/admin/orders/:id/manual-tracking", requireAdminAuth, async (req, 
 
 // PATCH /api/admin/orders/:id/tracking-code  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4394,7 +4395,7 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/tracking-label/match  (protected)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/tracking-label/match", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/tracking-label/match", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4496,7 +4497,7 @@ router.post("/admin/orders/tracking-label/match", requireAdminAuth, async (req, 
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/tracking-label/parse  (protected)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/tracking-label/parse", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/tracking-label/parse", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;

@@ -1,10 +1,14 @@
 # Regras de negócio — Yuri Import
 
-> **Última atualização:** 2026-11-26
+> **Última atualização:** 2026-11-27
 
 Descreve o que **já existe no código** do e-commerce Yuri Import (grafia no app/domínio frequentemente **Yury**). Não especula features futuras.
 
 **Precedência:** código-fonte atual > esta memória > tipagens/gerados.
+
+## Pré-confirmação da vendedora
+
+A vendedora grava uma fila (`order_payment_preconfirms`, status `pending_admin`) com quem confirmou, quando, observação e comprovante. O `orders.status` não muda. WhatsApp de pago, comissão, estoque promocional, separação e webhook de pago não rodam nessa hora. O admin principal aprova ou rejeita. PIX nasce `pending`. A aprovação aceita `pending` e `awaiting_payment`, na mesma constante. O UPDATE do pedido usa `WHERE status IN ('pending','awaiting_payment')`. Se o webhook já marcou pago, a aprovação responde 409, fecha a pendência como obsoleta e não dispara cupom, comissão, estoque nem WhatsApp. Cancelado, pago ou concluído não entram. A coluna gerada `pending_order_id` impede duas pendências do mesmo pedido. A migration não dá UPDATE em `orders`.
 
 ## Invariante — cópia 48h × etiqueta EnvioEcom (não regressar)
 
@@ -49,6 +53,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | Pré-confirmação da vendedora | A fila guarda quem, quando, nota e comprovante. O pedido só vira pago na aprovação do admin principal | PIX já pago continua pago. Compra de esgotado, Cell Tech, anabolizante, senha de baixa e a cópia 48h iguais. Sem n8n e sem WhatsApp novo nessa fila |
 | 2026-11-26 | Loja pública em `www.compras-yu.com` | Senha, afiliado, Reportana, menu e grupos, sem variável de loja, usam esse endereço. Link com host `imports-py.com`, `yuri-imports-py.com` ou `yury-imports.com` abre no domínio da página | Pedido, PIX, comissão e a senha de baixa iguais |
 | 2026-11-24 | Lembrete diário nos grupos do WhatsApp | Mensagem personalizada aceita só texto e o modo todo dia. Só sai das 08:00 às 19:00 em Brasília. A subida cadastra uma vez o texto da filmagem da caixa, às 10:00, para Yuri imports 1–6 e o 7 se o grupo já existir | PIX, estoque, senha de baixa, rodada de produto e n8n iguais |
 | 2026-11-24 | Colar ou autofill do telefone normaliza antes de cortar | `+55`, `5511…` com 13 dígitos e `011…` entram certos no `onChange`. Uma tecla a mais no DDD 55 não troca o DDD | CEP, CPF, PIX antigo, senha de baixa e a cópia 48h iguais |
