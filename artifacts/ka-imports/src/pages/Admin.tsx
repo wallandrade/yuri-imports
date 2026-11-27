@@ -959,6 +959,7 @@ import type { AdminOrder, AdminProduct, AdminUser, Coupon, CustomCharge, KycDocu
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminGroupedNav } from "@/components/admin/AdminGroupedNav";
 import { AdminAuditLogPanel, AdminPreconfirmPanel } from "@/components/admin/AdminSellerStaffPanels";
+import { AdminPreconfirmQueueCard } from "@/components/admin/AdminPreconfirmQueueCard";
 import { navItemByTab, pathForTab, PRIMARY_ONLY_TABS, resolveAdminPath, type TabType } from "@/pages/admin/adminNav";
 import AdminEnvioEcomTrackingPanel from "@/pages/AdminEnvioEcomTrackingPanel";
 import LossBlacklistBoard from "@/components/admin/LossBlacklistBoard";
@@ -1920,6 +1921,7 @@ export default function Admin() {
   const [chargesReady, setChargesReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [isPrimary, setIsPrimary] = useState(getIsPrimary);
+  const [preconfirmReload, setPreconfirmReload] = useState(0);
   const [adminRole, setAdminRole] = useState<"admin" | "vendedora">(
     localStorage.getItem("adminRole") === "vendedora" ? "vendedora" : "admin",
   );
@@ -2429,6 +2431,11 @@ export default function Admin() {
       }
     } catch { /* silent — don't show toast for background refreshes */ }
   }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, groupFilter, handleUnauthorized]);
+
+  const reloadPreconfirmSurfaces = useCallback(() => {
+    setPreconfirmReload((current) => current + 1);
+    void fetchOrders(true);
+  }, [fetchOrders]);
 
   const fetchCharges = useCallback(async (_silent?: boolean) => {
     try {
@@ -5609,7 +5616,7 @@ export default function Admin() {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div className={`mt-3 grid grid-cols-1 gap-3 ${isPrimary && !sellerStaff ? "lg:grid-cols-2 xl:grid-cols-3" : "lg:grid-cols-2"}`}>
             <SendQueueCard
               className=""
               title="Pedidos para Enviar"
@@ -5660,6 +5667,27 @@ export default function Admin() {
               onMarkSent={(order, event) => { void markShopeeBoardSent(order, event); }}
               markSentBusyId={shopeeBoardSentId}
             />
+            {isPrimary && !sellerStaff ? (
+              <AdminPreconfirmQueueCard
+                headers={authHeaders}
+                onUnauthorized={handleUnauthorized}
+                catalog={sendCardCatalog}
+                reloadToken={preconfirmReload}
+                onReviewed={reloadPreconfirmSurfaces}
+                onOpenList={() => setTab("preconfirms")}
+                onOpenOrder={(item) => goToOrder(
+                  item.orderId,
+                  item.orderCreatedAt,
+                  item.orderNumber != null ? String(item.orderNumber) : item.orderId,
+                )}
+                onPhotoOpen={(src, name) => {
+                  setDashboardPhotoHover(null);
+                  setDashboardImagePreview({ src, name });
+                }}
+                onPhotoHover={setDashboardPhotoHover}
+                onPhotoHoverEnd={() => setDashboardPhotoHover(null)}
+              />
+            ) : null}
           </div>
           <SendQueueCard
             title="Motoboy para Enviar"
@@ -5777,7 +5805,12 @@ export default function Admin() {
         <div className="min-w-0 flex-1">
 
         {tab === "preconfirms" && isPrimary ? (
-          <AdminPreconfirmPanel headers={authHeaders} onUnauthorized={handleUnauthorized} />
+          <AdminPreconfirmPanel
+            headers={authHeaders}
+            onUnauthorized={handleUnauthorized}
+            reloadToken={preconfirmReload}
+            onReviewed={reloadPreconfirmSurfaces}
+          />
         ) : tab === "auditLog" && isPrimary ? (
           <AdminAuditLogPanel headers={authHeaders} onUnauthorized={handleUnauthorized} />
         ) : tab === "fornecedores" ? (

@@ -8,6 +8,7 @@ import {
   APPROVAL_ELIGIBLE_STATUSES,
   decidePreconfirm,
   isApprovalEligibleStatus,
+  preconfirmListProducts,
   resolveApprovalClaim,
 } from "../lib/payment-preconfirm-logic";
 import { mysqlAffectedRows } from "../lib/mysql-affected-rows";
@@ -107,6 +108,8 @@ router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req,
           clientName: ordersTable.clientName,
           total: ordersTable.total,
           status: ordersTable.status,
+          createdAt: ordersTable.createdAt,
+          products: ordersTable.products,
         })
         .from(ordersTable)
         .where(inArray(ordersTable.id, orderIds))
@@ -132,6 +135,8 @@ router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req,
           clientName: order?.clientName ?? null,
           total: order?.total ?? null,
           orderStatus: order?.status ?? null,
+          orderCreatedAt: order?.createdAt ?? null,
+          products: preconfirmListProducts(order?.products),
         };
       }),
     });
