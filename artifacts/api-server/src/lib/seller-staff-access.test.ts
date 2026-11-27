@@ -7,7 +7,7 @@ import express from "express";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { redactAuditPayload } from "./admin-audit-payload";
-import { decidePreconfirm, planPaymentReview } from "./payment-preconfirm-logic";
+import { decidePreconfirm, paidSideEffectsIfClaimed, planPaymentReview, resolveApprovalClaim } from "./payment-preconfirm-logic";
 import { forbidSellerStaff, sellerStaffMayAccess } from "./seller-staff-access";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -112,7 +112,9 @@ test("pré-confirmar não confirma; aprovar confirma; PIX já pago continua pago
   assert.equal("error" in already, false);
   if ("error" in already) return;
   assert.equal(already.confirmPayment, false);
+  assert.equal(already.preconfirmStatus, "rejected");
   assert.equal(already.orderStatusAfter, "paid");
+  assert.equal(already.reason, "obsolete");
   assert.deepEqual([...already.sideEffects], []);
 
   const rejected = planPaymentReview({
@@ -125,6 +127,73 @@ test("pré-confirmar não confirma; aprovar confirma; PIX já pago continua pago
   assert.equal(rejected.orderStatusAfter, "awaiting_payment");
   assert.equal(rejected.confirmPayment, false);
   assert.deepEqual([...rejected.sideEffects], []);
+
+  const cancelled = planPaymentReview({
+    decision: "approve",
+    orderStatus: "cancelled",
+    preconfirmStatus: "pending_admin",
+  });
+  assert.equal("error" in cancelled, false);
+  if ("error" in cancelled) return;
+  assert.equal(cancelled.confirmPayment, false);
+  assert.equal(cancelled.preconfirmStatus, "rejected");
+  assert.equal(cancelled.orderStatusAfter, "cancelled");
+  assert.equal(cancelled.reason, "obsolete");
+  assert.deepEqual([...cancelled.sideEffects], []);
+  const cancelado = planPaymentReview({
+    decision: "approve",
+    orderStatus: "cancelado",
+    preconfirmStatus: "pending_admin",
+  });
+  assert.equal("confirmPayment" in cancelado && cancelado.confirmPayment, false);
+
+  const notAwaiting = planPaymentReview({
+    decision: "approve",
+    orderStatus: "pending",
+    preconfirmStatus: "pending_admin",
+  });
+  assert.equal("error" in notAwaiting, false);
+  if ("error" in notAwaiting) return;
+  assert.equal(notAwaiting.confirmPayment, false);
+  assert.equal(notAwaiting.orderStatusAfter, "pending");
+  assert.equal(notAwaiting.reason, "obsolete");
+
+  const lost = resolveApprovalClaim({
+    decision: "approve",
+    orderStatus: "awaiting_payment",
+    preconfirmRowsAffected: 0,
+    orderRowsAffected: 1,
+  });
+  assert.equal(lost.statusCode, 409);
+  assert.equal(lost.runSideEffects, false);
+  assert.equal(lost.reason, "lost_race");
+
+  const orderMoved = resolveApprovalClaim({
+    decision: "approve",
+    orderStatus: "cancelled",
+    preconfirmRowsAffected: 1,
+    orderRowsAffected: 0,
+  });
+  assert.equal(orderMoved.statusCode, 409);
+  assert.equal(orderMoved.runSideEffects, false);
+  assert.equal(orderMoved.preconfirmStatus, "rejected");
+  assert.equal(orderMoved.orderStatusAfter, "cancelled");
+  assert.deepEqual([...paidSideEffectsIfClaimed(orderMoved.runSideEffects)], []);
+
+  const won = resolveApprovalClaim({
+    decision: "approve",
+    orderStatus: "awaiting_payment",
+    preconfirmRowsAffected: 1,
+    orderRowsAffected: 1,
+  });
+  assert.equal(won.statusCode, 200);
+  assert.equal(won.runSideEffects, true);
+  assert.equal(won.orderStatusAfter, "paid");
+  assert.equal(paidSideEffectsIfClaimed(false).includes("whatsapp_paid"), false);
+  assert.equal(paidSideEffectsIfClaimed(won.runSideEffects).includes("whatsapp_paid"), true);
+  assert.equal(paidSideEffectsIfClaimed(won.runSideEffects).includes("coupon_use"), true);
+  assert.equal(paidSideEffectsIfClaimed(won.runSideEffects).includes("commission"), true);
+  assert.equal(paidSideEffectsIfClaimed(won.runSideEffects).includes("promo_stock"), true);
 });
 
 test("auditoria não guarda senha nem token e não tem rota de editar ou apagar", () => {
@@ -156,4 +225,7 @@ test("migration não reescreve status de pedido", () => {
   assert.equal(sql.includes("CREATE TABLE IF NOT EXISTS admin_user_roles"), true);
   assert.equal(sql.includes("CREATE TABLE IF NOT EXISTS order_payment_preconfirms"), true);
   assert.equal(sql.includes("CREATE TABLE IF NOT EXISTS admin_audit_log"), true);
+  assert.equal(sql.includes("GENERATED ALWAYS AS (IF(status = 'pending_admin', order_id, NULL)) STORED"), true);
+  assert.equal(sql.includes("UNIQUE KEY uniq_preconfirm_pending_order (pending_order_id)"), true);
+  assert.equal(/alter\s+table\s+orders/i.test(sql), false);
 });

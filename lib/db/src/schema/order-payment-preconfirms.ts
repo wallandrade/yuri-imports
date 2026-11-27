@@ -3,6 +3,9 @@ import { mediumtext, mysqlTable, text, timestamp, varchar } from "drizzle-orm/my
 /**
  * Fila da vendedora. Não é status do pedido.
  * pending_admin | approved | rejected
+ *
+ * A unicidade da pendência fica na coluna gerada pending_order_id
+ * (só no SQL da migration). O INSERT não grava essa coluna.
  */
 export const orderPaymentPreconfirmsTable = mysqlTable("order_payment_preconfirms", {
   id: varchar("id", { length: 64 }).primaryKey(),

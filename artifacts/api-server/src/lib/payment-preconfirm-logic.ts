@@ -22,6 +22,84 @@ export function isConfirmedPaidStatus(status: unknown): boolean {
   return value === "paid" || value === "completed";
 }
 
+export function isCancelledOrderStatus(status: unknown): boolean {
+  const value = String(status || "").trim().toLowerCase();
+  return value === "cancelled" || value === "cancelado" || value === "canceled";
+}
+
+/** Só este status pode virar pago pela aprovação. Cancelado, pendente, pago e concluído ficam de fora. */
+export const APPROVAL_ELIGIBLE_STATUSES = ["awaiting_payment"] as const;
+
+export function isApprovalEligibleStatus(status: unknown): boolean {
+  return String(status || "").trim().toLowerCase() === "awaiting_payment";
+}
+
+/** Efeitos de pago só quando o UPDATE condicional afetou exatamente uma linha. */
+export function paidSideEffectsIfClaimed(claimed: boolean): readonly PaidConfirmationSideEffect[] {
+  return claimed ? PAID_CONFIRMATION_SIDE_EFFECTS : [];
+}
+
+export type ApprovalResolution = {
+  statusCode: 200 | 409;
+  runSideEffects: boolean;
+  preconfirmStatus: "approved" | "rejected" | "pending_admin";
+  orderStatusAfter: string;
+  reason: "confirm" | "obsolete" | "lost_race" | "rejected";
+  message: string;
+};
+
+/**
+ * preconfirmRowsAffected vem do UPDATE ... WHERE status = 'pending_admin'.
+ * orderRowsAffected vem do UPDATE ... WHERE status = 'awaiting_payment'.
+ * Efeito colateral de pago só com os dois em 1.
+ */
+export function resolveApprovalClaim(input: {
+  decision: "approve" | "reject";
+  orderStatus: string;
+  preconfirmRowsAffected: number;
+  orderRowsAffected: number;
+}): ApprovalResolution {
+  const orderStatus = String(input.orderStatus || "");
+  if (input.preconfirmRowsAffected !== 1) {
+    return {
+      statusCode: 409,
+      runSideEffects: false,
+      preconfirmStatus: "pending_admin",
+      orderStatusAfter: orderStatus,
+      reason: "lost_race",
+      message: "Esta pré-confirmação já foi revisada.",
+    };
+  }
+  if (input.decision === "reject") {
+    return {
+      statusCode: 200,
+      runSideEffects: false,
+      preconfirmStatus: "rejected",
+      orderStatusAfter: orderStatus,
+      reason: "rejected",
+      message: "Pré-confirmação rejeitada.",
+    };
+  }
+  if (!isApprovalEligibleStatus(orderStatus) || input.orderRowsAffected !== 1) {
+    return {
+      statusCode: 409,
+      runSideEffects: false,
+      preconfirmStatus: "rejected",
+      orderStatusAfter: orderStatus,
+      reason: "obsolete",
+      message: "Pedido não está aguardando pagamento. A pré-confirmação foi encerrada sem confirmar.",
+    };
+  }
+  return {
+    statusCode: 200,
+    runSideEffects: true,
+    preconfirmStatus: "approved",
+    orderStatusAfter: "paid",
+    reason: "confirm",
+    message: "Pagamento confirmado.",
+  };
+}
+
 export type PreconfirmDecision =
   | { ok: true; orderStatusAfter: string; sideEffects: readonly PaidConfirmationSideEffect[] }
   | { ok: false; error: string; message: string };
@@ -38,7 +116,7 @@ export function decidePreconfirm(input: {
       message: "Este pedido já está confirmado. A pré-confirmação não altera pagamento confirmado.",
     };
   }
-  if (orderStatus.trim().toLowerCase() === "cancelled") {
+  if (isCancelledOrderStatus(orderStatus)) {
     return { ok: false, error: "CANCELLED", message: "Pedido cancelado." };
   }
   if (input.pendingExists) {
@@ -56,7 +134,7 @@ export type ReviewPlan = {
   confirmPayment: boolean;
   orderStatusAfter: string;
   sideEffects: readonly PaidConfirmationSideEffect[];
-  reason: "confirm" | "already_paid" | "rejected";
+  reason: "confirm" | "obsolete" | "rejected";
 };
 
 export function planPaymentReview(input: {
@@ -68,29 +146,17 @@ export function planPaymentReview(input: {
     return { error: "NOT_PENDING", message: "Esta pré-confirmação já foi revisada." };
   }
   const orderStatus = String(input.orderStatus || "");
-  if (input.decision === "reject") {
-    return {
-      preconfirmStatus: "rejected",
-      confirmPayment: false,
-      orderStatusAfter: orderStatus,
-      sideEffects: [],
-      reason: "rejected",
-    };
-  }
-  if (isConfirmedPaidStatus(orderStatus)) {
-    return {
-      preconfirmStatus: "approved",
-      confirmPayment: false,
-      orderStatusAfter: orderStatus,
-      sideEffects: [],
-      reason: "already_paid",
-    };
-  }
+  const resolved = resolveApprovalClaim({
+    decision: input.decision,
+    orderStatus,
+    preconfirmRowsAffected: 1,
+    orderRowsAffected: input.decision === "approve" && isApprovalEligibleStatus(orderStatus) ? 1 : 0,
+  });
   return {
-    preconfirmStatus: "approved",
-    confirmPayment: true,
-    orderStatusAfter: "paid",
-    sideEffects: PAID_CONFIRMATION_SIDE_EFFECTS,
-    reason: "confirm",
+    preconfirmStatus: resolved.preconfirmStatus === "pending_admin" ? "rejected" : resolved.preconfirmStatus,
+    confirmPayment: resolved.runSideEffects,
+    orderStatusAfter: resolved.orderStatusAfter,
+    sideEffects: paidSideEffectsIfClaimed(resolved.runSideEffects),
+    reason: resolved.reason === "lost_race" ? "obsolete" : resolved.reason,
   };
 }

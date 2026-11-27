@@ -4,7 +4,12 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { db, orderPaymentPreconfirmsTable, ordersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import { isSellerStaffRole } from "../lib/seller-staff-access";
-import { decidePreconfirm, planPaymentReview } from "../lib/payment-preconfirm-logic";
+import {
+  decidePreconfirm,
+  isApprovalEligibleStatus,
+  resolveApprovalClaim,
+} from "../lib/payment-preconfirm-logic";
+import { mysqlAffectedRows } from "../lib/mysql-affected-rows";
 import { isMissingSchemaError } from "../lib/admin-user-access";
 import { writeAdminAuditFromRequest } from "../lib/admin-audit";
 import { clientIpFromRequest } from "../lib/admin-audit-payload";
@@ -26,6 +31,13 @@ function routeId(value: string | string[]): string {
   return String(Array.isArray(value) ? value[0] : value || "").trim();
 }
 
+function isDuplicateKeyError(err: unknown): boolean {
+  const record = err as { code?: string; message?: string; cause?: { code?: string; message?: string } };
+  const code = String(record?.code || record?.cause?.code || "");
+  const message = String(record?.message || record?.cause?.message || "");
+  return code === "ER_DUP_ENTRY" || /duplicate/i.test(message);
+}
+
 function schemaFailure(res: { status: (code: number) => { json: (body: unknown) => void } }, err: unknown): boolean {
   if (!isMissingSchemaError(err)) return false;
   res.status(503).json({
@@ -35,33 +47,20 @@ function schemaFailure(res: { status: (code: number) => { json: (body: unknown) 
   return true;
 }
 
+type PaidOrderSnapshot = {
+  couponCode: string | null;
+  total: string;
+  clientName: string;
+  shippingType: string;
+};
+
 /**
- * Efeitos da confirmação real. Só roda quando o admin principal aprova
- * um pedido que ainda não está pago. A pré-confirmação não chama isto.
+ * Efeitos da confirmação real. Só é chamada depois do commit, e só quando
+ * o UPDATE do pedido afetou 1 linha. A pré-confirmação não chama isto.
  * Ponto de extensão: um aviso extra pela Z-API poderia entrar depois da aprovação.
  * Esta versão não envia mensagem nenhuma na pré-confirmação.
  */
-async function confirmOrderPaidByAdmin(orderId: string, order: {
-  status: string;
-  couponCode: string | null;
-  total: string;
-  paidAmount: string | null;
-  clientName: string;
-  shippingType: string;
-  proofUrl: string | null;
-}, proofUrl: string | null): Promise<{ alreadyPaid: boolean }> {
-  const current = String(order.status || "").trim().toLowerCase();
-  if (current === "paid" || current === "completed") return { alreadyPaid: true };
-
-  const currentTotal = Number(order.total ?? 0);
-  const currentPaid = Number(order.paidAmount ?? 0);
-  const reconciled = Math.max(currentPaid, currentTotal);
-  const updates: Record<string, unknown> = { status: "paid", updatedAt: new Date() };
-  if (reconciled > 0) updates.paidAmount = String(reconciled);
-  if (proofUrl && !order.proofUrl) updates.proofUrl = proofUrl;
-
-  await db.update(ordersTable).set(updates).where(eq(ordersTable.id, orderId));
-
+async function runPaidSideEffects(orderId: string, order: PaidOrderSnapshot): Promise<void> {
   if (order.couponCode) await incrementCouponUse(order.couponCode);
   await ensureOrderCommission(orderId);
   await consumePromoStockForPaidOrder(orderId);
@@ -78,7 +77,6 @@ async function confirmOrderPaidByAdmin(orderId: string, order: {
   });
   await queueOrderPaidWhatsapp(orderId, true);
   queueReportanaOrderSync(orderId);
-  return { alreadyPaid: false };
 }
 
 router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req, res) => {
@@ -245,6 +243,10 @@ router.post("/admin/orders/:id/payment-preconfirm", requireAdminAuth, async (req
       confirmedAt,
     });
   } catch (err) {
+    if (isDuplicateKeyError(err)) {
+      res.status(409).json({ error: "ALREADY_PENDING", message: "Já existe uma pré-confirmação aguardando o admin." });
+      return;
+    }
     if (schemaFailure(res, err)) return;
     console.error("[preconfirm] create error");
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao pré-confirmar." });
@@ -277,7 +279,6 @@ async function review(req: Request, res: Response, decision: "approve" | "reject
 
     const orderRows = await db
       .select({
-        id: ordersTable.id,
         status: ordersTable.status,
         couponCode: ordersTable.couponCode,
         total: ordersTable.total,
@@ -294,61 +295,98 @@ async function review(req: Request, res: Response, decision: "approve" | "reject
       return;
     }
 
-    const plan = planPaymentReview({
-      decision,
-      orderStatus: orderRows[0].status,
-      preconfirmStatus: pending[0].status,
-    });
-    if ("error" in plan) {
-      res.status(409).json({ error: plan.error, message: plan.message });
-      return;
-    }
-
-    const before = {
-      orderStatus: orderRows[0].status,
-      preconfirmStatus: pending[0].status,
-    };
-
-    if (plan.confirmPayment) {
-      await confirmOrderPaidByAdmin(orderId, orderRows[0], pending[0].proofUrl);
-      recordAdminActivity(req, orderId, "status", "Aprovou a pré-confirmação e marcou como pago", `De ${orderRows[0].status} para paid`);
-    } else if (plan.reason === "rejected") {
-      recordAdminActivity(req, orderId, "payment_preconfirm", "Rejeitou a pré-confirmação", reviewNote || "Sem observação");
-    } else {
-      recordAdminActivity(req, orderId, "payment_preconfirm", "A pré-confirmação encontrou o pedido já pago", "Status do pedido não foi alterado");
-    }
-
+    const order = orderRows[0];
+    const beforeStatus = order.status;
     const reviewedAt = new Date();
-    await db.update(orderPaymentPreconfirmsTable).set({
-      status: plan.preconfirmStatus,
-      reviewedBy: scope.username,
-      reviewedAt,
-      reviewNote: reviewNote || (plan.reason === "already_paid" ? "Pedido já estava pago. Nada foi reconfirmado." : null),
-    }).where(eq(orderPaymentPreconfirmsTable.id, pending[0].id));
+    const eligible = decision === "approve" && isApprovalEligibleStatus(order.status);
+    const obsoleteNote = "Pedido não está aguardando pagamento. Pré-confirmação obsoleta.";
+    const nextPreconfirmStatus = decision === "reject" || !eligible ? "rejected" : "approved";
 
-    await writeAdminAuditFromRequest(req, {
-      actorUsername: scope.username,
-      actorRole: "admin",
-      action: decision === "approve" ? "payment_preconfirm_approve" : "payment_preconfirm_reject",
-      entityType: "order",
-      entityId: orderId,
-      ip: clientIpFromRequest(req),
-      before,
-      after: {
-        orderStatus: plan.orderStatusAfter,
-        preconfirmStatus: plan.preconfirmStatus,
-        confirmPayment: plan.confirmPayment,
-        reason: plan.reason,
-      },
+    const claim = await db.transaction(async (tx) => {
+      const preResult = await tx.update(orderPaymentPreconfirmsTable).set({
+        status: nextPreconfirmStatus,
+        reviewedBy: scope.username,
+        reviewedAt,
+        reviewNote: reviewNote || (eligible ? null : obsoleteNote),
+      }).where(and(
+        eq(orderPaymentPreconfirmsTable.id, pending[0].id),
+        eq(orderPaymentPreconfirmsTable.status, "pending_admin"),
+      ));
+      const preconfirmRowsAffected = mysqlAffectedRows(preResult);
+      if (preconfirmRowsAffected !== 1 || !eligible) {
+        return { preconfirmRowsAffected, orderRowsAffected: 0 };
+      }
+
+      const currentTotal = Number(order.total ?? 0);
+      const currentPaid = Number(order.paidAmount ?? 0);
+      const reconciled = Math.max(currentPaid, currentTotal);
+      const updates: Record<string, unknown> = { status: "paid", updatedAt: new Date() };
+      if (reconciled > 0) updates.paidAmount = String(reconciled);
+      if (pending[0].proofUrl && !order.proofUrl) updates.proofUrl = pending[0].proofUrl;
+
+      const orderResult = await tx.update(ordersTable).set(updates).where(and(
+        eq(ordersTable.id, orderId),
+        eq(ordersTable.status, "awaiting_payment"),
+      ));
+      const orderRowsAffected = mysqlAffectedRows(orderResult);
+      if (orderRowsAffected !== 1) {
+        await tx.update(orderPaymentPreconfirmsTable).set({
+          status: "rejected",
+          reviewNote: reviewNote || obsoleteNote,
+        }).where(eq(orderPaymentPreconfirmsTable.id, pending[0].id));
+      }
+      return { preconfirmRowsAffected, orderRowsAffected };
     });
 
-    res.json({
-      ok: true,
+    const resolution = resolveApprovalClaim({
+      decision,
+      orderStatus: beforeStatus,
+      preconfirmRowsAffected: claim.preconfirmRowsAffected,
+      orderRowsAffected: claim.orderRowsAffected,
+    });
+
+    if (resolution.runSideEffects) {
+      await runPaidSideEffects(orderId, order);
+      recordAdminActivity(req, orderId, "status", "Aprovou a pré-confirmação e marcou como pago", `De ${beforeStatus} para paid`);
+    } else if (resolution.reason === "rejected") {
+      recordAdminActivity(req, orderId, "payment_preconfirm", "Rejeitou a pré-confirmação", reviewNote || "Sem observação");
+    } else if (resolution.reason === "obsolete") {
+      recordAdminActivity(req, orderId, "payment_preconfirm", "Encerrou a pré-confirmação sem confirmar", obsoleteNote);
+    }
+
+    if (resolution.reason !== "lost_race") {
+      await writeAdminAuditFromRequest(req, {
+        actorUsername: scope.username,
+        actorRole: "admin",
+        action: resolution.reason === "confirm"
+          ? "payment_preconfirm_approve"
+          : resolution.reason === "rejected"
+            ? "payment_preconfirm_reject"
+            : "payment_preconfirm_obsolete",
+        entityType: "order",
+        entityId: orderId,
+        ip: clientIpFromRequest(req),
+        before: { orderStatus: beforeStatus, preconfirmStatus: "pending_admin" },
+        after: {
+          orderStatus: resolution.orderStatusAfter,
+          preconfirmStatus: resolution.preconfirmStatus,
+          confirmPayment: resolution.runSideEffects,
+          reason: resolution.reason,
+        },
+      });
+    }
+
+    res.status(resolution.statusCode).json({
+      ok: resolution.statusCode === 200,
+      error: resolution.statusCode === 409
+        ? (resolution.reason === "lost_race" ? "NOT_PENDING" : "NOT_ELIGIBLE")
+        : undefined,
       orderId,
-      preconfirmStatus: plan.preconfirmStatus,
-      orderStatus: plan.orderStatusAfter,
-      confirmPayment: plan.confirmPayment,
-      reason: plan.reason,
+      message: resolution.message,
+      preconfirmStatus: resolution.preconfirmStatus,
+      orderStatus: resolution.orderStatusAfter,
+      confirmPayment: resolution.runSideEffects,
+      reason: resolution.reason,
     });
   } catch (err) {
     if (schemaFailure(res, err)) return;

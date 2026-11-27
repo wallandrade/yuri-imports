@@ -14388,7 +14388,7 @@ function OrdersPanel({
                 <p className={`text-sm font-semibold mb-3 ${isCard ? "text-purple-800" : "text-blue-800"}`}>
                   Gestão — {isCard ? "Cartão (simulação)" : "PIX"}
                 </p>
-                <div className="flex items-center gap-2 flex-wrap mb-3">
+                {!sellerStaff && <div className="flex items-center gap-2 flex-wrap mb-3">
                   <select
                     value={whatsappGroupDrafts[order.id] || "__none"}
                     onChange={(event) => setWhatsappGroupDrafts((prev) => ({ ...prev, [order.id]: event.target.value }))}
@@ -14409,7 +14409,7 @@ function OrdersPanel({
                     {whatsappGroupUpdating[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                     Salvar grupo
                   </Button>
-                </div>
+                </div>}
                 <div className="flex flex-col gap-2">
                   {(!isCancelledCard || hasProofs || !isPaidOrCompleted) && (
                   <div className="flex gap-2 flex-wrap items-center">
@@ -14530,7 +14530,7 @@ function OrdersPanel({
                     <XCircle className="w-3.5 h-3.5" />Cancelar
                   </Button>
                   )}
-                  {!isPaidOrCompleted && (
+                  {!sellerStaff && !isPaidOrCompleted && (
                   <Button type="button" size="sm" variant="outline" className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50"
                     onClick={() => setProofModal(order.id)}>
                     <Upload className="w-3.5 h-3.5" />

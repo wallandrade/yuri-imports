@@ -29,8 +29,11 @@ CREATE TABLE IF NOT EXISTS order_payment_preconfirms (
   reviewed_by VARCHAR(255) NULL,
   reviewed_at TIMESTAMP NULL,
   review_note TEXT NULL,
+  pending_order_id VARCHAR(255)
+    GENERATED ALWAYS AS (IF(status = 'pending_admin', order_id, NULL)) STORED,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
+  UNIQUE KEY uniq_preconfirm_pending_order (pending_order_id),
   KEY idx_preconfirm_order (order_id),
   KEY idx_preconfirm_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

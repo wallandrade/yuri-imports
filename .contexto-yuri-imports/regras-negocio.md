@@ -8,7 +8,7 @@ Descreve o que **já existe no código** do e-commerce Yuri Import (grafia no ap
 
 ## Pré-confirmação da vendedora
 
-A vendedora grava uma fila (`order_payment_preconfirms`, status `pending_admin`) com quem confirmou, quando, observação e comprovante. O `orders.status` não muda. WhatsApp de pago, comissão, estoque promocional, separação e webhook de pago não rodam nessa hora. O admin principal aprova ou rejeita. Aprovar um pedido que ainda não está pago chama o mesmo efeito de marcar pago. Pedido que já está `paid` ou `completed` não é reaberto e não dispara de novo. A migration não dá UPDATE em `orders`.
+A vendedora grava uma fila (`order_payment_preconfirms`, status `pending_admin`) com quem confirmou, quando, observação e comprovante. O `orders.status` não muda. WhatsApp de pago, comissão, estoque promocional, separação e webhook de pago não rodam nessa hora. O admin principal aprova ou rejeita. Só um pedido em `awaiting_payment` vira pago, e só se o UPDATE da pendência e o do pedido afetarem 1 linha cada, na mesma transação. Cancelado, pendente, pago ou concluído devolve 409 e a pendência fica rejeitada, sem cupom, comissão, estoque ou WhatsApp. A coluna gerada `pending_order_id` impede duas pendências do mesmo pedido. A migration não dá UPDATE em `orders`.
 
 ## Invariante — cópia 48h × etiqueta EnvioEcom (não regressar)
 
