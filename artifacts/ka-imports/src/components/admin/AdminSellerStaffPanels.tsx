@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { shouldRefreshPreconfirmQueue } from "@/lib/preconfirm-queue";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -52,17 +53,21 @@ function jsonPreview(value: unknown) {
 export function AdminPreconfirmPanel({
   headers,
   onUnauthorized,
+  reloadToken = 0,
+  onReviewed,
 }: {
   headers: () => Record<string, string>;
   onUnauthorized: () => void;
+  reloadToken?: number;
+  onReviewed?: () => void;
 }) {
   const [items, setItems] = useState<PreconfirmItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const skipReloadRef = useRef(false);
 
   const load = useCallback(async () => {
-    setLoading(true);
     setError("");
     try {
       const res = await fetch(`${BASE}/api/admin/orders/payment-preconfirms?status=pending_admin`, { headers: headers() });
@@ -85,8 +90,12 @@ export function AdminPreconfirmPanel({
   }, [headers, onUnauthorized]);
 
   useEffect(() => {
+    if (skipReloadRef.current) {
+      skipReloadRef.current = false;
+      return;
+    }
     void load();
-  }, [load]);
+  }, [load, reloadToken]);
 
   const review = async (orderId: string, decision: "approve" | "reject") => {
     const note = decision === "reject" ? window.prompt("Motivo da rejeição (opcional)") : "";
@@ -103,13 +112,12 @@ export function AdminPreconfirmPanel({
         return;
       }
       const data = await res.json() as { message?: string };
-      if (!res.ok) {
-        const message = data.message || "Não foi possível revisar.";
-        if (res.status === 409 || res.status === 404) await load();
-        setError(message);
-        return;
+      if (shouldRefreshPreconfirmQueue(res.status)) {
+        skipReloadRef.current = true;
+        await load();
+        onReviewed?.();
       }
-      await load();
+      if (!res.ok) setError(data.message || "Não foi possível revisar.");
     } catch {
       setError("Não foi possível revisar.");
     } finally {

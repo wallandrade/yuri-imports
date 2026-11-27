@@ -8,6 +8,7 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | Card Pré-confirmados só com admin principal | O painel não monta o card para a vendedora. A fila continua em `requirePrimaryAdmin` | Sessão, papel e o bloqueio 403 das rotas de preço, estoque e envio iguais |
 | 2026-11-27 | Papel vendedora no login do admin | Conta própria, PBKDF2, desativar e trocar senha só o admin principal. Ela vê pedidos e o resumo financeiro. Pré-confirma pagamento. Preço, desconto, estoque, produto, cupom, configuração, usuário e envio respondem 403 | Sessão de 12 h, cookie e o admin primário iguais. Senha de baixa não foi aberta. Sem filial |
 | 2026-11-23 | Crédito da Rota Shopee só com acesso global | `POST /api/admin/orders/:id/shopee-wallet-credit` exige `hasGlobalAccess`. O botão some para o admin de vendedor. Avisar o cliente e gravar o ID seguem o escopo do pedido | Sessão, senha de baixa e PIX iguais |
 | 2026-11-17 | Menu esconde Conciliação, DRE, Despesas e Webhook do PIX de quem não é primário | `PRIMARY_ONLY_TABS` em `adminNav.ts`. O restante do que já era só primário continua | API de extrato, depósitos, DRE e despesas segue `requireAdminAuth`. Webhook PIX público não foi mexido |
@@ -43,6 +44,7 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 - Middlewares: `requireAdminAuth`, `requirePrimaryAdmin` (mesmo arquivo de rotas/auth). `forbidSellerStaff` bloqueia a vendedora nas rotas de escrita de preço, desconto, estoque, produto, cupom, configuração, usuário e envio.
 - Papel `vendedora` fica em `admin_user_roles` (migration). Sem a tabela, o login continua admin. Conta inativa não entra e a sessão cai.
 - A vendedora enxerga a loja inteira nas rotas liberadas (não é filial). O restante do `/api/admin` responde 403 dentro do `requireAdminAuth`.
+- O card **Pré-confirmados** do painel só é montado para o admin principal. A vendedora não vê. Aprovar e recusar continuam em `requirePrimaryAdmin`.
 
 ### Escopo
 

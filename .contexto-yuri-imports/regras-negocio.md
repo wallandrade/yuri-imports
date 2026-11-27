@@ -10,6 +10,8 @@ Descreve o que **já existe no código** do e-commerce Yuri Import (grafia no ap
 
 A vendedora grava uma fila (`order_payment_preconfirms`, status `pending_admin`) com quem confirmou, quando, observação e comprovante. O `orders.status` não muda. WhatsApp de pago, comissão, estoque promocional, separação e webhook de pago não rodam nessa hora. O admin principal aprova ou rejeita. PIX nasce `pending`. A aprovação aceita `pending` e `awaiting_payment`, na mesma constante. O UPDATE do pedido usa `WHERE status IN ('pending','awaiting_payment')`. Se o webhook já marcou pago, a aprovação responde 409, fecha a pendência como obsoleta e não dispara cupom, comissão, estoque nem WhatsApp. Cancelado, pago ou concluído não entram. A coluna gerada `pending_order_id` impede duas pendências do mesmo pedido. A migration não dá UPDATE em `orders`.
 
+No painel, só o admin principal vê o card **Pré-confirmados** (violeta), na mesma fileira de Pedidos para Enviar e Envio Shopee. A vendedora não vê o card. A lista é o mesmo `GET /api/admin/orders/payment-preconfirms?status=pending_admin`, com `includeProof=0`: a resposta não traz o comprovante. A aba Pré-confirmações continua pedindo o arquivo. A resposta também traz `orderCreatedAt` e até 4 produtos (`id`, `name`, `image` só se for URL http(s) curta). Aprovar e Recusar usam os POST que já existiam. Recusar pede confirmação. Sucesso, 409 e 404 recarregam o card e a fila da aba Pré-confirmações. Clique no card abre essa aba. Clique na linha abre o pedido. Sem pendência, o card fica com o visto verde, como os outros.
+
 ## Invariante — cópia 48h × etiqueta EnvioEcom (não regressar)
 
 Pedido **sai** da cópia 48h / Outros / POSTAR ATÉ / lista de compra se **qualquer** um for verdade:
@@ -53,6 +55,7 @@ Reenvio aberto vira `reenvio_enviado` na API quando a etiqueta existe e o rastre
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | Card Pré-confirmados no painel do admin principal | Fila pendente com foto, cliente, pedido, valor, quem pré-confirmou e quando. Aprovar e Recusar na linha. A vendedora não vê | PIX já pago continua pago. Compra de esgotado, Cell Tech, senha de baixa, n8n, CORS, domínios e a cópia 48h iguais. Sem endpoint novo |
 | 2026-11-27 | Pré-confirmação da vendedora | A fila guarda quem, quando, nota e comprovante. O pedido só vira pago na aprovação do admin principal | PIX já pago continua pago. Compra de esgotado, Cell Tech, anabolizante, senha de baixa e a cópia 48h iguais. Sem n8n e sem WhatsApp novo nessa fila |
 | 2026-11-26 | Loja pública em `www.compras-yu.com` | Senha, afiliado, Reportana, menu e grupos, sem variável de loja, usam esse endereço. Link com host `imports-py.com`, `yuri-imports-py.com` ou `yury-imports.com` abre no domínio da página | Pedido, PIX, comissão e a senha de baixa iguais |
 | 2026-11-24 | Lembrete diário nos grupos do WhatsApp | Mensagem personalizada aceita só texto e o modo todo dia. Só sai das 08:00 às 19:00 em Brasília. A subida cadastra uma vez o texto da filmagem da caixa, às 10:00, para Yuri imports 1–6 e o 7 se o grupo já existir | PIX, estoque, senha de baixa, rodada de produto e n8n iguais |

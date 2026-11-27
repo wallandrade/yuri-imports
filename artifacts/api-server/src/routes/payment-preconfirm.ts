@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import crypto from "crypto";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { db, orderPaymentPreconfirmsTable, ordersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import { isSellerStaffRole } from "../lib/seller-staff-access";
@@ -8,6 +8,9 @@ import {
   APPROVAL_ELIGIBLE_STATUSES,
   decidePreconfirm,
   isApprovalEligibleStatus,
+  preconfirmListIncludesProof,
+  preconfirmListProducts,
+  preconfirmListProofFields,
   resolveApprovalClaim,
 } from "../lib/payment-preconfirm-logic";
 import { mysqlAffectedRows } from "../lib/mysql-affected-rows";
@@ -84,16 +87,33 @@ router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req,
   try {
     getAdminScope(req);
     const status = String(req.query.status || "pending_admin");
+    const includeProof = preconfirmListIncludesProof(req.query.includeProof);
     const allowed = status === "all" ? null : (status === "approved" || status === "rejected" ? status : "pending_admin");
+    const columns = {
+      id: orderPaymentPreconfirmsTable.id,
+      orderId: orderPaymentPreconfirmsTable.orderId,
+      status: orderPaymentPreconfirmsTable.status,
+      confirmedBy: orderPaymentPreconfirmsTable.confirmedBy,
+      confirmedAt: orderPaymentPreconfirmsTable.confirmedAt,
+      note: orderPaymentPreconfirmsTable.note,
+      reviewedBy: orderPaymentPreconfirmsTable.reviewedBy,
+      reviewedAt: orderPaymentPreconfirmsTable.reviewedAt,
+      reviewNote: orderPaymentPreconfirmsTable.reviewNote,
+      createdAt: orderPaymentPreconfirmsTable.createdAt,
+      hasProof: sql<number>`(${orderPaymentPreconfirmsTable.proofUrl} IS NOT NULL)`.as("has_proof"),
+      proofUrl: includeProof
+        ? orderPaymentPreconfirmsTable.proofUrl
+        : sql<string | null>`NULL`.as("proof_url"),
+    };
     const rows = allowed
       ? await db
-        .select()
+        .select(columns)
         .from(orderPaymentPreconfirmsTable)
         .where(eq(orderPaymentPreconfirmsTable.status, allowed))
         .orderBy(asc(orderPaymentPreconfirmsTable.createdAt))
         .limit(200)
       : await db
-        .select()
+        .select(columns)
         .from(orderPaymentPreconfirmsTable)
         .orderBy(desc(orderPaymentPreconfirmsTable.createdAt))
         .limit(200);
@@ -107,6 +127,8 @@ router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req,
           clientName: ordersTable.clientName,
           total: ordersTable.total,
           status: ordersTable.status,
+          createdAt: ordersTable.createdAt,
+          products: ordersTable.products,
         })
         .from(ordersTable)
         .where(inArray(ordersTable.id, orderIds))
@@ -116,6 +138,7 @@ router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req,
     res.json({
       items: rows.map((row) => {
         const order = byId.get(row.orderId);
+        const proof = preconfirmListProofFields(includeProof, row.proofUrl, Boolean(Number(row.hasProof)));
         return {
           id: row.id,
           orderId: row.orderId,
@@ -123,8 +146,8 @@ router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req,
           confirmedBy: row.confirmedBy,
           confirmedAt: row.confirmedAt,
           note: row.note,
-          hasProof: Boolean(row.proofUrl),
-          proofUrl: row.proofUrl,
+          hasProof: proof.hasProof,
+          proofUrl: proof.proofUrl,
           reviewedBy: row.reviewedBy,
           reviewedAt: row.reviewedAt,
           reviewNote: row.reviewNote,
@@ -132,6 +155,8 @@ router.get("/admin/orders/payment-preconfirms", requirePrimaryAdmin, async (req,
           clientName: order?.clientName ?? null,
           total: order?.total ?? null,
           orderStatus: order?.status ?? null,
+          orderCreatedAt: order?.createdAt ?? null,
+          products: preconfirmListProducts(order?.products),
         };
       }),
     });

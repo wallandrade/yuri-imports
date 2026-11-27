@@ -145,6 +145,59 @@ export type ReviewPlan = {
   reason: "confirm" | "obsolete" | "rejected";
 };
 
+const PRECONFIRM_CARD_PRODUCTS = 4;
+const PRECONFIRM_CARD_NAME_MAX = 120;
+const PRECONFIRM_CARD_IMAGE_MAX = 400;
+
+export type PreconfirmListProduct = {
+  id: string;
+  name: string;
+  image: string | null;
+};
+
+/** O card do painel pede `includeProof=0`. A aba continua recebendo o comprovante. */
+export function preconfirmListIncludesProof(value: unknown): boolean {
+  return String(value ?? "").trim() !== "0";
+}
+
+/** Sem o comprovante, a resposta não leva o base64. `hasProof` vem do banco. */
+export function preconfirmListProofFields(
+  includeProof: boolean,
+  proofUrl: string | null | undefined,
+  hasProofFlag?: boolean,
+): { hasProof: boolean; proofUrl: string | null } {
+  if (!includeProof) return { hasProof: Boolean(hasProofFlag), proofUrl: null };
+  const url = proofUrl ? String(proofUrl) : null;
+  return { hasProof: Boolean(url), proofUrl: url };
+}
+
+/** Miniaturas do card. Só URL http(s) curta. Base64, data: e texto longo ficam de fora. */
+export function preconfirmListProducts(raw: unknown): PreconfirmListProduct[] {
+  let list: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      list = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  const out: PreconfirmListProduct[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const name = String(row.name || "").trim().slice(0, PRECONFIRM_CARD_NAME_MAX) || "Produto";
+    const id = String(row.id || "").trim().slice(0, 64);
+    const imageRaw = String(row.image || "").trim();
+    const image = /^https?:\/\/\S+$/i.test(imageRaw) && imageRaw.length <= PRECONFIRM_CARD_IMAGE_MAX
+      ? imageRaw
+      : null;
+    out.push({ id, name, image });
+    if (out.length >= PRECONFIRM_CARD_PRODUCTS) break;
+  }
+  return out;
+}
+
 export function planPaymentReview(input: {
   decision: "approve" | "reject";
   orderStatus: string;

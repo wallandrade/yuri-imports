@@ -8,6 +8,8 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | Card do painel não baixa o comprovante | `GET` com `includeProof=0` não seleciona `proof_url` e a resposta leva `proofUrl: null`. A aba Pré-confirmações continua com o arquivo | CORS e a senha de baixa iguais |
+| 2026-11-27 | Miniatura da pré-confirmação não leva base64 | O card recebe só URL http(s) curta. `data:` e texto longo viram foto vazia. O log da listagem continua sem corpo | Comprovante da aba, CORS e a senha de baixa iguais |
 | 2026-11-27 | Log da vendedora sem senha nem token | `admin_audit_log` é só inclusão. Senha, token, cookie, PIX e hash saem como `[REDACTED]`. Sem rota de editar ou apagar | CORS, firewall e a senha de baixa iguais. Nenhum WhatsApp novo na pré-confirmação |
 | 2026-11-26 | CORS aceita `compras-yu.com` | Cadastro e checkout em `https://www.compras-yu.com` e `https://compras-yu.com` entram na allowlist. Os hosts anteriores continuam | `SECURITY_ORIGIN_ENFORCE` e o token do checkout iguais |
 | 2026-11-21 | Log da filmagem não leva telefone nem token | Sucesso e falha do agendamento usam o número do pedido. Telefone, se aparecer numa mensagem de erro, fica só com os 4 finais | O token do atendimento e o da Z-API iguais |
