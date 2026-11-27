@@ -3,6 +3,7 @@ import { db, couponsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 
 const router: IRouter = Router();
 
@@ -216,7 +217,7 @@ router.get("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (_req,
 // ---------------------------------------------------------------------------
 // POST /api/admin/coupons  (primary admin)
 // ---------------------------------------------------------------------------
-router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const { code, discountType, discountValue, minOrderValue, maxUses, eligibleProductIds } =
       req.body as {
@@ -289,7 +290,7 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/coupons/:id  — toggle active or update (primary admin)
 // ---------------------------------------------------------------------------
-router.patch("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
@@ -315,7 +316,7 @@ router.patch("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async 
 // ---------------------------------------------------------------------------
 // DELETE /api/admin/coupons/:id  (primary admin)
 // ---------------------------------------------------------------------------
-router.delete("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];

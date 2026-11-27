@@ -13,6 +13,7 @@ import {
   reshipmentsTable,
 } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { resolveManualInventoryExit } from "../lib/inventory-resolve";
 import { normalizeProductId } from "../lib/inventory-catalog";
 import {
@@ -111,7 +112,7 @@ async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean
   return !!rows[0];
 }
 
-router.get("/admin/inventory/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await repairCompletedPurchaseExpenses();
     const overviewDates = readInventoryOverviewDates(req.query as Record<string, unknown>);
@@ -152,7 +153,7 @@ router.get("/admin/inventory/overview", requirePrimaryAdmin, async (req, res) =>
   }
 });
 
-router.post("/admin/manual-return-items", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/manual-return-items", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const clientName = String(req.body?.clientName ?? "").trim();
     const returningOrder = String(req.body?.returningOrder ?? "").trim();
@@ -185,7 +186,7 @@ router.post("/admin/manual-return-items", requirePrimaryAdmin, async (req, res) 
   }
 });
 
-router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const id = String(req.params.id ?? "").trim();
     const status = String(req.body?.status ?? "").trim().toLowerCase();
@@ -218,7 +219,7 @@ router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, async
   }
 });
 
-router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -332,7 +333,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
   }
 });
 
-router.get("/admin/inventory/motoboy/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/motoboy/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await repairCompletedPurchaseExpenses();
     const inventory = await getMotoboyInventoryOverview(
@@ -348,7 +349,7 @@ router.get("/admin/inventory/motoboy/overview", requirePrimaryAdmin, async (req,
   }
 });
 
-router.post("/admin/inventory/motoboy/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/motoboy/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -399,7 +400,7 @@ router.post("/admin/inventory/motoboy/entries", requirePrimaryAdmin, async (req,
   }
 });
 
-router.get("/admin/inventory/minas/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/minas/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await repairCompletedPurchaseExpenses();
     const inventory = await getMinasInventoryOverview(
@@ -415,7 +416,7 @@ router.get("/admin/inventory/minas/overview", requirePrimaryAdmin, async (req, r
   }
 });
 
-router.post("/admin/inventory/minas/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/minas/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -466,7 +467,7 @@ router.post("/admin/inventory/minas/entries", requirePrimaryAdmin, async (req, r
   }
 });
 
-router.get("/admin/inventory/santa_catarina/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/santa_catarina/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await repairCompletedPurchaseExpenses();
     const inventory = await getSantaCatarinaInventoryOverview(
@@ -482,7 +483,7 @@ router.get("/admin/inventory/santa_catarina/overview", requirePrimaryAdmin, asyn
   }
 });
 
-router.post("/admin/inventory/santa_catarina/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/santa_catarina/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -533,7 +534,7 @@ router.post("/admin/inventory/santa_catarina/entries", requirePrimaryAdmin, asyn
   }
 });
 
-router.post("/admin/inventory/:pool/movements/:id/undo", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/:pool/movements/:id/undo", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const pool = parseInventoryPool(req.params.pool);
     if (!pool) {
@@ -555,7 +556,7 @@ router.post("/admin/inventory/:pool/movements/:id/undo", requirePrimaryAdmin, as
   }
 });
 
-router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const pool = String(req.body?.pool ?? "loja").trim().toLowerCase();
     if (pool !== "loja" && pool !== "motoboy" && pool !== "minas" && pool !== "santa_catarina") {
@@ -611,7 +612,7 @@ router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, async (req, r
   }
 });
 
-router.post("/admin/reshipments/manual", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/reshipments/manual", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const clientName = String(req.body?.clientName ?? "").trim();
     const clientPhone = String(req.body?.clientPhone ?? "").trim();

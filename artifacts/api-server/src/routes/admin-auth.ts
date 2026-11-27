@@ -1,9 +1,12 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
-import { db, adminUsersTable, adminSessionsTable } from "@workspace/db";
+import { db, adminUsersTable, adminSessionsTable, adminUserRolesTable } from "@workspace/db";
 import { lt, eq } from "drizzle-orm";
 import { adminPasswordMatches, createAdminPasswordHash, generateAdminSalt } from "../lib/admin-password";
 import { adminQueryTokenAllowed, selectAdminSessionToken } from "../lib/admin-session-token";
+import { forbidSellerStaff, isSellerStaffRole, normalizeAdminApiPath, sellerStaffMayAccess } from "../lib/seller-staff-access";
+import { isMissingSchemaError, readAdminAccess } from "../lib/admin-user-access";
+import { writeAdminAuditFromRequest } from "../lib/admin-audit";
 
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -31,6 +34,7 @@ export type AdminScope = {
   isPrimary: boolean;
   hasGlobalAccess: boolean;
   sellerCode: string | null;
+  role: "admin" | "vendedora";
 };
 
 let adminSellerScopeMapCache: Record<string, string> | null = null;
@@ -138,6 +142,7 @@ export function resolveAdminScopeFromSession(session: AdminSessionRecord): Admin
       isPrimary,
       hasGlobalAccess: true,
       sellerCode: null,
+      role: "admin",
     };
   }
 
@@ -147,6 +152,7 @@ export function resolveAdminScopeFromSession(session: AdminSessionRecord): Admin
     isPrimary,
     hasGlobalAccess: false,
     sellerCode,
+    role: "admin",
   };
 }
 
@@ -158,7 +164,23 @@ export function getAdminScope(req: Request): AdminScope | null {
     isPrimary: !!session.isPrimary,
     hasGlobalAccess: !!session.hasGlobalAccess,
     sellerCode: normalizeSellerCode(session.sellerCode),
+    role: isSellerStaffRole(session.role) ? "vendedora" : "admin",
   };
+}
+
+async function loadUserAccess(username: string) {
+  const normalized = String(username || "").trim().toLowerCase();
+  if (!normalized) return null;
+  let user: typeof adminUsersTable.$inferSelect | undefined = (
+    await db.select().from(adminUsersTable).where(eq(adminUsersTable.username, normalized)).limit(1)
+  )[0];
+  if (!user) {
+    const allUsers = await db.select().from(adminUsersTable);
+    user = allUsers.find((row) => row.username.toLowerCase() === normalized);
+  }
+  if (!user) return null;
+  const access = await readAdminAccess(user.id);
+  return { user, access };
 }
 
 export async function verifyCurrentAdminPassword(req: Request, password: string): Promise<boolean> {
@@ -258,6 +280,46 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
       return;
     }
+    const loaded = await loadUserAccess(sessionRows[0].username);
+    if (!loaded) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
+      return;
+    }
+    if (!loaded.access.active) {
+      await db.delete(adminSessionsTable).where(eq(adminSessionsTable.token, token));
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Conta desativada." });
+      return;
+    }
+
+    if (isSellerStaffRole(loaded.access.role)) {
+      const path = normalizeAdminApiPath(req.originalUrl || req.path);
+      if (!sellerStaffMayAccess(req.method, path)) {
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          void writeAdminAuditFromRequest(req, {
+            actorUsername: loaded.user.username,
+            actorRole: "vendedora",
+            action: "denied",
+            entityType: "route",
+            entityId: `${req.method} ${path}`.slice(0, 255),
+            before: null,
+            after: { allowed: false },
+          });
+        }
+        res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para esta ação." });
+        return;
+      }
+      (req as any).adminSession = {
+        ...sessionRows[0],
+        username: loaded.user.username,
+        isPrimary: false,
+        hasGlobalAccess: true,
+        sellerCode: null,
+        role: "vendedora",
+      };
+      next();
+      return;
+    }
+
     const scope = resolveAdminScopeFromSession(sessionRows[0]);
 
     if (!scope.hasGlobalAccess && !scope.sellerCode) {
@@ -269,7 +331,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
     }
 
     // Anexa info da sessão para downstream
-    (req as any).adminSession = { ...sessionRows[0], ...scope };
+    (req as any).adminSession = { ...sessionRows[0], ...scope, role: "admin" };
     if (ADMIN_AUTH_VERBOSE_LOGS) {
       console.log('[requireAdminAuth] Sessão OK', {
         username: scope.username,
@@ -299,8 +361,13 @@ export async function requirePrimaryAdmin(req: Request, res: Response, next: Nex
     res.status(403).json({ error: "FORBIDDEN", message: "Apenas o administrador principal pode realizar esta ação." });
     return;
   }
+  const loaded = await loadUserAccess(sessionRows[0].username);
+  if (loaded && (!loaded.access.active || isSellerStaffRole(loaded.access.role))) {
+    res.status(403).json({ error: "FORBIDDEN", message: "Apenas o administrador principal pode realizar esta ação." });
+    return;
+  }
   const scope = resolveAdminScopeFromSession(sessionRows[0]);
-  (req as any).adminSession = { ...sessionRows[0], ...scope };
+  (req as any).adminSession = { ...sessionRows[0], ...scope, role: "admin" };
   next();
 }
 
@@ -349,13 +416,21 @@ router.post("/admin/login", async (req, res) => {
       return;
     }
 
+    const access = await readAdminAccess(user.id);
+    if (!access.active) {
+      res.status(401).json({ error: "ACCOUNT_DISABLED", message: "Conta desativada. Fale com o administrador." });
+      return;
+    }
+    const role = access.role;
+    const isPrimary = role === "vendedora" ? false : Boolean(user.isPrimary);
+
     await purgeExpiredSessions();
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
     await db.insert(adminSessionsTable).values({
       token,
       username: user.username,
-      isPrimary: user.isPrimary ? 1 : 0,
+      isPrimary: isPrimary ? 1 : 0,
       expiresAt,
       createdAt: new Date(),
     });
@@ -366,8 +441,21 @@ router.post("/admin/login", async (req, res) => {
       path: "/api",
       maxAge: TOKEN_TTL_MS,
     });
-    const sellerCode = resolveAdminScopeFromSession({ username: user.username, isPrimary: user.isPrimary }).sellerCode;
-    res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username, sellerCode });
+    const sellerCode = role === "vendedora"
+      ? null
+      : resolveAdminScopeFromSession({ username: user.username, isPrimary }).sellerCode;
+    if (role === "vendedora") {
+      void writeAdminAuditFromRequest(req, {
+        actorUsername: user.username,
+        actorRole: "vendedora",
+        action: "login",
+        entityType: "admin_user",
+        entityId: user.id,
+        before: null,
+        after: { username: user.username, role },
+      });
+    }
+    res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary, username: user.username, sellerCode, role });
   } catch (err) {
     console.error("[AdminAuth] login error:", err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao autenticar.", details: String(err) });
@@ -380,6 +468,21 @@ router.post("/admin/login", async (req, res) => {
 router.post("/admin/logout", async (req, res) => {
   const token = getTokenFromRequest(req);
   if (token) {
+    const sessionRows = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
+    if (sessionRows[0]) {
+      const loaded = await loadUserAccess(sessionRows[0].username);
+      if (loaded && isSellerStaffRole(loaded.access.role)) {
+        void writeAdminAuditFromRequest(req, {
+          actorUsername: loaded.user.username,
+          actorRole: "vendedora",
+          action: "logout",
+          entityType: "admin_user",
+          entityId: loaded.user.id,
+          before: null,
+          after: { username: loaded.user.username },
+        });
+      }
+    }
     await db.delete(adminSessionsTable).where(eq(adminSessionsTable.token, token));
   }
   res.clearCookie(ADMIN_SESSION_COOKIE_NAME, {
@@ -402,7 +505,12 @@ router.get("/admin/verify", requireAdminAuth, async (req, res) => {
       sellerCode: (req as any).adminSession?.sellerCode ?? null,
     });
     const session = (req as any).adminSession;
-    res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "" });
+    res.json({
+      ok: true,
+      isPrimary: !!session?.isPrimary,
+      username: session?.username ?? "",
+      role: session?.role === "vendedora" ? "vendedora" : "admin",
+    });
     console.log('[admin/verify] SUCESSO', { username: session?.username });
   } catch (err) {
     console.error('[admin/verify] Erro:', err);
@@ -420,7 +528,28 @@ router.get("/admin/users", requirePrimaryAdmin, async (_req, res) => {
       .from(adminUsersTable)
       .orderBy(adminUsersTable.createdAt);
 
-    res.json({ users });
+    let roleRows: Array<{ userId: string; role: string; active: boolean | number | null }> = [];
+    try {
+      roleRows = await db
+        .select({
+          userId: adminUserRolesTable.userId,
+          role: adminUserRolesTable.role,
+          active: adminUserRolesTable.active,
+        })
+        .from(adminUserRolesTable);
+    } catch (err) {
+      if (!isMissingSchemaError(err)) throw err;
+    }
+    const byUser = new Map(roleRows.map((row) => [row.userId, row]));
+
+    res.json({
+      users: users.map((user) => {
+        const extra = byUser.get(user.id);
+        const role = extra && isSellerStaffRole(extra.role) ? "vendedora" : "admin";
+        const active = extra ? extra.active !== false && extra.active !== 0 : true;
+        return { ...user, role, active };
+      }),
+    });
   } catch (err) {
     console.error("[AdminAuth] list users error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar usuários." });
@@ -431,9 +560,10 @@ router.get("/admin/users", requirePrimaryAdmin, async (_req, res) => {
 // POST /api/admin/users  — create a new user (primary admin only)
 // --------------------------------------------------------------------------
 router.post("/admin/users", requirePrimaryAdmin, async (req, res) => {
-  const { username, password, fullAccess } = req.body as {
-    username?: string; password?: string; fullAccess?: boolean;
+  const { username, password, fullAccess, role } = req.body as {
+    username?: string; password?: string; fullAccess?: boolean; role?: string;
   };
+  const asSellerStaff = isSellerStaffRole(role);
 
   if (!username || !password) {
     res.status(400).json({ error: "INVALID_INPUT", message: "Usuário e senha são obrigatórios." });
@@ -448,17 +578,55 @@ router.post("/admin/users", requirePrimaryAdmin, async (req, res) => {
   try {
     const salt = generateAdminSalt();
     const id   = crypto.randomBytes(8).toString("hex");
-    const grantPrimary = fullAccess === true;
+    const grantPrimary = !asSellerStaff && fullAccess === true;
+    const savedUsername = username.trim().toLowerCase();
 
     await db.insert(adminUsersTable).values({
       id,
-      username:     username.trim().toLowerCase(),
+      username:     savedUsername,
       passwordHash: createAdminPasswordHash(password, salt),
       salt,
       isPrimary:    grantPrimary,
+      createdBy:    String((req as { adminSession?: { username?: string } }).adminSession?.username || "") || null,
     });
 
-    res.status(201).json({ id, username: username.trim().toLowerCase(), isPrimary: grantPrimary });
+    if (asSellerStaff) {
+      try {
+        await db.insert(adminUserRolesTable).values({
+          userId: id,
+          role: "vendedora",
+          active: true,
+          updatedAt: new Date(),
+        });
+      } catch (err) {
+        await db.delete(adminUsersTable).where(eq(adminUsersTable.id, id));
+        if (isMissingSchemaError(err)) {
+          res.status(503).json({
+            error: "MIGRATION_REQUIRED",
+            message: "Aplique a migration da vendedora antes de criar esse acesso.",
+          });
+          return;
+        }
+        throw err;
+      }
+      await writeAdminAuditFromRequest(req, {
+        actorUsername: String((req as { adminSession?: { username?: string } }).adminSession?.username || "admin"),
+        actorRole: "admin",
+        action: "seller_staff_create",
+        entityType: "admin_user",
+        entityId: id,
+        before: null,
+        after: { username: savedUsername, role: "vendedora", active: true },
+      });
+    }
+
+    res.status(201).json({
+      id,
+      username: savedUsername,
+      isPrimary: grantPrimary,
+      role: asSellerStaff ? "vendedora" : "admin",
+      active: true,
+    });
   } catch (err: unknown) {
     const msg = String(err);
     if (msg.includes("unique") || msg.includes("duplicate")) {
@@ -496,6 +664,12 @@ router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) =>
       return;
     }
 
+    const access = await readAdminAccess(existing[0].id);
+    if (isSellerStaffRole(access.role) && fullAccess) {
+      res.status(400).json({ error: "INVALID_OP", message: "A vendedora não recebe acesso total." });
+      return;
+    }
+
     // Prevent removing the last primary admin
     if (!fullAccess && existing[0].isPrimary) {
       const primaryCount = await db
@@ -523,7 +697,7 @@ router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) =>
 // --------------------------------------------------------------------------
 // PATCH /api/admin/users/:id/password  — change own password (primary admin) or any user (super)
 // --------------------------------------------------------------------------
-router.patch("/admin/users/:id/password", requireAdminAuth, async (req, res) => {
+router.patch("/admin/users/:id/password", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   const { id }       = req.params;
   const userId = Array.isArray(id) ? id[0] : id;
   const { password } = req.body as { password?: string };
@@ -566,10 +740,76 @@ router.patch("/admin/users/:id/password", requireAdminAuth, async (req, res) => 
       .set({ passwordHash: createAdminPasswordHash(password, salt), salt })
       .where(eq(adminUsersTable.id, userId));
 
+    const access = await readAdminAccess(existing[0].id);
+    if (isSellerStaffRole(access.role)) {
+      await db.delete(adminSessionsTable).where(eq(adminSessionsTable.username, existing[0].username));
+      await writeAdminAuditFromRequest(req, {
+        actorUsername: actorUsername,
+        actorRole: "admin",
+        action: "seller_staff_password",
+        entityType: "admin_user",
+        entityId: userId,
+        before: null,
+        after: { passwordChanged: true },
+      });
+    }
+
     res.json({ ok: true });
   } catch (err) {
     console.error("[AdminAuth] change password error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao alterar senha." });
+  }
+});
+
+// --------------------------------------------------------------------------
+// PATCH /api/admin/users/:id/active  — desativa a vendedora (primary admin only)
+// --------------------------------------------------------------------------
+router.patch("/admin/users/:id/active", requirePrimaryAdmin, async (req, res) => {
+  const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const { active } = req.body as { active?: boolean };
+  if (typeof active !== "boolean") {
+    res.status(400).json({ error: "INVALID_INPUT", message: "active (boolean) é obrigatório." });
+    return;
+  }
+
+  try {
+    const existing = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, userId)).limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Usuário não encontrado." });
+      return;
+    }
+    const access = await readAdminAccess(existing[0].id);
+    if (!access.schemaReady) {
+      res.status(503).json({
+        error: "MIGRATION_REQUIRED",
+        message: "Aplique a migration da vendedora antes de desativar.",
+      });
+      return;
+    }
+    if (!isSellerStaffRole(access.role)) {
+      res.status(400).json({ error: "INVALID_OP", message: "Desativar por aqui vale para a vendedora." });
+      return;
+    }
+
+    await db.update(adminUserRolesTable)
+      .set({ active, updatedAt: new Date() })
+      .where(eq(adminUserRolesTable.userId, userId));
+    if (!active) {
+      await db.delete(adminSessionsTable).where(eq(adminSessionsTable.username, existing[0].username));
+    }
+    await writeAdminAuditFromRequest(req, {
+      actorUsername: String((req as { adminSession?: { username?: string } }).adminSession?.username || "admin"),
+      actorRole: "admin",
+      action: active ? "seller_staff_activate" : "seller_staff_deactivate",
+      entityType: "admin_user",
+      entityId: userId,
+      before: { active: access.active, username: existing[0].username },
+      after: { active, username: existing[0].username },
+    });
+    res.json({ ok: true, id: userId, active });
+  } catch (err) {
+    console.error("[AdminAuth] active error");
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao alterar a conta." });
   }
 });
 
@@ -597,6 +837,12 @@ router.delete("/admin/users/:id", requirePrimaryAdmin, async (req, res) => {
       return;
     }
 
+    try {
+      await db.delete(adminUserRolesTable).where(eq(adminUserRolesTable.userId, userId));
+    } catch (err) {
+      if (!isMissingSchemaError(err)) throw err;
+    }
+    await db.delete(adminSessionsTable).where(eq(adminSessionsTable.username, existing[0].username));
     await db.delete(adminUsersTable).where(eq(adminUsersTable.id, userId));
     res.json({ ok: true });
   } catch (err) {

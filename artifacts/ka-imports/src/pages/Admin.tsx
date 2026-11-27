@@ -958,6 +958,7 @@ import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import type { AdminOrder, AdminProduct, AdminUser, Coupon, CustomCharge, KycDocument, KycListItem } from "@/lib/admin-page-types";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { AdminGroupedNav } from "@/components/admin/AdminGroupedNav";
+import { AdminAuditLogPanel, AdminPreconfirmPanel } from "@/components/admin/AdminSellerStaffPanels";
 import { navItemByTab, pathForTab, PRIMARY_ONLY_TABS, resolveAdminPath, type TabType } from "@/pages/admin/adminNav";
 import AdminEnvioEcomTrackingPanel from "@/pages/AdminEnvioEcomTrackingPanel";
 import LossBlacklistBoard from "@/components/admin/LossBlacklistBoard";
@@ -1919,6 +1920,10 @@ export default function Admin() {
   const [chargesReady, setChargesReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [isPrimary, setIsPrimary] = useState(getIsPrimary);
+  const [adminRole, setAdminRole] = useState<"admin" | "vendedora">(
+    localStorage.getItem("adminRole") === "vendedora" ? "vendedora" : "admin",
+  );
+  const sellerStaff = adminRole === "vendedora";
   const [currentUsername, setCurrentUsername] = useState(getAdminUsername);
   const [seedSearch, setSeedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1991,6 +1996,8 @@ export default function Admin() {
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newFullAccess, setNewFullAccess] = useState(false);
+  const [newUserRole, setNewUserRole] = useState<"admin" | "vendedora">("admin");
+  const [userActiveUpdating, setUserActiveUpdating] = useState<string | null>(null);
   const [showNewPw, setShowNewPw] = useState(false);
   const [userCreating, setUserCreating] = useState(false);
   const [userDeleting, setUserDeleting] = useState<string | null>(null);
@@ -2158,6 +2165,7 @@ export default function Admin() {
     sessionStorage.removeItem("adminToken");
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
+    localStorage.removeItem("adminRole");
     localStorage.removeItem("adminUsername");
     setLocation("/admin/login");
   }, [setLocation]);
@@ -3629,11 +3637,15 @@ export default function Admin() {
           handleUnauthorized();
           return;
         }
-        const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string };
-        console.log('[DEBUG] Dados recebidos do backend:', data);
-        setIsPrimary(data.isPrimary);
+        const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string; role?: string };
+        console.log('[DEBUG] Dados recebidos do backend:', { ok: data.ok, isPrimary: data.isPrimary, username: data.username, role: data.role });
+        const role = data.role === "vendedora" ? "vendedora" : "admin";
+        const primary = role === "vendedora" ? false : Boolean(data.isPrimary);
+        setAdminRole(role);
+        setIsPrimary(primary);
         setCurrentUsername(data.username || "");
-        localStorage.setItem("adminIsPrimary", String(data.isPrimary));
+        localStorage.setItem("adminRole", role);
+        localStorage.setItem("adminIsPrimary", String(primary));
         localStorage.setItem("adminUsername", data.username || "");
         setAuthChecked(true);
         fetchOrders();
@@ -3708,10 +3720,14 @@ export default function Admin() {
   }, [adminRoute.redirect, location, setLocation]);
 
   useEffect(() => {
+    if (sellerStaff) {
+      if (tab !== "inicio" && tab !== "orders") setTab("orders");
+      return;
+    }
     if (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab, setTab]);
+  }, [isPrimary, sellerStaff, tab, setTab]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -3721,6 +3737,7 @@ export default function Admin() {
     sessionStorage.removeItem("adminToken");
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
+    localStorage.removeItem("adminRole");
     localStorage.removeItem("adminUsername");
     if (sseReconnectTimerRef.current !== null) {
       window.clearTimeout(sseReconnectTimerRef.current);
@@ -4389,12 +4406,17 @@ export default function Admin() {
     try {
       const res = await fetch(`${BASE}/api/admin/users`, {
         method: "POST", headers: authHeaders(),
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword, fullAccess: newFullAccess }),
+        body: JSON.stringify({
+          username: newUsername.trim(),
+          password: newPassword,
+          fullAccess: newUserRole === "vendedora" ? false : newFullAccess,
+          role: newUserRole,
+        }),
       });
       const data = await res.json() as { username?: string; message?: string };
       if (!res.ok) { toast.error(data.message || "Erro ao criar usuário."); return; }
       toast.success(`Usuário "${data.username}" criado!`);
-      setNewUsername(""); setNewPassword(""); setNewFullAccess(false);
+      setNewUsername(""); setNewPassword(""); setNewFullAccess(false); setNewUserRole("admin");
       fetchUsers();
     } catch { toast.error("Erro ao criar usuário."); }
     finally { setUserCreating(false); }
@@ -4424,6 +4446,25 @@ export default function Admin() {
       setAdminUsers((prev) => prev.filter((u) => u.id !== id));
     } catch { toast.error("Erro ao remover usuário."); }
     finally { setUserDeleting(null); }
+  };
+
+  const setUserActive = async (id: string, username: string, active: boolean) => {
+    setUserActiveUpdating(id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/users/${id}/active`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ active }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string };
+      if (!res.ok) { toast.error(data.message || "Erro ao alterar a conta."); return; }
+      toast.success(active ? `Conta de "${username}" reativada.` : `Conta de "${username}" desativada.`);
+      fetchUsers();
+    } catch {
+      toast.error("Erro ao alterar a conta.");
+    } finally {
+      setUserActiveUpdating(null);
+    }
   };
 
   const changeUserPassword = async (id: string, username: string, password: string): Promise<boolean> => {
@@ -5729,12 +5770,17 @@ export default function Admin() {
         <AdminGroupedNav
           active={tab}
           isPrimary={isPrimary}
+          sellerStaff={sellerStaff}
           counts={navCounts}
           onSelect={setTab}
         />
         <div className="min-w-0 flex-1">
 
-        {tab === "fornecedores" ? (
+        {tab === "preconfirms" && isPrimary ? (
+          <AdminPreconfirmPanel headers={authHeaders} onUnauthorized={handleUnauthorized} />
+        ) : tab === "auditLog" && isPrimary ? (
+          <AdminAuditLogPanel headers={authHeaders} onUnauthorized={handleUnauthorized} />
+        ) : tab === "fornecedores" ? (
           <SupplierPriceBoard headers={authHeaders()} />
         ) : tab === "dre" ? (
           <AdminDrePanel
@@ -5846,6 +5892,7 @@ export default function Admin() {
             onOpenCardPaidModal={(id) => { setCardPaidModal(id); setCardPaidForm({ installments: "", installmentValue: "", totalValue: "" }); }}
             updateOrderObservation={updateOrderObservation}
             isPrimary={isPrimary}
+            sellerStaff={sellerStaff}
             sellers={sellers}
             onEditOrder={openEditOrder}
             onOpenKycModal={openKycModal}
@@ -6809,16 +6856,20 @@ export default function Admin() {
             setNewPassword={setNewPassword}
             newFullAccess={newFullAccess}
             setNewFullAccess={setNewFullAccess}
+            newUserRole={newUserRole}
+            setNewUserRole={setNewUserRole}
             showNewPw={showNewPw}
             setShowNewPw={setShowNewPw}
             userCreating={userCreating}
             userDeleting={userDeleting}
             userAccessUpdating={userAccessUpdating}
             userPasswordUpdating={userPasswordUpdating}
+            userActiveUpdating={userActiveUpdating}
             createUser={createUser}
             deleteUser={deleteUser}
             toggleUserAccess={toggleUserAccess}
             changeUserPassword={changeUserPassword}
+            setUserActive={setUserActive}
           />
         ) : tab === "products" ? (
           <ProductsPanel
@@ -11445,7 +11496,7 @@ function OrdersPanel({
   gatewayFeeMin,
   orders, statusUpdating, storeCreditApplying, applyCustomerStoreCredit, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
-  onOpenCardPaidModal, updateOrderObservation, isPrimary, sellers, onEditOrder, onOpenKycModal,
+  onOpenCardPaidModal, updateOrderObservation, isPrimary, sellerStaff = false, sellers, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups,   onSetReshipmentStatus, onRemoveOrder,
   shippingQueueMap, onRefreshInventory, onRefreshOrders,
   emptyMessage,
@@ -11482,6 +11533,7 @@ function OrdersPanel({
   onOpenCardPaidModal: (id: string) => void;
   updateOrderObservation: (id: string, observation: string, visibleToCustomer?: boolean) => void;
   isPrimary: boolean;
+  sellerStaff?: boolean;
   sellers: SavedSellerItem[];
   onEditOrder: (order: AdminOrder) => void;
   onOpenKycModal: (orderId: string) => void;
@@ -11509,6 +11561,11 @@ function OrdersPanel({
   const [inventoryPoolSaving, setInventoryPoolSaving] = useState<Record<string, boolean>>({});
   const [inventoryExitPasswordDraft, setInventoryExitPasswordDraft] = useState<Record<string, string>>({});
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
+  const [preconfirmOrderId, setPreconfirmOrderId] = useState<string | null>(null);
+  const [preconfirmNote, setPreconfirmNote] = useState("");
+  const [preconfirmProof, setPreconfirmProof] = useState("");
+  const [preconfirmSaving, setPreconfirmSaving] = useState(false);
+  const [preconfirmedIds, setPreconfirmedIds] = useState<Record<string, boolean>>({});
   const [trackingUploading, setTrackingUploading] = useState<Record<string, boolean>>({});
   const [envioecomBusy, setEnvioecomBusy] = useState<Record<string, boolean>>({});
   const envioecomCreateLock = useRef(new Set<string>());
@@ -14356,14 +14413,88 @@ function OrdersPanel({
                 <div className="flex flex-col gap-2">
                   {(!isCancelledCard || hasProofs || !isPaidOrCompleted) && (
                   <div className="flex gap-2 flex-wrap items-center">
-                  {!isPaidOrCompleted && (
+                  {sellerStaff && !isPaidOrCompleted && (
+                    preconfirmOrderId === order.id ? (
+                      <div className="w-full rounded-lg border border-emerald-200 bg-white p-3 space-y-2">
+                        <p className="text-xs text-emerald-800">Pré-confirmação. O admin principal ainda precisa aprovar. Nada é marcado como pago agora.</p>
+                        <textarea
+                          value={preconfirmNote}
+                          onChange={(event) => setPreconfirmNote(event.target.value)}
+                          placeholder="Observação (opcional)"
+                          className="w-full min-h-16 rounded-lg border border-border px-2 py-1 text-sm"
+                        />
+                        <input
+                          type="file"
+                          accept="image/*,.pdf"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 1_400_000) {
+                              toast.error("Comprovante grande demais.");
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => setPreconfirmProof(String(reader.result || ""));
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={preconfirmSaving}
+                            onClick={() => {
+                              void (async () => {
+                                setPreconfirmSaving(true);
+                                try {
+                                  const res = await fetch(`${BASE}/api/admin/orders/${order.id}/payment-preconfirm`, {
+                                    method: "POST",
+                                    headers: authHeaders(),
+                                    body: JSON.stringify({ note: preconfirmNote, proofUrl: preconfirmProof || undefined }),
+                                  });
+                                  const data = await res.json().catch(() => ({})) as { message?: string };
+                                  if (!res.ok) { toast.error(data.message || "Não foi possível pré-confirmar."); return; }
+                                  toast.success("Pré-confirmação enviada. Aguardando o admin.");
+                                  setPreconfirmedIds((prev) => ({ ...prev, [order.id]: true }));
+                                  setPreconfirmOrderId(null);
+                                  setPreconfirmNote("");
+                                  setPreconfirmProof("");
+                                } catch {
+                                  toast.error("Não foi possível pré-confirmar.");
+                                } finally {
+                                  setPreconfirmSaving(false);
+                                }
+                              })();
+                            }}
+                          >
+                            {preconfirmSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                            Enviar pré-confirmação
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setPreconfirmOrderId(null)}>Cancelar</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50"
+                        disabled={Boolean(preconfirmedIds[order.id])}
+                        onClick={() => { setPreconfirmOrderId(order.id); setPreconfirmNote(""); setPreconfirmProof(""); }}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        {preconfirmedIds[order.id] ? "Pré-confirmação enviada" : "Pré-confirmar pagamento"}
+                      </Button>
+                    )
+                  )}
+                  {!sellerStaff && !isPaidOrCompleted && (
                   <Button type="button" size="sm" variant="outline" className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50"
                     disabled={statusUpdating === order.id}
                     onClick={() => isCard ? onOpenCardPaidModal(order.id) : updateOrderStatus(order.id, "paid")}>
                     <CheckCircle className="w-3.5 h-3.5" />Marcar Pago
                   </Button>
                   )}
-                  {!isCancelledCard && canApplyStoreCredit && (
+                  {!sellerStaff && !isCancelledCard && canApplyStoreCredit && (
                     <Button
                       type="button"
                       size="sm"
@@ -14378,7 +14509,7 @@ function OrdersPanel({
                       Abater saldo do cliente
                     </Button>
                   )}
-                  {!isCancelledCard && (
+                  {!sellerStaff && !isCancelledCard && (
                   <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
                     type="button"
                     disabled={statusUpdating === order.id}
@@ -14707,7 +14838,7 @@ function OrdersPanel({
                           }}
                         />
                       )}
-                      {!isCancelledCard && pkg.id && !pkg.inventoryReserved && (
+                      {!sellerStaff && !isCancelledCard && pkg.id && !pkg.inventoryReserved && (
                         <>
                           {inventoryPoolNeedsExitPassword(pkg.inventoryPool) && (
                             <input
@@ -14876,7 +15007,7 @@ function OrdersPanel({
                         </button>
                       );
                     })}
-                    {!inventoryReservedByOrder[order.id] && (
+                    {!sellerStaff && !inventoryReservedByOrder[order.id] && (
                       <>
                         {inventoryPoolNeedsExitPassword(selectedInventoryPool) ? (
                           <input
@@ -18069,18 +18200,20 @@ function RecurringCustomersPanel({
 
 function UsersPanel({
   users, newUsername, setNewUsername, newPassword, setNewPassword,
-  newFullAccess, setNewFullAccess, showNewPw, setShowNewPw,
-  userCreating, userDeleting, userAccessUpdating, userPasswordUpdating,
-  createUser, deleteUser, toggleUserAccess, changeUserPassword,
+  newFullAccess, setNewFullAccess, newUserRole, setNewUserRole, showNewPw, setShowNewPw,
+  userCreating, userDeleting, userAccessUpdating, userPasswordUpdating, userActiveUpdating,
+  createUser, deleteUser, toggleUserAccess, changeUserPassword, setUserActive,
 }: {
   users: AdminUser[]; newUsername: string; setNewUsername: (v: string) => void;
   newPassword: string; setNewPassword: (v: string) => void;
   newFullAccess: boolean; setNewFullAccess: (v: boolean) => void;
+  newUserRole: "admin" | "vendedora"; setNewUserRole: (v: "admin" | "vendedora") => void;
   showNewPw: boolean; setShowNewPw: (v: boolean) => void;
-  userCreating: boolean; userDeleting: string | null; userAccessUpdating: string | null; userPasswordUpdating: string | null;
+  userCreating: boolean; userDeleting: string | null; userAccessUpdating: string | null; userPasswordUpdating: string | null; userActiveUpdating: string | null;
   createUser: () => void; deleteUser: (id: string, username: string) => void;
   toggleUserAccess: (id: string, username: string, fullAccess: boolean) => void;
   changeUserPassword: (id: string, username: string, password: string) => Promise<boolean>;
+  setUserActive: (id: string, username: string, active: boolean) => void;
 }) {
   const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [passwordDraft, setPasswordDraft] = useState("");
@@ -18130,9 +18263,26 @@ function UsersPanel({
             </button>
           </div>
 
+          <label className="block text-sm">
+            <span className="text-xs font-semibold text-muted-foreground">Papel</span>
+            <select
+              value={newUserRole}
+              onChange={(event) => {
+                const role = event.target.value === "vendedora" ? "vendedora" : "admin";
+                setNewUserRole(role);
+                if (role === "vendedora") setNewFullAccess(false);
+              }}
+              className="mt-1 w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+            >
+              <option value="admin">Admin</option>
+              <option value="vendedora">Vendedora (pré-confirma pagamento, vê vendas e lucro)</option>
+            </select>
+          </label>
+
           {/* Full access toggle */}
           <button
             type="button"
+            disabled={newUserRole === "vendedora"}
             onClick={() => setNewFullAccess(!newFullAccess)}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors text-left ${
               newFullAccess
@@ -18177,11 +18327,13 @@ function UsersPanel({
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="font-bold capitalize">{u.username}</p>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${
-                  u.isPrimary
+                  u.role === "vendedora"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : u.isPrimary
                     ? "bg-primary/10 text-primary border-primary/20"
                     : "bg-muted text-muted-foreground border-border"
                 }`}>
-                  {u.isPrimary ? "Acesso Total" : "Limitado"}
+                  {u.role === "vendedora" ? (u.active === false ? "Vendedora desativada" : "Vendedora") : u.isPrimary ? "Acesso Total" : "Limitado"}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
@@ -18190,7 +18342,7 @@ function UsersPanel({
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {/* Toggle access level */}
-              <button
+              {u.role !== "vendedora" && <button
                 type="button"
                 title={u.isPrimary ? "Remover acesso total" : "Conceder acesso total"}
                 disabled={userAccessUpdating === u.id}
@@ -18202,7 +18354,7 @@ function UsersPanel({
                   : u.isPrimary
                     ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" />
                     : <ToggleLeft className="w-6 h-6" />}
-              </button>
+              </button>}
               <Button
                 size="sm"
                 variant="outline"
@@ -18214,8 +18366,18 @@ function UsersPanel({
                 Alterar senha
               </Button>
               {/* Delete */}
+              {u.role === "vendedora" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={userActiveUpdating === u.id}
+                  onClick={() => setUserActive(u.id, u.username, u.active === false)}
+                >
+                  {userActiveUpdating === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : (u.active === false ? "Reativar" : "Desativar")}
+                </Button>
+              )}
               <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 shrink-0"
-                disabled={userDeleting === u.id}
+                disabled={userDeleting === u.id || u.role === "vendedora"}
                 onClick={() => deleteUser(u.id, u.username)}>
                 {userDeleting === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
               </Button>

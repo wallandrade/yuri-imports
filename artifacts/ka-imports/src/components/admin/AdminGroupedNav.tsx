@@ -9,10 +9,16 @@ import {
 
 type VisibleGroup = AdminNavGroup & { items: AdminNavItem[] };
 
-function visibleGroups(isPrimary: boolean): VisibleGroup[] {
+const SELLER_STAFF_TABS = new Set<TabType>(["inicio", "orders"]);
+
+function visibleGroups(isPrimary: boolean, sellerStaff: boolean): VisibleGroup[] {
   return ADMIN_NAV.map((group) => ({
     ...group,
-    items: group.items.filter((item) => !item.hidden && (isPrimary || !item.primaryOnly)),
+    items: group.items.filter((item) => {
+      if (item.hidden) return false;
+      if (sellerStaff) return SELLER_STAFF_TABS.has(item.tab);
+      return isPrimary || !item.primaryOnly;
+    }),
   })).filter((group) => group.items.length > 0);
 }
 
@@ -20,15 +26,17 @@ function visibleGroups(isPrimary: boolean): VisibleGroup[] {
 export function AdminGroupedNav({
   active,
   isPrimary,
+  sellerStaff = false,
   counts,
   onSelect,
 }: {
   active: TabType;
   isPrimary: boolean;
+  sellerStaff?: boolean;
   counts?: Partial<Record<TabType, number>>;
   onSelect: (tab: TabType) => void;
 }) {
-  const groups = visibleGroups(isPrimary);
+  const groups = visibleGroups(isPrimary, sellerStaff);
   const currentGroup =
     groups.find((group) => group.items.some((item) => isNavItemActive(item, active))) ?? groups[0];
 

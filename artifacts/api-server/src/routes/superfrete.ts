@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, gt, isNotNull, or, sql } from "drizzle-orm";
 import { db, orderShipmentsTable, ordersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { broadcastNotification } from "./notifications";
 import { recordAdminActivity } from "../lib/order-activity";
 import { withDeliveryCorrection } from "../lib/delivery-correction";
@@ -357,7 +358,7 @@ async function refreshLive(auth: SuperfreteAuth, superfreteOrderId: string): Pro
   return { info, labelUrl };
 }
 
-router.get("/admin/superfrete/accounts", requireAdminAuth, async (_req, res) => {
+router.get("/admin/superfrete/accounts", requireAdminAuth, forbidSellerStaff, async (_req, res) => {
   try {
     res.json({ accounts: await listSuperfreteAccountsPublic() });
   } catch (err) {
@@ -365,7 +366,7 @@ router.get("/admin/superfrete/accounts", requireAdminAuth, async (_req, res) => 
   }
 });
 
-router.post("/admin/superfrete/accounts", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/superfrete/accounts", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const account = await createSuperfreteAccount({
       name: req.body?.name,
@@ -380,7 +381,7 @@ router.post("/admin/superfrete/accounts", requirePrimaryAdmin, async (req, res) 
   }
 });
 
-router.put("/admin/superfrete/accounts/:id", requirePrimaryAdmin, async (req, res) => {
+router.put("/admin/superfrete/accounts/:id", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const account = await updateSuperfreteAccount(String(req.params.id || ""), {
       name: req.body?.name,
@@ -395,7 +396,7 @@ router.put("/admin/superfrete/accounts/:id", requirePrimaryAdmin, async (req, re
   }
 });
 
-router.delete("/admin/superfrete/accounts/:id", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/superfrete/accounts/:id", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await deleteSuperfreteAccount(String(req.params.id || ""));
     res.json({ ok: true });
@@ -404,7 +405,7 @@ router.delete("/admin/superfrete/accounts/:id", requirePrimaryAdmin, async (req,
   }
 });
 
-router.post("/admin/superfrete/accounts/:id/webhook", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/superfrete/accounts/:id/webhook", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const accountId = String(req.params.id || "").trim();
     const auth = await resolveSuperfreteAuth(accountId);
@@ -432,7 +433,7 @@ router.post("/admin/superfrete/accounts/:id/webhook", requirePrimaryAdmin, async
   }
 });
 
-router.post("/admin/superfrete/orders/:id/quote", requireAdminAuth, async (req, res) => {
+router.post("/admin/superfrete/orders/:id/quote", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const loaded = await loadOrderForAdmin(req, String(req.params.id || ""));
     if ("error" in loaded) {
@@ -487,7 +488,7 @@ router.post("/admin/superfrete/orders/:id/quote", requireAdminAuth, async (req, 
   }
 });
 
-router.post("/admin/superfrete/orders/:id/create", requireAdminAuth, async (req, res) => {
+router.post("/admin/superfrete/orders/:id/create", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnySuperfreteAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "SuperFrete não configurada." });
@@ -621,7 +622,7 @@ router.post("/admin/superfrete/orders/:id/create", requireAdminAuth, async (req,
   }
 });
 
-router.post("/admin/superfrete/orders/:id/labels", requireAdminAuth, async (req, res) => {
+router.post("/admin/superfrete/orders/:id/labels", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const loaded = await loadOrderForAdmin(req, String(req.params.id || ""));
     if ("error" in loaded) {
@@ -664,7 +665,7 @@ router.post("/admin/superfrete/orders/:id/labels", requireAdminAuth, async (req,
   }
 });
 
-router.post("/admin/superfrete/orders/:id/sync", requireAdminAuth, async (req, res) => {
+router.post("/admin/superfrete/orders/:id/sync", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const loaded = await loadOrderForAdmin(req, String(req.params.id || ""));
     if ("error" in loaded) {
@@ -704,7 +705,7 @@ router.post("/admin/superfrete/orders/:id/sync", requireAdminAuth, async (req, r
   }
 });
 
-router.post("/admin/superfrete/orders/:id/cancel", requireAdminAuth, async (req, res) => {
+router.post("/admin/superfrete/orders/:id/cancel", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const loaded = await loadOrderForAdmin(req, String(req.params.id || ""));
     if ("error" in loaded) {
@@ -736,7 +737,7 @@ router.post("/admin/superfrete/orders/:id/cancel", requireAdminAuth, async (req,
   }
 });
 
-router.post("/admin/superfrete/orders/:id/unlink", requireAdminAuth, async (req, res) => {
+router.post("/admin/superfrete/orders/:id/unlink", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const loaded = await loadOrderForAdmin(req, String(req.params.id || ""));
     if ("error" in loaded) {

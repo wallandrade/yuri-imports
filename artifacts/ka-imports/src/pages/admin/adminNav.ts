@@ -45,7 +45,9 @@ export type TabType =
   | "pagamentos"
   | "pushcut"
   | "email"
-  | "diagnostico";
+  | "diagnostico"
+  | "preconfirms"
+  | "auditLog";
 
 export type AdminNavItem = {
   tab: TabType;
@@ -84,6 +86,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     icon: "ShoppingCart",
     items: [
       { tab: "orders", slug: "pedidos", label: "Pedidos", icon: "ClipboardList", primaryOnly: false },
+      { tab: "preconfirms", slug: "pre-confirmacoes", label: "Pré-confirmações", icon: "BadgeCheck", primaryOnly: true },
       { tab: "checkout", slug: "checkout", label: "Checkout", icon: "CreditCard", primaryOnly: true },
       { tab: "seguro", slug: "seguro", label: "Seguro", icon: "ShieldCheck", primaryOnly: true },
     ],
@@ -200,6 +203,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
     icon: "Settings",
     items: [
       { tab: "users", slug: "usuarios", label: "Usuários e acesso", icon: "User", primaryOnly: true },
+      { tab: "auditLog", slug: "auditoria", label: "Auditoria", icon: "ScrollText", primaryOnly: true },
       { tab: "pushcut", slug: "pushcut", label: "Pushcut", icon: "Bell", primaryOnly: true },
       { tab: "email", slug: "email", label: "E-mail (Brevo)", icon: "Mail", primaryOnly: true },
       { tab: "diagnostico", slug: "diagnostico", label: "Diagnóstico de erros", icon: "Bug", primaryOnly: true },
