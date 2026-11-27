@@ -38,6 +38,40 @@ CREATE TABLE IF NOT EXISTS order_payment_preconfirms (
   KEY idx_preconfirm_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Se order_payment_preconfirms já existia sem a coluna gerada, acrescenta só nela.
+-- Não toca em orders nem em outra tabela.
+SET @pending_col_exists := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'order_payment_preconfirms'
+    AND COLUMN_NAME = 'pending_order_id'
+);
+SET @pending_col_sql := IF(
+  @pending_col_exists = 0,
+  'ALTER TABLE order_payment_preconfirms ADD COLUMN pending_order_id VARCHAR(255) GENERATED ALWAYS AS (IF(status = ''pending_admin'', order_id, NULL)) STORED',
+  'SELECT 1'
+);
+PREPARE pending_col_stmt FROM @pending_col_sql;
+EXECUTE pending_col_stmt;
+DEALLOCATE PREPARE pending_col_stmt;
+
+SET @pending_idx_exists := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'order_payment_preconfirms'
+    AND INDEX_NAME = 'uniq_preconfirm_pending_order'
+);
+SET @pending_idx_sql := IF(
+  @pending_idx_exists = 0,
+  'ALTER TABLE order_payment_preconfirms ADD UNIQUE KEY uniq_preconfirm_pending_order (pending_order_id)',
+  'SELECT 1'
+);
+PREPARE pending_idx_stmt FROM @pending_idx_sql;
+EXECUTE pending_idx_stmt;
+DEALLOCATE PREPARE pending_idx_stmt;
+
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id VARCHAR(64) NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -104,7 +104,9 @@ export function AdminPreconfirmPanel({
       }
       const data = await res.json() as { message?: string };
       if (!res.ok) {
-        setError(data.message || "Não foi possível revisar.");
+        const message = data.message || "Não foi possível revisar.";
+        if (res.status === 409 || res.status === 404) await load();
+        setError(message);
         return;
       }
       await load();

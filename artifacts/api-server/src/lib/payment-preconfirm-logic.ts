@@ -27,11 +27,12 @@ export function isCancelledOrderStatus(status: unknown): boolean {
   return value === "cancelled" || value === "cancelado" || value === "canceled";
 }
 
-/** Só este status pode virar pago pela aprovação. Cancelado, pendente, pago e concluído ficam de fora. */
-export const APPROVAL_ELIGIBLE_STATUSES = ["awaiting_payment"] as const;
+/** PIX nasce pending. Aguardando pagamento também entra. Pago, concluído e cancelado nunca. */
+export const APPROVAL_ELIGIBLE_STATUSES = ["pending", "awaiting_payment"] as const;
 
 export function isApprovalEligibleStatus(status: unknown): boolean {
-  return String(status || "").trim().toLowerCase() === "awaiting_payment";
+  const value = String(status || "").trim().toLowerCase();
+  return (APPROVAL_ELIGIBLE_STATUSES as readonly string[]).includes(value);
 }
 
 /** Efeitos de pago só quando o UPDATE condicional afetou exatamente uma linha. */
@@ -50,7 +51,7 @@ export type ApprovalResolution = {
 
 /**
  * preconfirmRowsAffected vem do UPDATE ... WHERE status = 'pending_admin'.
- * orderRowsAffected vem do UPDATE ... WHERE status = 'awaiting_payment'.
+ * orderRowsAffected vem do UPDATE ... WHERE status IN ('pending', 'awaiting_payment').
  * Efeito colateral de pago só com os dois em 1.
  */
 export function resolveApprovalClaim(input: {
@@ -87,7 +88,7 @@ export function resolveApprovalClaim(input: {
       preconfirmStatus: "rejected",
       orderStatusAfter: orderStatus,
       reason: "obsolete",
-      message: "Pedido não está aguardando pagamento. A pré-confirmação foi encerrada sem confirmar.",
+      message: "Pedido não está pendente de pagamento. A pré-confirmação foi encerrada sem confirmar.",
     };
   }
   return {
@@ -118,6 +119,13 @@ export function decidePreconfirm(input: {
   }
   if (isCancelledOrderStatus(orderStatus)) {
     return { ok: false, error: "CANCELLED", message: "Pedido cancelado." };
+  }
+  if (!isApprovalEligibleStatus(orderStatus)) {
+    return {
+      ok: false,
+      error: "NOT_ELIGIBLE",
+      message: "Só dá para pré-confirmar um pedido pendente de pagamento.",
+    };
   }
   if (input.pendingExists) {
     return {

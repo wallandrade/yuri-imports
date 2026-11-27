@@ -5,6 +5,7 @@ import { db, orderPaymentPreconfirmsTable, ordersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import { isSellerStaffRole } from "../lib/seller-staff-access";
 import {
+  APPROVAL_ELIGIBLE_STATUSES,
   decidePreconfirm,
   isApprovalEligibleStatus,
   resolveApprovalClaim,
@@ -299,7 +300,7 @@ async function review(req: Request, res: Response, decision: "approve" | "reject
     const beforeStatus = order.status;
     const reviewedAt = new Date();
     const eligible = decision === "approve" && isApprovalEligibleStatus(order.status);
-    const obsoleteNote = "Pedido não está aguardando pagamento. Pré-confirmação obsoleta.";
+    const obsoleteNote = "Pedido não está pendente de pagamento. Pré-confirmação obsoleta.";
     const nextPreconfirmStatus = decision === "reject" || !eligible ? "rejected" : "approved";
 
     const claim = await db.transaction(async (tx) => {
@@ -326,7 +327,7 @@ async function review(req: Request, res: Response, decision: "approve" | "reject
 
       const orderResult = await tx.update(ordersTable).set(updates).where(and(
         eq(ordersTable.id, orderId),
-        eq(ordersTable.status, "awaiting_payment"),
+        inArray(ordersTable.status, [...APPROVAL_ELIGIBLE_STATUSES]),
       ));
       const orderRowsAffected = mysqlAffectedRows(orderResult);
       if (orderRowsAffected !== 1) {

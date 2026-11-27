@@ -147,16 +147,34 @@ test("pré-confirmar não confirma; aprovar confirma; PIX já pago continua pago
   });
   assert.equal("confirmPayment" in cancelado && cancelado.confirmPayment, false);
 
-  const notAwaiting = planPaymentReview({
+  const pixPending = decidePreconfirm({ orderStatus: "pending", pendingExists: false });
+  assert.equal(pixPending.ok, true);
+  if (!pixPending.ok) return;
+  assert.equal(pixPending.orderStatusAfter, "pending");
+  assert.deepEqual([...pixPending.sideEffects], []);
+  const pixApproved = planPaymentReview({
     decision: "approve",
     orderStatus: "pending",
     preconfirmStatus: "pending_admin",
   });
-  assert.equal("error" in notAwaiting, false);
-  if ("error" in notAwaiting) return;
-  assert.equal(notAwaiting.confirmPayment, false);
-  assert.equal(notAwaiting.orderStatusAfter, "pending");
-  assert.equal(notAwaiting.reason, "obsolete");
+  assert.equal("error" in pixApproved, false);
+  if ("error" in pixApproved) return;
+  assert.equal(pixApproved.confirmPayment, true);
+  assert.equal(pixApproved.orderStatusAfter, "paid");
+  assert.equal(pixApproved.sideEffects.includes("whatsapp_paid"), true);
+
+  const webhookPaidFirst = resolveApprovalClaim({
+    decision: "approve",
+    orderStatus: "paid",
+    preconfirmRowsAffected: 1,
+    orderRowsAffected: 0,
+  });
+  assert.equal(webhookPaidFirst.statusCode, 409);
+  assert.equal(webhookPaidFirst.runSideEffects, false);
+  assert.equal(webhookPaidFirst.preconfirmStatus, "rejected");
+  assert.equal(webhookPaidFirst.orderStatusAfter, "paid");
+  assert.equal(webhookPaidFirst.reason, "obsolete");
+  assert.deepEqual([...paidSideEffectsIfClaimed(webhookPaidFirst.runSideEffects)], []);
 
   const lost = resolveApprovalClaim({
     decision: "approve",
@@ -227,5 +245,12 @@ test("migration não reescreve status de pedido", () => {
   assert.equal(sql.includes("CREATE TABLE IF NOT EXISTS admin_audit_log"), true);
   assert.equal(sql.includes("GENERATED ALWAYS AS (IF(status = 'pending_admin', order_id, NULL)) STORED"), true);
   assert.equal(sql.includes("UNIQUE KEY uniq_preconfirm_pending_order (pending_order_id)"), true);
-  assert.equal(/alter\s+table\s+orders/i.test(sql), false);
+  assert.equal(sql.includes("INFORMATION_SCHEMA.COLUMNS"), true);
+  assert.equal(sql.includes("INFORMATION_SCHEMA.STATISTICS"), true);
+  const alters = sql.match(/alter\s+table\s+[a-z0-9_]+/gi) || [];
+  assert.deepEqual(alters.map((line) => line.toLowerCase()), [
+    "alter table order_payment_preconfirms",
+    "alter table order_payment_preconfirms",
+  ]);
+  assert.equal(/alter\s+table\s+orders\b/i.test(sql), false);
 });
