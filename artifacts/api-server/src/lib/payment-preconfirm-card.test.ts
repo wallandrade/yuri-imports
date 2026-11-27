@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { preconfirmListProducts } from "./payment-preconfirm-logic";
+import { preconfirmListIncludesProof, preconfirmListProducts, preconfirmListProofFields } from "./payment-preconfirm-logic";
 
 test("miniatura da pré-confirmação guarda nome e URL http curta", () => {
   const products = preconfirmListProducts([
@@ -17,6 +17,18 @@ test("miniatura da pré-confirmação guarda nome e URL http curta", () => {
   assert.equal(products[3]?.image, null);
   assert.equal(products.some((item) => item.id === "p5"), false);
   assert.equal(JSON.stringify(products).includes("base64"), false);
+});
+
+test("card sem comprovante não devolve o base64", () => {
+  const blob = `data:image/png;base64,${"A".repeat(2000)}`;
+  assert.equal(preconfirmListIncludesProof(undefined), true);
+  assert.equal(preconfirmListIncludesProof("0"), false);
+  const hidden = preconfirmListProofFields(false, blob, true);
+  assert.equal(hidden.hasProof, true);
+  assert.equal(hidden.proofUrl, null);
+  assert.equal(JSON.stringify(hidden).includes("base64"), false);
+  const shown = preconfirmListProofFields(true, blob, true);
+  assert.equal(shown.proofUrl, blob);
 });
 
 test("miniatura ignora JSON inválido e corta URL longa", () => {

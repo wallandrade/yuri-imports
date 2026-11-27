@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { BadgeCheck, CheckCircle, Loader2, Package, Search } from "lucide-react";
 import { toast } from "sonner";
 import { sendCardProductImage, type SendCardCatalogProduct } from "@/lib/send-card-list";
-import { shouldRefreshPreconfirmQueue } from "@/lib/preconfirm-queue";
+import { preconfirmPendingPath, shouldRefreshPreconfirmQueue } from "@/lib/preconfirm-queue";
 import { formatCurrency } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -276,7 +276,7 @@ export function AdminPreconfirmQueueCard({
   const load = useCallback(async () => {
     setError("");
     try {
-      const res = await fetch(`${BASE}/api/admin/orders/payment-preconfirms?status=pending_admin`, { headers: headers() });
+      const res = await fetch(`${BASE}${preconfirmPendingPath(false)}`, { headers: headers() });
       if (res.status === 401) {
         onUnauthorized();
         return;

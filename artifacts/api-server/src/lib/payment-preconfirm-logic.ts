@@ -155,6 +155,22 @@ export type PreconfirmListProduct = {
   image: string | null;
 };
 
+/** O card do painel pede `includeProof=0`. A aba continua recebendo o comprovante. */
+export function preconfirmListIncludesProof(value: unknown): boolean {
+  return String(value ?? "").trim() !== "0";
+}
+
+/** Sem o comprovante, a resposta não leva o base64. `hasProof` vem do banco. */
+export function preconfirmListProofFields(
+  includeProof: boolean,
+  proofUrl: string | null | undefined,
+  hasProofFlag?: boolean,
+): { hasProof: boolean; proofUrl: string | null } {
+  if (!includeProof) return { hasProof: Boolean(hasProofFlag), proofUrl: null };
+  const url = proofUrl ? String(proofUrl) : null;
+  return { hasProof: Boolean(url), proofUrl: url };
+}
+
 /** Miniaturas do card. Só URL http(s) curta. Base64, data: e texto longo ficam de fora. */
 export function preconfirmListProducts(raw: unknown): PreconfirmListProduct[] {
   let list: unknown = raw;
