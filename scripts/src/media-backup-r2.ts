@@ -163,9 +163,7 @@ async function main(): Promise<void> {
 
   const locked = await acquireBackupLock(destClient, layout);
   if (!locked) {
-    log("outra execução ainda segura o lock; esta para por aqui");
-    process.exitCode = 0;
-    return;
+    throw new Error("lock de media-backup-r2 ainda preso; a cópia desta execução não rodou");
   }
 
   try {

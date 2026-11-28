@@ -389,6 +389,7 @@ async function main() {
         timeZone: process.env.BACKUP_TIME_ZONE || process.env.TZ || "America/Sao_Paulo",
         title: "A limpeza dos dumps mysql/ falhou.",
         lines: ["Job: db-backup-r2", `Motivo: ${message}`, "O dump novo foi gravado. Nada em media/ foi apagado."],
+        record: false,
       });
       if (!result.ok) log(`aviso não enviado: ${result.error}`);
     }

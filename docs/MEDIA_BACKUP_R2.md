@@ -10,14 +10,14 @@ A primeira execução copia cada objeto uma vez para `media/mirror/<chave origin
 
 - igual, e o espelho ainda está lá: não copia
 - igual no manifesto, mas o espelho sumiu: copia de novo (não perde o arquivo se uma regra de ciclo de vida apagar o espelho)
-- etag diferente: o espelho atual vai para `media/history/YYYY-MM-DD/<chave>` e a versão nova entra no espelho
-- sumiu na origem: a última cópia vai para o histórico do dia e sai do espelho
+- etag diferente: o espelho atual vai para `media/history/AAAA-MM-DD/HHMM/<etag>/<chave>` e a versão nova entra no espelho. A chave leva hora e etag e a cópia usa `If-None-Match`, então não sobrescreve
+- sumiu na origem: a última cópia vai para esse histórico e o espelho permanece
 
-Um arquivo apagado ou substituído na loja continua em `media/history/`. O padrão é **sem expiração**: o job não apaga espelho, histórico, manifesto nem marca. `MEDIA_BACKUP_RETENTION_DAYS` com um inteiro de 1 a 3650 passa a apagar só `media/history/` e `media/runs/` mais velhos que esse prazo. `0`, `none`, `off`, `never` ou vazio voltam para sem expiração. O espelho e o prefixo `mysql/` não entram nessa limpeza. O manifesto é regravado a cada 40 arquivos, então um job interrompido no dia seguinte continua de onde parou.
+Um arquivo apagado ou substituído na loja continua em `media/history/`. O padrão é **sem expiração**: o job não apaga espelho, histórico, manifesto nem marca. `MEDIA_BACKUP_RETENTION_DAYS` com um inteiro de 1 a 3650 passa a apagar só `media/history/` e `media/runs/` mais velhos que esse prazo. `0`, `none`, `off`, `never` ou vazio voltam para sem expiração. O espelho e o prefixo `mysql/` não entram nessa limpeza. O andamento de uma execução interrompida fica em diários pequenos em `media/state/journal/`; o manifesto inteiro só é gravado no fim.
 
 A marca de sucesso é `media/runs/YYYY-MM-DD_HHmm.json`. Sem ela, o vigilante trata a mídia como atrasada.
 
-Prefixos de origem, por padrão: `products/`, `tracking-labels/`, `admin-images/`, `envioecom-labels/`, `whatsapp-groups/`, `site-settings/`, `uploads/`. São as pastas que `artifacts/api-server/src/lib/r2.ts` e a etiqueta EnvioEcom gravam.
+Sem `MEDIA_BACKUP_SOURCE_PREFIXES`, a origem é o bucket inteiro. `uploadBufferToR2` aceita qualquer pasta, e essa pasta entra na cópia. As pastas que a API grava hoje são `products/`, `tracking-labels/`, `admin-images/`, `envioecom-labels/`, `whatsapp-groups/`, `site-settings/` e `uploads/`. Com a variável preenchida, um prefixo da raiz que não esteja na lista faz o job falhar e avisar.
 
 ## Variáveis
 
@@ -31,8 +31,8 @@ Obrigatórias no job `media-backup-r2`:
 
 Opcionais:
 
-- `MEDIA_BACKUP_SOURCE_BUCKET` — padrão `clayton-assets`
-- `MEDIA_BACKUP_DEST_BUCKET` — padrão `BACKUP_R2_BUCKET` ou `yuri-imports-db-backups`
+- `MEDIA_BACKUP_SOURCE_BUCKET` — só `clayton-assets`. Outro nome é recusado
+- `MEDIA_BACKUP_DEST_BUCKET` — só `yuri-imports-db-backups`. Outro nome, inclusive o bucket da loja, é recusado
 - `MEDIA_BACKUP_DEST_PREFIX` — padrão `media/`. Tem que começar com `media/`
 - `MEDIA_BACKUP_SOURCE_PREFIXES` — vazio copia o bucket inteiro, então uma pasta nova entra sozinha. Com lista, um prefixo da raiz que não esteja nela faz o job falhar e avisar, em vez de ficar de fora em silêncio
 - `MEDIA_BACKUP_RETENTION_DAYS` — padrão vazio, **sem expiração**. Inteiro de 1 a 3650 apaga só histórico e marcas. Não apaga `media/mirror/` nem `mysql/`
@@ -40,7 +40,7 @@ Opcionais:
 - `BACKUP_S3_ENDPOINT` / `BACKUP_S3_REGION` — iguais ao dump, se não for R2
 - `MEDIA_BACKUP_DRY_RUN=1` — só lista e imprime o plano. Não grava marca de sucesso
 
-O vigilante (`backup-watchdog`) lê o bucket de backup com o token que o dump já usa:
+O vigilante (`backup-watchdog`) lê o bucket de backup com o token próprio `BACKUP_WATCHDOG_R2_*` (Object Read). Não usa o token do dump (`BACKUP_R2_*`), que também apaga dumps antigos:
 
 - `BACKUP_WATCHDOG_R2_ACCESS_KEY_ID` e `BACKUP_WATCHDOG_R2_SECRET_ACCESS_KEY` — **Object Read só** em `yuri-imports-db-backups`. Não usa `BACKUP_R2_*`, que escreve
 - `BACKUP_R2_BUCKET`, `CLOUDFLARE_R2_ACCOUNT_ID`
@@ -83,15 +83,15 @@ jobs:
     instance_size_slug: apps-s-1vcpu-1gb
 ```
 
-O dump continua `0 3 * * *` e a mídia `30 3 * * *`, os dois com `time_zone: America/Sao_Paulo` (03:00 e 03:30 em Brasília, 06:00 e 06:30 UTC). O vigilante às 06:00 de Brasília vê um dump das 03:00 com 3 horas. Se o das 03:00 não rodou, o de ontem tem 27 horas e ele avisa. Um WhatsApp de falha no mesmo dia (marca `media/state/alerts/AAAA-MM-DD.json`) não é repetido às 06:00; o job ainda sai com código 1 para o e-mail da DigitalOcean.
+O dump continua `0 3 * * *` e a mídia `30 3 * * *`, os dois com `time_zone: America/Sao_Paulo` (03:00 e 03:30 em Brasília, 06:00 e 06:30 UTC). O vigilante às 06:00 de Brasília vê um dump das 03:00 com 3 horas. Se o das 03:00 não rodou, o de ontem tem 27 horas e ele avisa. Um WhatsApp de falha de dump, mídia ou vigilante no mesmo dia (marca `media/state/alerts/AAAA-MM-DD.json`) não é repetido às 06:00; o job ainda sai com código 1 para o e-mail da DigitalOcean. Aviso de limpeza dos dumps antigos não grava essa marca: o dump em si já foi salvo e o processo sai com código 0.
 
 No job `db-backup-r2` que já existe, acrescente `BACKUP_ALERT_PHONE`, `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN` como SECRET de runtime. O comando de execução não muda.
 
 ## Passo a passo no painel (não dá para fazer daqui)
 
 1. Cloudflare R2 → bucket `yuri-imports-db-backups` → Settings → Object lifecycle. Exclusão de 30 dias **só no prefixo `mysql/`**. `media/` não entra. Uploads multipart incompletos podem continuar em 7 dias.
-2. O R2 **não** implementa versionamento S3 (`PutBucketVersioning` está fora da API). No mesmo bucket, Settings → **Bucket locks**: uma regra com prefixo `media/history/` e condição Indefinite (ou Age longa) impede apagar ou sobrescrever o histórico. Não tranque `mysql/` com prazo maior que 30 dias, senão a limpeza dos dumps não consegue apagar. Não tranque o bucket inteiro.
-3. Dois tokens, não um. Object Read **somente** em `clayton-assets`. Object Read & Write **somente** em `yuri-imports-db-backups`. Um terceiro, Object Read somente no bucket de backup, para o vigilante. Não cole no git.
+2. O token de destino (`MEDIA_BACKUP_DEST_R2_*`) tem **Delete** no bucket de backup. Por isso o histórico precisa de trava no painel: o R2 **não** implementa versionamento S3 (`PutBucketVersioning` está fora da API). No bucket `yuri-imports-db-backups`, Settings → **Bucket locks**: uma regra com prefixo `media/history/` e condição Indefinite (ou Age longa) impede apagar ou sobrescrever o histórico, mesmo com esse token. Não tranque `mysql/` com prazo maior que 30 dias, senão a limpeza dos dumps não consegue apagar. Não tranque o bucket inteiro.
+3. Três tokens, separados. Object Read **somente** em `clayton-assets` (`MEDIA_BACKUP_SOURCE_R2_*`). Object Read & Write, com Delete, **somente** em `yuri-imports-db-backups` (`MEDIA_BACKUP_DEST_R2_*`). Object Read somente no bucket de backup, para o vigilante (`BACKUP_WATCHDOG_R2_*`). Não cole no git.
 4. App Platform → app `yuri-imports` → Create Resources → Job → Scheduled Job.
    - Nome `media-backup-r2`. Repositório `wallandrade/yuri-imports`, branch `main`, source `/`. Build igual ao do dump. Run command `pnpm --filter @workspace/scripts backup:media:r2`. Cron `30 3 * * *`, time zone `America/Sao_Paulo`. Tamanho `apps-s-1vcpu-1gb`.
    - Envs SECRET: `CLOUDFLARE_R2_ACCOUNT_ID`, `MEDIA_BACKUP_SOURCE_R2_ACCESS_KEY_ID`, `MEDIA_BACKUP_SOURCE_R2_SECRET_ACCESS_KEY`, `MEDIA_BACKUP_DEST_R2_ACCESS_KEY_ID`, `MEDIA_BACKUP_DEST_R2_SECRET_ACCESS_KEY`, `BACKUP_ALERT_PHONE`, `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN`, `ZAPI_CLIENT_TOKEN`.
