@@ -4,7 +4,9 @@
 // when either is missing or late. Exits 1 so the App Platform job shows failed.
 // Reads the backup bucket only.
 
-import { backupAlertConfigured, notifyOwnerBackupAlert } from "./backup-alert.mjs";
+import { redactAlertDetail } from "./backup-alert.mjs";
+import { notifyOwnerOnce } from "./alert-once.mjs";
+import { backupAlertConfigured } from "./backup-alert.mjs";
 import {
   assessFreshness,
   freshnessLine,
@@ -16,12 +18,25 @@ import { createR2Client, listBackupObjects } from "./backup/r2io";
 
 const log = (...parts: unknown[]) => console.log(`[backup-watchdog] ${new Date().toISOString()}`, ...parts);
 let notified = false;
+let alertClient: ReturnType<typeof createR2Client> | null = null;
+let alertBucket = "yuri-imports-db-backups";
+let alertPrefix = "media/";
+let alertZone = "America/Sao_Paulo";
 
 async function alertFailure(title: string, lines: string[]): Promise<void> {
   notified = true;
   try {
-    const result = await notifyOwnerBackupAlert({ title, lines });
-    if (!result.ok) log(`aviso não enviado: ${result.error}`);
+    const result = await notifyOwnerOnce({
+      client: alertClient ?? undefined,
+      bucket: alertBucket,
+      destPrefix: alertPrefix,
+      timeZone: alertZone,
+      title,
+      lines,
+      record: false,
+    });
+    if (result.skipped) log("aviso já enviado hoje; WhatsApp não repetido");
+    else if (!result.ok) log(`aviso não enviado: ${result.error}`);
   } catch (err) {
     log(`aviso não enviado: ${err instanceof Error ? err.message : err}`);
   }
@@ -39,10 +54,14 @@ async function main(): Promise<void> {
   const client = createR2Client({
     endpoint: endpoint || undefined,
     accountId: endpoint ? "" : requireEnv("CLOUDFLARE_R2_ACCOUNT_ID"),
-    accessKeyId: requireEnv("BACKUP_R2_ACCESS_KEY_ID"),
-    secretAccessKey: requireEnv("BACKUP_R2_SECRET_ACCESS_KEY"),
+    accessKeyId: requireEnv("BACKUP_WATCHDOG_R2_ACCESS_KEY_ID"),
+    secretAccessKey: requireEnv("BACKUP_WATCHDOG_R2_SECRET_ACCESS_KEY"),
     region: process.env.BACKUP_S3_REGION,
   });
+  alertClient = client;
+  alertBucket = cfg.destBucket;
+  alertPrefix = cfg.destPrefix;
+  alertZone = cfg.timeZone;
   const now = new Date();
   const mysqlListed = await listBackupObjects(client, cfg.destBucket, cfg.mysqlPrefix);
   const mediaListed = await listBackupObjects(client, cfg.destBucket, `${cfg.destPrefix}runs/`);
@@ -67,7 +86,7 @@ async function main(): Promise<void> {
     await alertFailure("Backup atrasado ou ausente.", [
       mysqlLine,
       mediaLine,
-      "Jobs: db-backup-r2 (3h) e media-backup-r2 (3h30), horário de Brasília.",
+      "Crons em America/Sao_Paulo, não UTC: db 03:00, mídia 03:30, este vigilante 06:00.",
     ]);
     throw new Error("backup atrasado ou ausente");
   }
@@ -85,7 +104,7 @@ process.exitCode = 1;
 main().then(
   () => process.exit(0),
   async (err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = redactAlertDetail(err instanceof Error ? err.message : err);
     console.error(`[backup-watchdog] FAILED: ${message}`);
     if (!notified) {
       await alertFailure("Não consegui conferir os backups.", [

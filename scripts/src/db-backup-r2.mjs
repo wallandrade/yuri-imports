@@ -23,7 +23,8 @@
 //
 // Restore:  gunzip -c FILE.sql.gz | mysql -h HOST -P PORT -u USER -p --ssl-mode=REQUIRED DBNAME
 
-import { notifyOwnerBackupAlert } from "./backup-alert.mjs";
+import { redactAlertDetail } from "./backup-alert.mjs";
+import { notifyOwnerOnce } from "./alert-once.mjs";
 import { calendarDay, mysqlDumpKeysToDelete } from "./mysql-retention.mjs";
 import { createWriteStream } from "node:fs";
 import { createHash } from "node:crypto";
@@ -46,6 +47,8 @@ const PART_SIZE = 8 * 1024 * 1024; // R2: all parts except the last must be the 
 const MAX_STMT_BYTES = 1024 * 1024; // max size of one multi-row INSERT
 
 const log = (...a) => console.log(`[db-backup] ${new Date().toISOString()}`, ...a);
+let alertClient = null;
+let alertBucket = "";
 const fail = (msg) => {
   throw new Error(msg);
 };
@@ -306,6 +309,7 @@ async function main() {
     });
   } else {
     bucket = env("BACKUP_R2_BUCKET");
+    alertBucket = bucket;
     const endpoint =
       process.env.BACKUP_S3_ENDPOINT || `https://${env("CLOUDFLARE_R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`;
     client = new S3Client({
@@ -319,6 +323,7 @@ async function main() {
       requestChecksumCalculation: "WHEN_REQUIRED",
       responseChecksumValidation: "WHEN_REQUIRED",
     });
+    alertClient = client;
     log(`uploading to ${bucket}/${key}`);
     sink = multipartSink({ client, bucket, key, stats });
   }
@@ -377,7 +382,11 @@ async function main() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log(`limpeza mysql/ falhou: ${message}`);
-      const result = await notifyOwnerBackupAlert({
+      const result = await notifyOwnerOnce({
+        client,
+        bucket,
+        destPrefix: "media/",
+        timeZone: process.env.BACKUP_TIME_ZONE || process.env.TZ || "America/Sao_Paulo",
         title: "A limpeza dos dumps mysql/ falhou.",
         lines: ["Job: db-backup-r2", `Motivo: ${message}`, "O dump novo foi gravado. Nada em media/ foi apagado."],
       });
@@ -429,13 +438,18 @@ async function purgeOldMysqlDumps(client, bucket) {
 
 async function alertDbBackupFailure(detail) {
   try {
-    const result = await notifyOwnerBackupAlert({
+    const result = await notifyOwnerOnce({
+      client: alertClient,
+      bucket: alertBucket,
+      destPrefix: "media/",
+      timeZone: process.env.BACKUP_TIME_ZONE || process.env.TZ || "America/Sao_Paulo",
       title: "O backup do MySQL falhou.",
       lines: [
         "Job: db-backup-r2",
         `Motivo: ${detail}`,
         "Nada foi apagado no banco nem no bucket clayton-assets.",
       ],
+      record: Boolean(alertClient),
     });
     if (!result.ok) console.error(`[db-backup] aviso não enviado: ${result.error}`);
   } catch (err) {
@@ -446,7 +460,7 @@ async function alertDbBackupFailure(detail) {
 main().then(
   () => process.exit(0),
   async (err) => {
-    console.error(`[db-backup] FAILED: ${err?.stack || err}`);
+    console.error(`[db-backup] FAILED: ${redactAlertDetail(err?.message || err)}`);
     await alertDbBackupFailure(err?.message || String(err));
     process.exit(1);
   },

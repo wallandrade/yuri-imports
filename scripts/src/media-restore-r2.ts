@@ -12,8 +12,8 @@
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { historyObjectKey, mirrorObjectKey, normalizeDestPrefix } from "./backup/policy";
-import { createR2Client } from "./backup/r2io";
+import { mirrorObjectKey, normalizeDestPrefix } from "./backup/policy";
+import { createR2Client, listBackupObjects } from "./backup/r2io";
 
 const log = (...parts: unknown[]) => console.log(`[media-restore] ${new Date().toISOString()}`, ...parts);
 
@@ -38,16 +38,26 @@ async function main(): Promise<void> {
   }
   if (!output || output.includes("\0")) throw new Error("MEDIA_RESTORE_OUTPUT ausente");
   const destPrefix = normalizeDestPrefix(process.env.MEDIA_BACKUP_DEST_PREFIX);
-  const backupKey = day ? historyObjectKey(destPrefix, day, originalKey) : mirrorObjectKey(destPrefix, originalKey);
   const bucket = envValue("MEDIA_BACKUP_DEST_BUCKET") || envValue("BACKUP_R2_BUCKET") || "yuri-imports-db-backups";
   const endpoint = envValue("BACKUP_S3_ENDPOINT");
   const client = createR2Client({
     endpoint: endpoint || undefined,
     accountId: endpoint ? "" : requireAny(["CLOUDFLARE_R2_ACCOUNT_ID"]),
-    accessKeyId: requireAny(["MEDIA_BACKUP_R2_ACCESS_KEY_ID", "BACKUP_R2_ACCESS_KEY_ID"]),
-    secretAccessKey: requireAny(["MEDIA_BACKUP_R2_SECRET_ACCESS_KEY", "BACKUP_R2_SECRET_ACCESS_KEY"]),
+    accessKeyId: requireAny(["MEDIA_BACKUP_DEST_R2_ACCESS_KEY_ID", "BACKUP_WATCHDOG_R2_ACCESS_KEY_ID", "BACKUP_R2_ACCESS_KEY_ID"]),
+    secretAccessKey: requireAny(["MEDIA_BACKUP_DEST_R2_SECRET_ACCESS_KEY", "BACKUP_WATCHDOG_R2_SECRET_ACCESS_KEY", "BACKUP_R2_SECRET_ACCESS_KEY"]),
     region: process.env.BACKUP_S3_REGION,
   });
+  let backupKey = mirrorObjectKey(destPrefix, originalKey);
+  if (day) {
+    const listed = await listBackupObjects(client, bucket, `${destPrefix}history/${day}/`);
+    const matches = listed
+      .map((item) => item.key)
+      .filter((key) => key.endsWith(`/${originalKey}`))
+      .sort();
+    const found = matches[matches.length - 1];
+    if (!found) throw new Error("versão não encontrada nesse dia");
+    backupKey = found;
+  }
   log(`baixando ${bucket}/${backupKey}`);
   const got = await client.send(new GetObjectCommand({ Bucket: bucket, Key: backupKey }));
   if (!got.Body) throw new Error("R2 devolveu objeto vazio");

@@ -13,8 +13,8 @@ const ENV = {
 test("o destino é um celular com DDI 55, nunca um grupo", () => {
   assert.deepEqual(ownerAlertPhone("5535999999999"), { ok: true, phone: "5535999999999" });
   assert.deepEqual(ownerAlertPhone("+55 (35) 999999999"), { ok: true, phone: "5535999999999" });
-  assert.equal(ownerAlertPhone("553591710559-1525960254").ok, false);
-  assert.equal(ownerAlertPhone("553591710559-1525960254").reason, "group");
+  assert.equal(ownerAlertPhone("550000000000-1111111111").ok, false);
+  assert.equal(ownerAlertPhone("550000000000-1111111111").reason, "group");
   assert.equal(ownerAlertPhone("120363123@g.us").reason, "group");
   assert.equal(ownerAlertPhone("11999999999").reason, "phone");
   assert.equal(ownerAlertPhone("").reason, "empty");
@@ -39,7 +39,7 @@ test("grupo e destino vazio não chamam a Z-API", async () => {
   };
   const group = await notifyOwnerBackupAlert({
     title: "falhou",
-    env: { ...ENV, BACKUP_ALERT_PHONE: "553591710559-1525960254" },
+    env: { ...ENV, BACKUP_ALERT_PHONE: "550000000000-1111111111" },
     fetchImpl,
   });
   assert.equal(group.ok, false);
@@ -51,6 +51,18 @@ test("grupo e destino vazio não chamam a Z-API", async () => {
   });
   assert.equal(missing.ok, false);
   assert.equal(called, false);
+});
+
+test("a Z-API estoura em 15s", async () => {
+  const fetchImpl = async (_url, init) => {
+    assert.ok(init.signal);
+    const error = new Error("timed out");
+    error.name = "TimeoutError";
+    throw error;
+  };
+  const result = await notifyOwnerBackupAlert({ title: "falhou", env: ENV, fetchImpl });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "timeout");
 });
 
 test("o aviso sai em send-text para o número do dono", async () => {

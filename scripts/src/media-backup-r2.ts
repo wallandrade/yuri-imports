@@ -1,51 +1,54 @@
 #!/usr/bin/env node
-// Daily incremental copy of store media from the live R2 bucket into the private
-// backup bucket. The live bucket is only listed and read. Deletes stay under
-// media/history, media/runs and, for files removed at the source, media/mirror.
-//
-// Layout in the backup bucket:
-//   media/mirror/<chave original>                 last good copy
-//   media/history/YYYY-MM-DD/<chave original>     previous bytes, or the last copy of a deleted file
-//   media/state/manifest.json                     source etag of what the mirror should hold
-//   media/runs/YYYY-MM-DD_HHmm.json               success marker for the watchdog
-//
-// Unchanged files are not copied again. A changed or deleted file keeps the
-// previous bytes under history/. MEDIA_BACKUP_RETENTION_DAYS defaults to no
-// expiration, so history is kept. A positive number deletes only history/ and
-// runs/ older than that many days, never the mirror and never mysql/.
+// Daily incremental copy of store media from clayton-assets into the private
+// backup bucket. The store bucket is only listed and read, with its own token.
+// The mirror is never deleted. History keys include the minute and etag and
+// refuse overwrite. Default source scope is the whole bucket.
 
-import { notifyOwnerBackupAlert } from "./backup-alert.mjs";
+import { redactAlertDetail } from "./backup-alert.mjs";
+import { notifyOwnerOnce } from "./alert-once.mjs";
 import {
   applyPlanToManifest,
   calendarDay,
   datedKeysToDelete,
+  emptyManifest,
   historyObjectKey,
+  journalObjectKey,
   manifestObjectKey,
+  mergeManifest,
   mirrorObjectKey,
   normalizeEtag,
+  parseManifest,
   planMediaBackup,
   readMediaBackupConfig,
   runMarkerObjectKey,
   stampMinute,
   stripMirrorKey,
   summarizeActions,
+  unknownRootPrefixes,
   type MediaAction,
   type MediaObject,
 } from "./backup/policy";
 import {
-  copyBackupObject,
+  acquireBackupLock,
+  copyFromSource,
+  copyWithinBackup,
   createR2Client,
   deleteBackupKeys,
-  isNotFound,
   listBackupObjects,
   loadManifest,
   putBackupJson,
+  readBackupText,
+  releaseBackupLock,
   type ObjectLayout,
 } from "./backup/r2io";
 
 const log = (...parts: unknown[]) => console.log(`[media-backup] ${new Date().toISOString()}`, ...parts);
-const CHUNK = 40;
-const COPIES_AT_ONCE = 4;
+const CHUNK = 200;
+const COPIES_AT_ONCE = 2;
+let alertClient: ReturnType<typeof createR2Client> | null = null;
+let alertBucket = "yuri-imports-db-backups";
+let alertPrefix = "media/";
+let alertZone = "America/Sao_Paulo";
 
 function requireEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -67,17 +70,23 @@ async function mapPool<T>(items: readonly T[], limit: number, fn: (item: T) => P
   await Promise.all(workers);
 }
 
-async function alertFailure(detail: string): Promise<void> {
+async function alertFailure(detail: string, client: ReturnType<typeof createR2Client> | null, bucket: string, prefix: string, timeZone: string): Promise<void> {
   try {
-    const result = await notifyOwnerBackupAlert({
+    const result = await notifyOwnerOnce({
+      client: client ?? undefined,
+      bucket,
+      destPrefix: prefix,
+      timeZone,
       title: "O backup da mídia falhou.",
       lines: [
         "Job: media-backup-r2",
         `Motivo: ${detail}`,
-        "Nada foi apagado nem alterado no bucket clayton-assets.",
+        "Nada foi apagado nem alterado no bucket clayton-assets. O espelho não é apagado.",
       ],
+      record: Boolean(client),
     });
     if (!result.ok) log(`aviso não enviado: ${result.error}`);
+    else if (result.skipped) log("aviso já enviado hoje");
   } catch (err) {
     log(`aviso não enviado: ${err instanceof Error ? err.message : err}`);
   }
@@ -87,74 +96,125 @@ async function main(): Promise<void> {
   const started = Date.now();
   const cfg = readMediaBackupConfig(process.env);
   const endpoint = process.env.BACKUP_S3_ENDPOINT?.trim();
-  const client = createR2Client({
+  const accountId = endpoint ? "" : requireEnv("CLOUDFLARE_R2_ACCOUNT_ID");
+  const sourceClient = createR2Client({
     endpoint: endpoint || undefined,
-    accountId: endpoint ? "" : requireEnv("CLOUDFLARE_R2_ACCOUNT_ID"),
-    accessKeyId: requireEnv("MEDIA_BACKUP_R2_ACCESS_KEY_ID"),
-    secretAccessKey: requireEnv("MEDIA_BACKUP_R2_SECRET_ACCESS_KEY"),
+    accountId,
+    accessKeyId: requireEnv("MEDIA_BACKUP_SOURCE_R2_ACCESS_KEY_ID"),
+    secretAccessKey: requireEnv("MEDIA_BACKUP_SOURCE_R2_SECRET_ACCESS_KEY"),
     region: process.env.BACKUP_S3_REGION,
   });
+  const destClient = createR2Client({
+    endpoint: endpoint || undefined,
+    accountId,
+    accessKeyId: requireEnv("MEDIA_BACKUP_DEST_R2_ACCESS_KEY_ID"),
+    secretAccessKey: requireEnv("MEDIA_BACKUP_DEST_R2_SECRET_ACCESS_KEY"),
+    region: process.env.BACKUP_S3_REGION,
+  });
+  alertClient = destClient;
+  alertBucket = cfg.destBucket;
+  alertPrefix = cfg.destPrefix;
+  alertZone = cfg.timeZone;
   const layout: ObjectLayout = {
     sourceBucket: cfg.sourceBucket,
     destBucket: cfg.destBucket,
     destPrefix: cfg.destPrefix,
   };
-  log(`origem ${cfg.sourceBucket} prefixos ${cfg.prefixes.join(",")} → ${cfg.destBucket}/${cfg.destPrefix}`);
+  log(`origem ${cfg.sourceBucket} (${cfg.prefixes ? cfg.prefixes.join(",") : "bucket inteiro"}) → ${cfg.destBucket}/${cfg.destPrefix}`);
 
-  const sourceListed = [];
-  for (const prefix of cfg.prefixes) {
-    sourceListed.push(...await listBackupObjects(client, cfg.sourceBucket, prefix));
+  const sourceListed = await listBackupObjects(sourceClient, cfg.sourceBucket, "");
+  const unknown = unknownRootPrefixes(sourceListed.map((item) => item.key), cfg.prefixes);
+  if (unknown.length) {
+    throw new Error(`prefixo desconhecido na origem, fora de MEDIA_BACKUP_SOURCE_PREFIXES: ${unknown.join(", ")}`);
   }
-  const source: MediaObject[] = sourceListed.map((item) => ({ key: item.key, etag: item.etag, size: item.size }));
-  const mirrorListed = await listBackupObjects(client, cfg.destBucket, `${cfg.destPrefix}mirror/`);
+  const source: MediaObject[] = sourceListed
+    .filter((item) => !cfg.prefixes || cfg.prefixes.some((prefix) => item.key.startsWith(prefix)))
+    .map((item) => ({ key: item.key, etag: item.etag, size: item.size }));
+  const mirrorListed = await listBackupObjects(destClient, cfg.destBucket, `${cfg.destPrefix}mirror/`);
   const mirror: MediaObject[] = [];
   for (const item of mirrorListed) {
     const key = stripMirrorKey(item.key, cfg.destPrefix);
     if (!key) continue;
     mirror.push({ key, etag: item.etag, size: item.size });
   }
-  const manifest = await loadManifest(client, layout);
-  const actions = planMediaBackup({ source, mirror, manifest, prefixes: cfg.prefixes });
-  const summary = summarizeActions(actions);
+  const mirrorByKey = new Map(mirror.map((item) => [item.key, item]));
+  let manifest = await loadManifest(destClient, layout);
+  const journals = await listBackupObjects(destClient, cfg.destBucket, `${cfg.destPrefix}state/journal/`);
+  for (const journal of journals) {
+    const text = await readBackupText(destClient, cfg.destBucket, journal.key);
+    try {
+      manifest = mergeManifest(manifest, parseManifest(text));
+    } catch (err) {
+      log(`diário ignorado ${journal.key}: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  const plan = planMediaBackup({ source, mirror, manifest, prefixes: cfg.prefixes });
+  const summary = summarizeActions(plan.actions);
   log(
     `plano: ${summary.skip} iguais, ${summary.copy} novos ou repostos, ${summary.changed} trocados, ` +
-      `${summary.dropped} apagados na origem, ${summary.adopt} adotados, ${summary.forget} só no manifesto`,
+      `${summary.dropped} saíram da origem (espelho mantido), ${summary.adopt} adotados, ${summary.forget} só no manifesto`,
   );
+  if (plan.emptyPrefixes.length) log(`listagem vazia, espelho mantido: ${plan.emptyPrefixes.join(", ")}`);
   if (cfg.dryRun) {
     log("DRY RUN: nenhuma escrita");
+    if (plan.emptyPrefixes.length) throw new Error(`listagem vazia em ${plan.emptyPrefixes.join(", ")}`);
     return;
   }
 
-  const sourceByKey = new Map(source.map((item) => [item.key, { key: item.key, etag: normalizeEtag(item.etag), size: item.size }]));
-  const day = calendarDay(new Date(), cfg.timeZone);
-  let current = manifest;
-  const work = actions.filter((action) => action.type !== "skip");
-  for (let offset = 0; offset < work.length; offset += CHUNK) {
-    const chunk = work.slice(offset, offset + CHUNK);
-    await mapPool(chunk, COPIES_AT_ONCE, (action) => perform(client, layout, cfg.destPrefix, day, action));
-    current = applyPlanToManifest(current, sourceByKey, chunk);
-    await putBackupJson(client, layout, manifestObjectKey(cfg.destPrefix), current);
-    log(`  manifesto ${Math.min(offset + chunk.length, work.length)}/${work.length}`);
+  const locked = await acquireBackupLock(destClient, layout);
+  if (!locked) {
+    log("outra execução ainda segura o lock; esta para por aqui");
+    process.exitCode = 0;
+    return;
   }
 
-  const expired = cfg.retentionDays === null ? [] : await expiredMediaKeys(client, layout, cfg.destPrefix, day, cfg.retentionDays);
-  if (cfg.retentionDays === null) log("mídia sem prazo de expiração");
-  else if (expired.length) {
-    await deleteBackupKeys(client, layout, expired, "retention");
-    log(`retenção da mídia: ${expired.length} objetos de histórico com mais de ${cfg.retentionDays} dias`);
-  }
+  try {
+    const sourceByKey = new Map(source.map((item) => [item.key, { key: item.key, etag: normalizeEtag(item.etag), size: item.size }]));
+    const day = calendarDay(new Date(), cfg.timeZone);
+    const stamp = stampMinute(new Date(), cfg.timeZone);
+    const minute = stamp.slice(-4);
+    let current = manifest;
+    const work = plan.actions.filter((action) => action.type !== "skip");
+    const journalKeys: string[] = [];
+    for (let offset = 0, part = 0; offset < work.length; offset += CHUNK, part += 1) {
+      const chunk = work.slice(offset, offset + CHUNK);
+      await mapPool(chunk, COPIES_AT_ONCE, (action) => perform(sourceClient, destClient, layout, cfg.destPrefix, day, minute, mirrorByKey, action));
+      const delta = applyPlanToManifest(emptyManifest(), sourceByKey, chunk);
+      const key = journalObjectKey(cfg.destPrefix, stamp, part);
+      await putBackupJson(destClient, layout, key, delta);
+      journalKeys.push(key);
+      current = mergeManifest(current, delta);
+      log(`  lote ${part + 1}: ${Math.min(offset + chunk.length, work.length)}/${work.length}`);
+    }
+    await putBackupJson(destClient, layout, manifestObjectKey(cfg.destPrefix), current);
+    if (journalKeys.length) await deleteBackupKeys(destClient, layout, journalKeys, "journal");
 
-  const stamp = stampMinute(new Date(), cfg.timeZone);
-  const marker = {
-    ok: true,
-    component: "media-backup-r2",
-    finishedAt: new Date().toISOString(),
-    sourceCount: source.length,
-    ...summary,
-    purged: expired.length,
-  };
-  await putBackupJson(client, layout, runMarkerObjectKey(cfg.destPrefix, stamp), marker);
-  log(`OK ${cfg.destBucket}/${cfg.destPrefix}runs/${stamp}.json em ${((Date.now() - started) / 1000).toFixed(1)}s`);
+    const expired = cfg.retentionDays === null ? [] : await expiredMediaKeys(destClient, layout, cfg.destPrefix, day, cfg.retentionDays);
+    if (cfg.retentionDays === null) log("mídia sem prazo de expiração");
+    else if (expired.length) {
+      await deleteBackupKeys(destClient, layout, expired, "retention");
+      log(`retenção da mídia: ${expired.length} objetos de histórico com mais de ${cfg.retentionDays} dias`);
+    }
+
+    if (plan.emptyPrefixes.length) {
+      throw new Error(`listagem vazia em ${plan.emptyPrefixes.join(", ")}; espelho desses prefixos foi mantido`);
+    }
+
+    const marker = {
+      ok: true,
+      component: "media-backup-r2",
+      finishedAt: new Date().toISOString(),
+      sourceCount: source.length,
+      ...summary,
+      purged: expired.length,
+    };
+    await putBackupJson(destClient, layout, runMarkerObjectKey(cfg.destPrefix, stamp), marker);
+    log(`OK ${cfg.destBucket}/${cfg.destPrefix}runs/${stamp}.json em ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  } finally {
+    await releaseBackupLock(destClient, layout).catch((err: unknown) => {
+      log(`não soltei o lock: ${err instanceof Error ? err.message : err}`);
+    });
+  }
 }
 
 async function expiredMediaKeys(
@@ -173,50 +233,49 @@ async function expiredMediaKeys(
 }
 
 async function perform(
-  client: ReturnType<typeof createR2Client>,
+  sourceClient: ReturnType<typeof createR2Client>,
+  destClient: ReturnType<typeof createR2Client>,
   layout: ObjectLayout,
   destPrefix: string,
   day: string,
+  minute: string,
+  mirrorByKey: ReadonlyMap<string, MediaObject>,
   action: MediaAction,
 ): Promise<void> {
   if (action.type === "adopt" || action.type === "forget" || action.type === "skip") return;
-  if (action.type === "copy" || action.type === "archive-then-copy") {
-    if (action.type === "archive-then-copy") await archiveMirror(client, layout, destPrefix, day, action.key);
-    await copyBackupObject(client, layout, layout.sourceBucket, action.key, mirrorObjectKey(destPrefix, action.key));
-    return;
+  if (action.type === "archive-then-copy" || action.type === "archive-gone") {
+    const mirror = mirrorByKey.get(action.key);
+    const etag = normalizeEtag(mirror?.etag || "noetag");
+    await copyWithinBackup(
+      destClient,
+      layout,
+      mirrorObjectKey(destPrefix, action.key),
+      historyObjectKey(destPrefix, day, minute, etag, action.key),
+    );
   }
-  await archiveMirror(client, layout, destPrefix, day, action.key);
-  await deleteBackupKeys(client, layout, [mirrorObjectKey(destPrefix, action.key)], "drop-mirror");
+  if (action.type === "copy" || action.type === "archive-then-copy") {
+    await copyFromSource(sourceClient, destClient, layout, action.key, mirrorObjectKey(destPrefix, action.key));
+  }
 }
 
-async function archiveMirror(
-  client: ReturnType<typeof createR2Client>,
-  layout: ObjectLayout,
-  destPrefix: string,
-  day: string,
-  key: string,
-): Promise<void> {
-  try {
-    await copyBackupObject(
-      client,
-      layout,
-      layout.destBucket,
-      mirrorObjectKey(destPrefix, key),
-      historyObjectKey(destPrefix, day, key),
-    );
-  } catch (err) {
-    if (isNotFound(err)) return;
-    throw err;
-  }
-}
+let failed = false;
 
 process.exitCode = 1;
 main().then(
   () => process.exit(0),
   async (err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[media-backup] FAILED: ${err instanceof Error ? err.stack : err}`);
-    await alertFailure(message);
+    if (failed) process.exit(1);
+    failed = true;
+    const message = redactAlertDetail(err instanceof Error ? err.message : err);
+    console.error(`[media-backup] FAILED: ${message}`);
+    const cfg = (() => {
+      try {
+        return readMediaBackupConfig(process.env);
+      } catch {
+        return null;
+      }
+    })();
+    await alertFailure(message, alertClient, alertBucket, alertPrefix, alertZone);
     process.exit(1);
   },
 );

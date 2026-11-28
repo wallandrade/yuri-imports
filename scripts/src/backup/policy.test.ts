@@ -10,6 +10,7 @@ import {
   datedKeysToDelete,
   emptyManifest,
   encodeCopySource,
+  historyObjectKey,
   mediaRunObjects,
   mirrorObjectKey,
   mysqlBackupObjects,
@@ -20,6 +21,7 @@ import {
   readRetentionDays,
   readStaleWindowMs,
   stripMirrorKey,
+  unknownRootPrefixes,
   type MediaManifest,
   type MediaObject,
 } from "./policy";
@@ -39,16 +41,18 @@ test("a configuração padrão separa a loja do bucket de backup", () => {
   assert.equal(config.destBucket, "yuri-imports-db-backups");
   assert.equal(config.destPrefix, "media/");
   assert.equal(config.retentionDays, null);
-  assert.ok(config.prefixes.includes("products/"));
-  assert.ok(config.prefixes.includes("admin-images/"));
-  assert.ok(config.prefixes.includes("tracking-labels/"));
+  assert.equal(config.prefixes, null);
   assert.equal(config.dryRun, false);
 });
 
 test("recusa gravar o backup em cima do bucket da loja", () => {
   assert.throws(
     () => readMediaBackupConfig({ MEDIA_BACKUP_DEST_BUCKET: "clayton-assets" }),
-    /não alterar o bucket da loja/,
+    /clayton-assets/,
+  );
+  assert.throws(
+    () => readMediaBackupConfig({ MEDIA_BACKUP_DEST_BUCKET: "outro-bucket" }),
+    /lista permitida/,
   );
   assert.throws(
     () => assertDestWrite({
@@ -57,22 +61,25 @@ test("recusa gravar o backup em cima do bucket da loja", () => {
       sourceBucket: "clayton-assets",
       destPrefix: "media/",
     }),
-    /origem/,
+    /clayton-assets/,
   );
 });
 
-test("só apaga histórico, marca ou o espelho de um arquivo que saiu da origem", () => {
+test("só apaga histórico e marca; o espelho não sai", () => {
   const base = { bucket: "yuri-imports-db-backups", sourceBucket: "clayton-assets", destPrefix: "media/" };
   assert.doesNotThrow(() => assertDeletableBackupKey({
     ...base,
     key: "media/history/2026-10-01/products/a.jpg",
     reason: "retention",
   }));
-  assert.doesNotThrow(() => assertDeletableBackupKey({
-    ...base,
-    key: "media/mirror/products/a.jpg",
-    reason: "drop-mirror",
-  }));
+  assert.throws(
+    () => assertDeletableBackupKey({
+      ...base,
+      key: "media/mirror/products/a.jpg",
+      reason: "retention",
+    }),
+    /recusa apagar/,
+  );
   assert.throws(
     () => assertDeletableBackupKey({ ...base, key: "media/state/manifest.json", reason: "retention" }),
     /recusa apagar/,
@@ -98,7 +105,7 @@ test("o plano copia só o que mudou e guarda exclusão para a retenção", () =>
       "fora/do-prefixo.jpg": { etag: "zzz", size: 1 },
     },
   };
-  const actions = planMediaBackup({
+  const { actions } = planMediaBackup({
     prefixes: PREFIXES,
     manifest,
     source: [
@@ -122,7 +129,7 @@ test("o plano copia só o que mudou e guarda exclusão para a retenção", () =>
   assert.equal(byKey.get("products/novo.jpg"), "copy");
   assert.equal(byKey.get("products/espelho-sumiu.jpg"), "copy");
   assert.equal(byKey.get("admin-images/banner.png"), "copy");
-  assert.equal(byKey.get("products/sumiu.jpg"), "archive-then-drop");
+  assert.equal(byKey.get("products/sumiu.jpg"), "archive-gone");
   assert.equal(byKey.has("outro/ignorado.jpg"), false);
   const unsafe = planMediaBackup({
     prefixes: PREFIXES,
@@ -130,7 +137,7 @@ test("o plano copia só o que mudou e guarda exclusão para a retenção", () =>
     source: [obj("products/a.jpg", "abc", 1), obj("products/../mysql/x.jpg", "zzz", 1)],
     mirror: [],
   });
-  assert.deepEqual(unsafe.map((action) => action.key), ["products/a.jpg"]);
+  assert.deepEqual(unsafe.actions.map((action) => action.key), ["products/a.jpg"]);
   assert.equal(byKey.has("fora/do-prefixo.jpg"), false);
 
   const next = applyPlanToManifest(
@@ -144,30 +151,30 @@ test("o plano copia só o que mudou e guarda exclusão para a retenção", () =>
   assert.equal(next.objects["products/trocou.jpg"]?.etag, "new");
   assert.equal(next.objects["products/novo.jpg"]?.etag, "ccc");
   assert.equal(next.objects["products/igual.jpg"]?.etag, "aaa");
-  assert.equal(next.objects["products/sumiu.jpg"], undefined);
+  assert.equal(next.objects["products/sumiu.jpg"]?.gone, true);
   assert.equal(next.objects["fora/do-prefixo.jpg"]?.etag, "zzz");
 });
 
 test("espelho com o mesmo etag e sem manifesto é adotado, sem copiar de novo", () => {
-  const actions = planMediaBackup({
+  const plan = planMediaBackup({
     prefixes: PREFIXES,
     manifest: emptyManifest(),
     source: [obj("products/a.jpg", "abc", 5)],
     mirror: [obj("products/a.jpg", "W/\"abc\"", 5)],
   });
-  assert.deepEqual(actions, [{ type: "adopt", key: "products/a.jpg" }]);
+  assert.deepEqual(plan.actions, [{ type: "adopt", key: "products/a.jpg" }]);
 });
 
-test("listagem vazia da origem não apaga um espelho que já existe", () => {
-  assert.throws(
-    () => planMediaBackup({
-      prefixes: PREFIXES,
-      manifest: { version: 1, objects: { "products/a.jpg": { etag: "abc", size: 1 } } },
-      source: [],
-      mirror: [obj("products/a.jpg", "abc", 1)],
-    }),
-    /não apagar o espelho/,
-  );
+test("listagem vazia é por prefixo e não apaga o espelho dos outros", () => {
+  const plan = planMediaBackup({
+    prefixes: PREFIXES,
+    manifest: { version: 1, objects: { "products/a.jpg": { etag: "abc", size: 1 } } },
+    source: [obj("admin-images/banner.png", "ddd", 2)],
+    mirror: [obj("products/a.jpg", "abc", 1)],
+  });
+  assert.deepEqual(plan.emptyPrefixes, ["products/"]);
+  assert.equal(plan.actions.some((action) => action.key === "products/a.jpg"), false);
+  assert.equal(plan.actions.some((action) => action.type === "copy" && action.key === "admin-images/banner.png"), true);
 });
 
 test("a retenção guarda o dia do corte e não mexe no dump nem no espelho", () => {
@@ -287,4 +294,13 @@ test("chaves de espelho e cópia não apontam para o bucket da loja", () => {
   }));
   assert.equal(parsed.objects["products/a.jpg"]?.etag, "abc");
   assert.throws(() => parseManifest("{"), /inválido/);
+});
+
+test("histórico do mesmo dia não reutiliza a chave e prefixo novo aparece", () => {
+  const morning = historyObjectKey("media/", "2026-11-28", "0330", "abc", "products/a.jpg");
+  const later = historyObjectKey("media/", "2026-11-28", "1800", "def", "products/a.jpg");
+  assert.notEqual(morning, later);
+  assert.match(morning, /media\/history\/2026-11-28\/0330\/abc\/products\/a.jpg/);
+  assert.deepEqual(unknownRootPrefixes(["products/a.jpg", "novo/b.jpg"], ["products/"]), ["novo/"]);
+  assert.deepEqual(unknownRootPrefixes(["novo/b.jpg"], null), []);
 });

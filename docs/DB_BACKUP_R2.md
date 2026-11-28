@@ -126,4 +126,4 @@ Procedures e functions não entram no dump. Se existirem, o backup avisa e segue
 
 Falha do dump manda um WhatsApp para `BACKUP_ALERT_PHONE` e o processo sai com código 1. Sucesso não manda mensagem.
 
-O job `backup-watchdog` (`scripts/src/backup-watchdog.ts`, cron `0 6 * * *` em `America/Sao_Paulo`) lista `mysql/` e `media/runs/`. Se o arquivo mais novo de qualquer um dos dois tiver 26 horas ou mais (`BACKUP_STALE_HOURS`), ou se não houver arquivo, manda o mesmo WhatsApp e sai com código 1. Isso pega o caso em que o job nem chegou a rodar. O canal e o passo a passo estão em `docs/MEDIA_BACKUP_R2.md`.
+O job `backup-watchdog` (`scripts/src/backup-watchdog.ts`, cron `0 6 * * *` com `time_zone: America/Sao_Paulo`, ou seja 06:00 em Brasília e não 06:00 UTC) lista `mysql/` e `media/runs/`. Um aviso já enviado no mesmo dia não sai de novo. Se o arquivo mais novo de qualquer um dos dois tiver 26 horas ou mais (`BACKUP_STALE_HOURS`), ou se não houver arquivo, manda o mesmo WhatsApp e sai com código 1. Isso pega o caso em que o job nem chegou a rodar. O canal e o passo a passo estão em `docs/MEDIA_BACKUP_R2.md`.

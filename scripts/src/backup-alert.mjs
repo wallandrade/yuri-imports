@@ -69,6 +69,7 @@ export async function notifyOwnerBackupAlert({ title, lines, env = process.env, 
         "Client-Token": clientToken,
       },
       body: JSON.stringify({ phone: phone.phone, message }),
+      signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
       const error = `HTTP ${response.status}`;
@@ -77,7 +78,8 @@ export async function notifyOwnerBackupAlert({ title, lines, env = process.env, 
     }
     return { ok: true, error: "" };
   } catch (err) {
-    const error = err instanceof Error && err.name === "AbortError" ? "timeout" : "request_failed";
+    const name = err instanceof Error ? err.name : "";
+    const error = name === "TimeoutError" || name === "AbortError" ? "timeout" : "request_failed";
     console.error(`[backup-alert] Z-API não enviou o aviso: ${error}`);
     return { ok: false, error };
   }

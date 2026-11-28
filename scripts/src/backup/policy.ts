@@ -1,7 +1,11 @@
 // Pure backup rules: incremental media plan, retention and stale detection.
 // No network. Jobs and unit tests both use this module.
 
-export const DEFAULT_SOURCE_PREFIXES = [
+export const STORE_BUCKET = "clayton-assets";
+export const BACKUP_BUCKET = "yuri-imports-db-backups";
+
+/** Pastas que a API grava hoje. O padrão do job é o bucket inteiro, não esta lista. */
+export const KNOWN_SOURCE_PREFIXES = [
   "products/",
   "tracking-labels/",
   "admin-images/",
@@ -24,9 +28,11 @@ export type MediaObject = {
   size: number;
 };
 
+export type MediaManifestEntry = { etag: string; size: number; gone?: boolean };
+
 export type MediaManifest = {
   version: 1;
-  objects: Record<string, { etag: string; size: number }>;
+  objects: Record<string, MediaManifestEntry>;
 };
 
 export type MediaAction =
@@ -34,8 +40,14 @@ export type MediaAction =
   | { type: "adopt"; key: string }
   | { type: "copy"; key: string }
   | { type: "archive-then-copy"; key: string }
-  | { type: "archive-then-drop"; key: string }
+  | { type: "archive-gone"; key: string }
   | { type: "forget"; key: string };
+
+export type MediaPlan = {
+  actions: MediaAction[];
+  /** Prefixo listado vazio embora o backup já tivesse arquivo. O espelho desse prefixo fica. */
+  emptyPrefixes: string[];
+};
 
 export type Freshness = {
   ok: boolean;
@@ -58,18 +70,37 @@ export function normalizeEtag(etag: string): string {
   return String(etag || "").trim().replace(/^W\//i, "").replace(/^"|"$/g, "");
 }
 
-export function normalizeSourcePrefixes(raw: string | undefined): string[] {
-  const source = raw === undefined ? DEFAULT_SOURCE_PREFIXES.join(",") : raw;
-  const prefixes = source
+/** null = todos os objetos do bucket. Lista explícita restringe e recusa prefixo desconhecido. */
+export function normalizeSourcePrefixes(raw: string | undefined): string[] | null {
+  if (raw === undefined || raw.trim() === "" || raw.trim() === "*") return null;
+  const prefixes = raw
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => (part.endsWith("/") ? part : `${part}/`));
-  if (!prefixes.length) throw new Error("MEDIA_BACKUP_SOURCE_PREFIXES vazio");
+  if (!prefixes.length) return null;
   if (prefixes.some((prefix) => prefix.includes("..") || prefix.startsWith("/"))) {
     throw new Error("MEDIA_BACKUP_SOURCE_PREFIXES inválido");
   }
   return prefixes;
+}
+
+export function rootPrefixOf(key: string): string {
+  const slash = key.indexOf("/");
+  if (slash <= 0) return "";
+  return key.slice(0, slash + 1);
+}
+
+export function unknownRootPrefixes(keys: readonly string[], allowed: readonly string[] | null): string[] {
+  if (!allowed) return [];
+  const found = new Set<string>();
+  for (const key of keys) {
+    if (!key || key.endsWith("/") || key.includes("..")) continue;
+    const root = rootPrefixOf(key);
+    if (!root || allowed.includes(root)) continue;
+    found.add(root);
+  }
+  return [...found].sort();
 }
 
 export function normalizeDestPrefix(raw: string | undefined): string {
@@ -87,7 +118,8 @@ export function normalizeMysqlPrefix(raw: string | undefined): string {
   return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
 }
 
-export function keyInPrefixes(key: string, prefixes: readonly string[]): boolean {
+export function keyInPrefixes(key: string, prefixes: readonly string[] | null): boolean {
+  if (!prefixes) return true;
   return prefixes.some((prefix) => key.startsWith(prefix));
 }
 
@@ -113,17 +145,22 @@ export type MediaBackupConfig = {
   sourceBucket: string;
   destBucket: string;
   destPrefix: string;
-  prefixes: string[];
+  prefixes: string[] | null;
   retentionDays: number | null;
   timeZone: string;
   dryRun: boolean;
 };
 
+export function assertExpectedBuckets(sourceBucket: string, destBucket: string): void {
+  if (destBucket === STORE_BUCKET) throw new Error("recusa destino clayton-assets");
+  if (sourceBucket !== STORE_BUCKET || destBucket !== BACKUP_BUCKET) {
+    throw new Error("buckets fora da lista permitida");
+  }
+}
+
 export function assertDestLayout(input: { sourceBucket: string; destBucket: string; destPrefix: string }): void {
   if (!input.sourceBucket || !input.destBucket) throw new Error("bucket ausente");
-  if (input.sourceBucket === input.destBucket) {
-    throw new Error("bucket de destino igual ao de origem; recusando para não alterar o bucket da loja");
-  }
+  assertExpectedBuckets(input.sourceBucket, input.destBucket);
   if (!input.destPrefix.startsWith("media/") || input.destPrefix.includes("..")) {
     throw new Error("prefixo de destino tem que começar com media/");
   }
@@ -169,7 +206,10 @@ export function assertDestWrite(input: {
   destPrefix: string;
 }): void {
   assertDestLayout({ sourceBucket: input.sourceBucket, destBucket: input.bucket, destPrefix: input.destPrefix });
-  if (input.bucket === input.sourceBucket) throw new Error("recusa escrita no bucket de origem");
+  if (input.bucket === STORE_BUCKET || input.bucket === input.sourceBucket) {
+    throw new Error("recusa escrita no bucket de origem");
+  }
+  if (input.bucket !== BACKUP_BUCKET) throw new Error("recusa escrita fora do bucket de backup");
   if (!input.key || input.key.includes("..")) throw new Error("chave de backup inválida");
   if (!input.key.startsWith(input.destPrefix)) throw new Error("recusa escrita fora do prefixo de backup");
   if (input.key.startsWith("mysql/")) throw new Error("recusa escrita no prefixo mysql/");
@@ -180,14 +220,16 @@ export function assertDeletableBackupKey(input: {
   key: string;
   sourceBucket: string;
   destPrefix: string;
-  reason: "retention" | "drop-mirror";
+  reason: "retention" | "journal" | "release-lock";
 }): void {
   assertDestWrite(input);
   const history = `${input.destPrefix}history/`;
   const runs = `${input.destPrefix}runs/`;
-  const mirror = `${input.destPrefix}mirror/`;
+  const journal = `${input.destPrefix}state/journal/`;
+  const lock = `${input.destPrefix}state/lock.json`;
   if (input.reason === "retention" && (input.key.startsWith(history) || input.key.startsWith(runs))) return;
-  if (input.reason === "drop-mirror" && input.key.startsWith(mirror)) return;
+  if (input.reason === "journal" && input.key.startsWith(journal)) return;
+  if (input.reason === "release-lock" && input.key === lock) return;
   throw new Error("recusa apagar essa chave de backup");
 }
 
@@ -195,9 +237,25 @@ export function mirrorObjectKey(destPrefix: string, key: string): string {
   return `${destPrefix}mirror/${key}`;
 }
 
-export function historyObjectKey(destPrefix: string, day: string, key: string): string {
+export function historyObjectKey(destPrefix: string, day: string, minute: string, etag: string, key: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("dia do histórico inválido");
-  return `${destPrefix}history/${day}/${key}`;
+  if (!/^\d{4}$/.test(minute)) throw new Error("minuto do histórico inválido");
+  const safeEtag = etag.replace(/[^a-zA-Z0-9]/g, "").slice(0, 32) || "noetag";
+  return `${destPrefix}history/${day}/${minute}/${safeEtag}/${key}`;
+}
+
+export function journalObjectKey(destPrefix: string, stamp: string, index: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}_\d{4}$/.test(stamp)) throw new Error("marca de execução inválida");
+  return `${destPrefix}state/journal/${stamp}-${String(index).padStart(4, "0")}.json`;
+}
+
+export function alertMarkerObjectKey(destPrefix: string, day: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("dia inválido");
+  return `${destPrefix}state/alerts/${day}.json`;
+}
+
+export function lockObjectKey(destPrefix: string): string {
+  return `${destPrefix}state/lock.json`;
 }
 
 export function runMarkerObjectKey(destPrefix: string, stamp: string): string {
@@ -231,12 +289,16 @@ function sameVersion(
   return normalizeEtag(stored.etag) === source.etag && stored.size === source.size;
 }
 
+function underRoot(key: string, root: string): boolean {
+  return root === "" ? !key.includes("/") : key.startsWith(root);
+}
+
 export function planMediaBackup(input: {
   source: MediaObject[];
   mirror: MediaObject[];
   manifest: MediaManifest;
-  prefixes: readonly string[];
-}): MediaAction[] {
+  prefixes: readonly string[] | null;
+}): MediaPlan {
   const sourceByKey = new Map<string, MediaObject>();
   for (const obj of input.source) {
     if (!obj.key || obj.key.endsWith("/") || obj.key.includes("..") || obj.key.startsWith("/")) continue;
@@ -246,14 +308,31 @@ export function planMediaBackup(input: {
   const mirrorByKey = new Map<string, MediaObject>();
   for (const obj of input.mirror) {
     if (!obj.key || obj.key.endsWith("/") || obj.key.includes("..") || obj.key.startsWith("/")) continue;
+    if (!keyInPrefixes(obj.key, input.prefixes)) continue;
     mirrorByKey.set(obj.key, { key: obj.key, etag: normalizeEtag(obj.etag), size: obj.size });
   }
-  const mirrorTracksPrefix = [...mirrorByKey.keys()].some((key) => keyInPrefixes(key, input.prefixes));
-  const manifestTracksPrefix = Object.keys(input.manifest.objects).some((key) => keyInPrefixes(key, input.prefixes));
-  if (sourceByKey.size === 0) {
-    if (mirrorTracksPrefix || manifestTracksPrefix) {
-      throw new Error("listagem da origem veio vazia com backup já existente; recusando para não apagar o espelho");
+
+  const roots = new Set<string>();
+  if (input.prefixes) {
+    for (const prefix of input.prefixes) roots.add(prefix);
+  }
+  for (const key of sourceByKey.keys()) roots.add(rootPrefixOf(key));
+  for (const key of mirrorByKey.keys()) roots.add(rootPrefixOf(key));
+  for (const key of Object.keys(input.manifest.objects)) {
+    if (keyInPrefixes(key, input.prefixes)) roots.add(rootPrefixOf(key));
+  }
+
+  const emptyPrefixes: string[] = [];
+  const protectedRoots = new Set<string>();
+  for (const root of roots) {
+    const listed = [...sourceByKey.keys()].some((key) => underRoot(key, root));
+    const had = [...mirrorByKey.keys(), ...Object.keys(input.manifest.objects)].some((key) => underRoot(key, root));
+    if (!listed && had) {
+      emptyPrefixes.push(root || "(raiz)");
+      protectedRoots.add(root);
     }
+  }
+  if (sourceByKey.size === 0 && emptyPrefixes.length === 0) {
     throw new Error("nenhum objeto da mídia nos prefixos configurados");
   }
 
@@ -279,10 +358,12 @@ export function planMediaBackup(input: {
     if (sourceByKey.has(key)) continue;
     if (key.includes("..") || key.startsWith("/")) continue;
     if (!keyInPrefixes(key, input.prefixes)) continue;
-    if (mirrorByKey.has(key)) actions.push({ type: "archive-then-drop", key });
+    if (protectedRoots.has(rootPrefixOf(key))) continue;
+    if (input.manifest.objects[key]?.gone) continue;
+    if (mirrorByKey.has(key)) actions.push({ type: "archive-gone", key });
     else if (input.manifest.objects[key]) actions.push({ type: "forget", key });
   }
-  return actions;
+  return { actions, emptyPrefixes };
 }
 
 export function applyPlanToManifest(
@@ -292,8 +373,13 @@ export function applyPlanToManifest(
 ): MediaManifest {
   const objects = { ...manifest.objects };
   for (const action of actions) {
-    if (action.type === "archive-then-drop" || action.type === "forget") {
+    if (action.type === "forget") {
       delete objects[action.key];
+      continue;
+    }
+    if (action.type === "archive-gone") {
+      const prev = objects[action.key];
+      objects[action.key] = { etag: prev?.etag || "gone", size: prev?.size ?? 0, gone: true };
       continue;
     }
     if (action.type === "skip") continue;
@@ -302,6 +388,10 @@ export function applyPlanToManifest(
     objects[action.key] = { etag: src.etag, size: src.size };
   }
   return { version: 1, objects };
+}
+
+export function mergeManifest(base: MediaManifest, extra: MediaManifest): MediaManifest {
+  return { version: 1, objects: { ...base.objects, ...extra.objects } };
 }
 
 export function summarizeActions(actions: readonly MediaAction[]): {
@@ -318,7 +408,7 @@ export function summarizeActions(actions: readonly MediaAction[]): {
     else if (action.type === "adopt") summary.adopt += 1;
     else if (action.type === "copy") summary.copy += 1;
     else if (action.type === "archive-then-copy") summary.changed += 1;
-    else if (action.type === "archive-then-drop") summary.dropped += 1;
+    else if (action.type === "archive-gone") summary.dropped += 1;
     else summary.forget += 1;
   }
   return summary;
@@ -340,7 +430,8 @@ export function parseManifest(text: string): MediaManifest {
     const etag = "etag" in value ? normalizeEtag(String(value.etag || "")) : "";
     const size = "size" in value ? Number((value as { size?: unknown }).size) : Number.NaN;
     if (!etag || !Number.isFinite(size) || size < 0) continue;
-    objects[key] = { etag, size };
+    const gone = "gone" in value && (value as { gone?: unknown }).gone === true;
+    objects[key] = gone ? { etag, size, gone: true } : { etag, size };
   }
   return { version: 1, objects };
 }
