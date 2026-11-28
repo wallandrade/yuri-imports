@@ -11,7 +11,9 @@ import {
   calendarDay,
   datedKeysToDelete,
   historyObjectKey,
+  journalKeysToDrop,
   journalObjectKey,
+  journalsToReplay,
   manifestDelta,
   manifestObjectKey,
   mirrorObjectKey,
@@ -136,9 +138,16 @@ async function main(): Promise<void> {
     mirror.push({ key, etag: item.etag, size: item.size });
   }
   const mirrorByKey = new Map(mirror.map((item) => [item.key, item]));
-  let manifest = await loadManifest(destClient, layout);
-  const journals = await listBackupObjects(destClient, cfg.destBucket, `${cfg.destPrefix}state/journal/`);
+  const loaded = await loadManifest(destClient, layout);
+  let manifest = loaded.manifest;
+  const journalPrefix = `${cfg.destPrefix}state/journal/`;
+  const journals = await listBackupObjects(destClient, cfg.destBucket, journalPrefix);
+  const replay = new Set(journalsToReplay(
+    journals.map((journal) => ({ key: journal.key, lastModified: journal.lastModified?.getTime() ?? null })),
+    loaded.lastModified?.getTime() ?? null,
+  ));
   for (const journal of journals) {
+    if (!replay.has(journal.key)) continue;
     const text = await readBackupText(destClient, cfg.destBucket, journal.key);
     try {
       manifest = applyStoredJournal(manifest, text);
@@ -183,7 +192,9 @@ async function main(): Promise<void> {
       log(`  lote ${part + 1}: ${Math.min(offset + chunk.length, work.length)}/${work.length}`);
     }
     await putBackupJson(destClient, layout, manifestObjectKey(cfg.destPrefix), current);
-    if (journalKeys.length) await deleteBackupKeys(destClient, layout, journalKeys, "journal");
+    const leftover = await listBackupObjects(destClient, cfg.destBucket, journalPrefix);
+    const dropJournals = journalKeysToDrop(leftover.map((journal) => journal.key), journalKeys);
+    if (dropJournals.length) await deleteBackupKeys(destClient, layout, dropJournals, "journal");
 
     const expired = cfg.retentionDays === null ? [] : await expiredMediaKeys(destClient, layout, cfg.destPrefix, day, cfg.retentionDays);
     if (cfg.retentionDays === null) log("mídia sem prazo de expiração");

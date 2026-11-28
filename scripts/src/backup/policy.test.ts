@@ -12,6 +12,8 @@ import {
   encodeCopySource,
   historyKeysForOriginal,
   historyObjectKey,
+  journalKeysToDrop,
+  journalsToReplay,
   lockCanBeTaken,
   manifestDelta,
   applyManifestDelta,
@@ -326,4 +328,15 @@ test("histórico do mesmo dia não reutiliza a chave e prefixo novo aparece", ()
   assert.equal(lockCanBeTaken({ startedAt: 0, released: true, now: 1, ttlMs: 10 }), true);
   assert.equal(sameLockOwner("run-a", "run-b"), false);
   assert.equal(sameLockOwner("run-a", "run-a"), true);
+  assert.deepEqual(
+    journalsToReplay(
+      [{ key: "old", lastModified: 100 }, { key: "new", lastModified: 300 }],
+      200,
+    ),
+    ["new"],
+  );
+  assert.deepEqual(journalKeysToDrop(["media/state/journal/old.json"], ["media/state/journal/new.json"]), [
+    "media/state/journal/old.json",
+    "media/state/journal/new.json",
+  ]);
 });

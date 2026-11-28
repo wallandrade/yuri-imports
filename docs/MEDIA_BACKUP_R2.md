@@ -13,7 +13,7 @@ A primeira execução copia cada objeto uma vez para `media/mirror/<chave origin
 - etag diferente: o espelho atual vai para `media/history/AAAA-MM-DD/HHMM/<etag>/<chave>` e a versão nova entra no espelho. A chave leva hora e etag e a cópia usa `If-None-Match`, então não sobrescreve
 - sumiu na origem: a última cópia vai para esse histórico e o espelho permanece
 
-Um arquivo apagado ou substituído na loja continua em `media/history/`. O padrão é **sem expiração**: o job não apaga espelho, histórico, manifesto nem marca. `MEDIA_BACKUP_RETENTION_DAYS` com um inteiro de 1 a 3650 passa a apagar só `media/history/` e `media/runs/` mais velhos que esse prazo. `0`, `none`, `off`, `never` ou vazio voltam para sem expiração. O espelho e o prefixo `mysql/` não entram nessa limpeza. O andamento de uma execução interrompida fica em diários pequenos em `media/state/journal/`; o manifesto inteiro só é gravado no fim.
+Um arquivo apagado ou substituído na loja continua em `media/history/`. O padrão é **sem expiração**: o job não apaga espelho, histórico, manifesto nem marca. `MEDIA_BACKUP_RETENTION_DAYS` com um inteiro de 1 a 3650 passa a apagar só `media/history/` e `media/runs/` mais velhos que esse prazo. `0`, `none`, `off`, `never` ou vazio voltam para sem expiração. O espelho e o prefixo `mysql/` não entram nessa limpeza. O andamento de uma execução interrompida fica em diários pequenos em `media/state/journal/`; o manifesto inteiro só é gravado no fim. Nesse momento todos os diários são apagados. Um diário mais antigo que o manifesto não é aplicado de novo.
 
 A marca de sucesso é `media/runs/YYYY-MM-DD_HHmm.json`. Sem ela, o vigilante trata a mídia como atrasada.
 

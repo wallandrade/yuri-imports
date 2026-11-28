@@ -427,6 +427,19 @@ export function applyManifestDelta(base: MediaManifest, delta: ManifestDelta): M
   return { version: 1, objects };
 }
 
+/** Journals already folded into a newer manifest must not be applied again. */
+export function journalsToReplay(
+  journals: readonly { key: string; lastModified: number | null }[],
+  manifestLastModified: number | null,
+): string[] {
+  const cutoff = manifestLastModified ?? 0;
+  return journals.filter((journal) => (journal.lastModified ?? 0) > cutoff).map((journal) => journal.key);
+}
+
+export function journalKeysToDrop(existing: readonly string[], writtenThisRun: readonly string[]): string[] {
+  return [...new Set([...existing, ...writtenThisRun])];
+}
+
 export function applyStoredJournal(base: MediaManifest, text: string): MediaManifest {
   const parsed = JSON.parse(text) as { upserts?: unknown; deletes?: unknown; objects?: unknown };
   if (parsed && parsed.upserts && typeof parsed.upserts === "object") {

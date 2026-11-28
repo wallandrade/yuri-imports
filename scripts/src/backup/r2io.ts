@@ -115,14 +115,14 @@ export async function readBackupText(client: S3Client, bucket: string, key: stri
   return (await got.Body?.transformToString()) || "";
 }
 
-export async function loadManifest(client: S3Client, layout: ObjectLayout): Promise<MediaManifest> {
+export async function loadManifest(client: S3Client, layout: ObjectLayout): Promise<{ manifest: MediaManifest; lastModified: Date | null }> {
   const key = manifestObjectKey(layout.destPrefix);
   try {
     const got = await client.send(new GetObjectCommand({ Bucket: layout.destBucket, Key: key }));
     const text = await got.Body?.transformToString();
-    return parseManifest(text || "");
+    return { manifest: parseManifest(text || ""), lastModified: got.LastModified ?? null };
   } catch (err) {
-    if (isNotFound(err)) return { version: 1, objects: {} };
+    if (isNotFound(err)) return { manifest: { version: 1, objects: {} }, lastModified: null };
     throw err;
   }
 }
