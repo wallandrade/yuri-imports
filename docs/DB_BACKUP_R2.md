@@ -28,8 +28,10 @@ Opcionais, iguais ao script da Ka:
 - `BACKUP_KEY_PREFIX` — padrão `mysql/`
 - `BACKUP_TIME_ZONE` — padrão `TZ` ou `America/Sao_Paulo`
 - `BACKUP_OUTPUT_FILE` — grava o `.sql.gz` nesse caminho e não envia ao R2
+- `BACKUP_ALERT_WHATSAPP` — celular do dono, só dígitos, com DDI `55` (exemplo `5535999999999`). Sem hífen. É o destino do aviso quando o dump falha. Grupo da Z-API (id com `-` ou `@g.us`) é recusado e nada é enviado
+- `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN`, `ZAPI_CLIENT_TOKEN` — a mesma instância principal que a loja já usa. O aviso é um `send-text` direto para esse celular. Não passa por n8n e não entra em grupo de cliente
 
-O token do R2 tem que ser um Account API token com Object Read & Write limitado ao bucket `yuri-imports-db-backups`.
+O token do R2 tem que ser um Account API token com Object Read & Write limitado ao bucket `yuri-imports-db-backups`. Sem essas três variáveis da Z-API, ou sem `BACKUP_ALERT_WHATSAPP`, o dump continua e a falha só aparece no log do job.
 
 ## Job agendado no DigitalOcean App Platform
 
@@ -78,7 +80,7 @@ jobs:
 
 No painel: App `yuri-imports` → Create Resources → Job → Scheduled Job. Nome `db-backup-r2`. Repositório `wallandrade/yuri-imports`, branch `main`, source directory `/`. Build `CI=true pnpm install --frozen-lockfile --prod=false`. Run command exatamente `node --max-old-space-size=192 scripts/src/db-backup-r2.mjs`. Instance size `apps-s-1vcpu-1gb`. Cron `0 3 * * *`, time zone `America/Sao_Paulo`.
 
-Uma regra de ciclo de vida no bucket (apagar objetos depois de 30 dias e uploads multipart incompletos depois de 7) fica no painel do R2, não neste script.
+Uma regra de ciclo de vida no bucket fica no painel do R2, não neste script. Ela tem que valer **só para o prefixo `mysql/`** (apagar depois de 30 dias, e uploads multipart incompletos depois de 7). Não aplique a regra no bucket inteiro: o backup da mídia usa o mesmo bucket no prefixo `media/` e um espelho apagado aos 30 dias some mesmo com o arquivo ainda na loja. Veja `docs/MEDIA_BACKUP_R2.md`.
 
 ## Rodar na mão
 
@@ -117,3 +119,9 @@ gunzip -c /tmp/yuri.sql.gz | mysql -h HOST -P PORT -u USER -p yuri_test
 ```
 
 Procedures e functions não entram no dump. Se existirem, o backup avisa e segue.
+
+## Aviso e atraso
+
+Falha do dump manda um WhatsApp para `BACKUP_ALERT_WHATSAPP` e o processo sai com código 1. Sucesso não manda mensagem.
+
+O job `backup-watchdog` (`scripts/src/backup-watchdog.ts`, cron `0 6 * * *` em `America/Sao_Paulo`) lista `mysql/` e `media/runs/`. Se o arquivo mais novo de qualquer um dos dois tiver 26 horas ou mais (`BACKUP_STALE_HOURS`), ou se não houver arquivo, manda o mesmo WhatsApp e sai com código 1. Isso pega o caso em que o job nem chegou a rodar. O canal e o passo a passo estão em `docs/MEDIA_BACKUP_R2.md`.

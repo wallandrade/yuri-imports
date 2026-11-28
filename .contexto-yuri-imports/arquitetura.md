@@ -8,6 +8,7 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Jobs de backup da mídia e do atraso | Scripts em `scripts/src/`. O painel do app `yuri-imports` é que cria o agendamento; o repo não tem spec `.do/` | A API e o dump `db-backup-r2` continuam como estavam. Sem tabela nova |
 | 2026-11-28 | Manifest da loja usa os ícones 192 e 512 | `public/manifest.webmanifest` ligado no `index.html`. `favicon-32.png` tem fundo transparente. O Apple Touch (180) usa o verde `#166534`, sem canto branco | CSP, rewrite da Vercel e a logo do cabeçalho iguais. O `sw.js` continua só notificação |
 | 2026-11-27 | O GET da fila aceita `includeProof=0` | O card não seleciona `proof_url`. A aba, sem o parâmetro, continua com o comprovante | Mesma rota. Sem coluna nova |
 | 2026-11-27 | O GET da fila de pré-confirmação devolve data e miniaturas | `orderCreatedAt` e até 4 produtos. A imagem só entra se for URL http(s) de até 400 caracteres | Mesma rota. Sem coluna nova. Status do pedido igual |
@@ -127,6 +128,7 @@ APPCNPay, DentPeg, webhooks, Cloudflare R2, Brevo, WhatsApp (links), SSE admin, 
 
 - **API:** Railway + Nixpacks — serviço `@workspace/api-server` ligado a GitHub **`wallandrade/barbearia`** / branch **`main`** (auto-deploy on push). Start: `railway.json` + `nixpacks.toml`.
 - **FE:** Vercel — `vercel.json` / `artifacts/ka-imports/vercel.json` reescreve `/api/*` → `https://yuri-imports-9483v.ondigitalocean.app/api/:path*`. O `manifest.webmanifest` fica fora desse rewrite e aponta `/icon-192.png` e `/icon-512.png`. `favicon-32.png` é RGBA transparente; `apple-touch-icon.png` é RGB com fundo `#166534`.
+- **Jobs de backup:** App Platform `yuri-imports`. Dump `db-backup-r2`, mídia `media-backup-r2`, vigilante `backup-watchdog`. YAML e envs em `docs/DB_BACKUP_R2.md` e `docs/MEDIA_BACKUP_R2.md`. Não há spec `.do/` aplicada pelo repo.
 - Remote **`oficialkaimports`** existe em paralelo (histórico divergente); **não** é o source do Railway deste serviço.
 - Anti-padrão: no Railway, **Redeploy** do deployment antigo (ex. frete grátis) sem puxar a `main` nova — a API fica sem settings novas (ex. `motoboy_eligible_product_ids` → 400 `INVALID_KEY`). Preferir deploy da `main` atual (push novo ou Deploy latest).
 

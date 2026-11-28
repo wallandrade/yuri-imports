@@ -1,6 +1,6 @@
 # Segurança e performance — Yuri Import
 
-> **Última atualização:** 2026-11-27
+> **Última atualização:** 2026-11-28
 
 Controles de segurança/performance **no código** (`artifacts/api-server/src/app.ts` e afins).
 
@@ -8,6 +8,7 @@ Controles de segurança/performance **no código** (`artifacts/api-server/src/ap
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Aviso de backup só para o celular do dono | `BACKUP_ALERT_WHATSAPP` (DDI 55, sem hífen). Id de grupo não chama a Z-API. O texto tira `mysql://` e URL da instância. Credencial do R2 continua só em env | CORS, checkout token e a senha de baixa iguais. Nenhum aviso novo em grupo de cliente |
 | 2026-11-27 | Card do painel não baixa o comprovante | `GET` com `includeProof=0` não seleciona `proof_url` e a resposta leva `proofUrl: null`. A aba Pré-confirmações continua com o arquivo | CORS e a senha de baixa iguais |
 | 2026-11-27 | Miniatura da pré-confirmação não leva base64 | O card recebe só URL http(s) curta. `data:` e texto longo viram foto vazia. O log da listagem continua sem corpo | Comprovante da aba, CORS e a senha de baixa iguais |
 | 2026-11-27 | Log da vendedora sem senha nem token | `admin_audit_log` é só inclusão. Senha, token, cookie, PIX e hash saem como `[REDACTED]`. Sem rota de editar ou apagar | CORS, firewall e a senha de baixa iguais. Nenhum WhatsApp novo na pré-confirmação |

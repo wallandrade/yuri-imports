@@ -16,9 +16,14 @@
 //   BACKUP_KEY_PREFIX                default "mysql/"
 //   BACKUP_TIME_ZONE                 default TZ or America/Sao_Paulo (used in the object key)
 //   BACKUP_OUTPUT_FILE               write the .sql.gz to this local path instead of uploading
+//   BACKUP_ALERT_WHATSAPP            owner phone (digits, country code 55). Failure alert only.
+//   ZAPI_MAIN_INSTANCE_ID            existing main Z-API instance, used solely for that alert
+//   ZAPI_MAIN_TOKEN
+//   ZAPI_CLIENT_TOKEN
 //
 // Restore:  gunzip -c FILE.sql.gz | mysql -h HOST -P PORT -u USER -p --ssl-mode=REQUIRED DBNAME
 
+import { notifyOwnerBackupAlert } from "./backup-alert.mjs";
 import { createWriteStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { Readable, Writable } from "node:stream";
@@ -376,10 +381,27 @@ process.on("beforeExit", () => {
   if (process.exitCode !== 0) console.error("[db-backup] FAILED: process ended before the backup completed");
 });
 
+async function alertDbBackupFailure(detail) {
+  try {
+    const result = await notifyOwnerBackupAlert({
+      title: "O backup do MySQL falhou.",
+      lines: [
+        "Job: db-backup-r2",
+        `Motivo: ${detail}`,
+        "Nada foi apagado no banco nem no bucket clayton-assets.",
+      ],
+    });
+    if (!result.ok) console.error(`[db-backup] aviso não enviado: ${result.error}`);
+  } catch (err) {
+    console.error(`[db-backup] aviso não enviado: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 main().then(
   () => process.exit(0),
-  (err) => {
+  async (err) => {
     console.error(`[db-backup] FAILED: ${err?.stack || err}`);
+    await alertDbBackupFailure(err?.message || String(err));
     process.exit(1);
   },
 );
