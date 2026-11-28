@@ -128,8 +128,9 @@ export function readRetentionDays(raw: string | undefined): number | null {
   if (raw === undefined) return null;
   const trimmed = raw.trim().toLowerCase();
   if (NO_MEDIA_EXPIRATION.has(trimmed)) return null;
+  if (!/^\d+$/.test(trimmed)) throw new Error("MEDIA_BACKUP_RETENTION_DAYS inválido");
   const days = Number(trimmed);
-  if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("MEDIA_BACKUP_RETENTION_DAYS inválido");
+  if (days < 1 || days > 3650) throw new Error("MEDIA_BACKUP_RETENTION_DAYS inválido");
   return days;
 }
 

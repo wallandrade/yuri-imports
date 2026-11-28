@@ -35,7 +35,7 @@ Opcionais:
 - `MEDIA_BACKUP_DEST_BUCKET` — só `yuri-imports-db-backups`. Outro nome, inclusive o bucket da loja, é recusado
 - `MEDIA_BACKUP_DEST_PREFIX` — padrão `media/`. Tem que começar com `media/`
 - `MEDIA_BACKUP_SOURCE_PREFIXES` — vazio copia o bucket inteiro, então uma pasta nova entra sozinha. Com lista, um prefixo da raiz que não esteja nela faz o job falhar e avisar, em vez de ficar de fora em silêncio
-- `MEDIA_BACKUP_RETENTION_DAYS` — padrão vazio, **sem expiração**. Inteiro de 1 a 3650 apaga só histórico e marcas. Não apaga `media/mirror/` nem `mysql/`
+- `MEDIA_BACKUP_RETENTION_DAYS` — padrão vazio, **sem expiração**. Só dígitos decimais de 1 a 3650 (`30`); `1e2` e `30.0` são recusados. Apaga só histórico e marcas. Não apaga `media/mirror/` nem `mysql/`
 - `BACKUP_TIME_ZONE` — padrão `America/Sao_Paulo`, usado no nome do histórico e da marca
 - `BACKUP_S3_ENDPOINT` / `BACKUP_S3_REGION` — iguais ao dump, se não for R2
 - `MEDIA_BACKUP_DRY_RUN=1` — só lista e imprime o plano. Não grava marca de sucesso
@@ -137,6 +137,6 @@ MEDIA_RESTORE_OUTPUT=/tmp/foto-antiga.jpg \
 pnpm --filter @workspace/scripts restore:media:r2
 ```
 
-As chaves de leitura são `MEDIA_BACKUP_R2_*` ou, se essas não existirem, `BACKUP_R2_*`, mais `CLOUDFLARE_R2_ACCOUNT_ID`. Para devolver o arquivo à loja, suba de novo pelo admin ou copie o arquivo local para `clayton-assets` na chave original, no painel da Cloudflare. Não há comando neste repositório que grave de volta no bucket da loja.
+As chaves de leitura, nesta ordem, são `MEDIA_BACKUP_DEST_R2_*`, senão `BACKUP_WATCHDOG_R2_*`, senão `BACKUP_R2_*`, mais `CLOUDFLARE_R2_ACCOUNT_ID`. Para devolver o arquivo à loja, suba de novo pelo admin ou copie o arquivo local para `clayton-assets` na chave original, no painel da Cloudflare. Não há comando neste repositório que grave de volta no bucket da loja.
 
 Dump do MySQL: continue em `docs/DB_BACKUP_R2.md`. O restore do banco recusa qualquer database cujo nome não contenha `test`.

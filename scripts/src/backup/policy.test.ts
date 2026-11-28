@@ -193,6 +193,8 @@ test("a retenção guarda o dia do corte e não mexe no dump nem no espelho", ()
   assert.equal(readRetentionDays("0"), null);
   assert.equal(readRetentionDays("30"), 30);
   assert.throws(() => readRetentionDays("abc"), /inválido/);
+  assert.throws(() => readRetentionDays("1e2"), /inválido/);
+  assert.throws(() => readRetentionDays("30.0"), /inválido/);
   const keys = [
     "media/history/2026-10-28/products/velho.jpg",
     "media/history/2026-10-29/products/no-corte.jpg",
