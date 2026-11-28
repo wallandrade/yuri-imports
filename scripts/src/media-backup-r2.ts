@@ -10,7 +10,9 @@
 //   media/runs/YYYY-MM-DD_HHmm.json               success marker for the watchdog
 //
 // Unchanged files are not copied again. A changed or deleted file keeps the
-// previous bytes under history/ until MEDIA_BACKUP_RETENTION_DAYS (default 30).
+// previous bytes under history/. MEDIA_BACKUP_RETENTION_DAYS defaults to no
+// expiration, so history is kept. A positive number deletes only history/ and
+// runs/ older than that many days, never the mirror and never mysql/.
 
 import { notifyOwnerBackupAlert } from "./backup-alert.mjs";
 import {
@@ -135,15 +137,11 @@ async function main(): Promise<void> {
     log(`  manifesto ${Math.min(offset + chunk.length, work.length)}/${work.length}`);
   }
 
-  const historyListed = await listBackupObjects(client, cfg.destBucket, `${cfg.destPrefix}history/`);
-  const runsListed = await listBackupObjects(client, cfg.destBucket, `${cfg.destPrefix}runs/`);
-  const expired = [
-    ...datedKeysToDelete(historyListed.map((item) => item.key), `${cfg.destPrefix}history/`, day, cfg.retentionDays),
-    ...datedKeysToDelete(runsListed.map((item) => item.key), `${cfg.destPrefix}runs/`, day, cfg.retentionDays),
-  ];
-  if (expired.length) {
+  const expired = cfg.retentionDays === null ? [] : await expiredMediaKeys(client, layout, cfg.destPrefix, day, cfg.retentionDays);
+  if (cfg.retentionDays === null) log("mídia sem prazo de expiração");
+  else if (expired.length) {
     await deleteBackupKeys(client, layout, expired, "retention");
-    log(`retenção: ${expired.length} objetos com mais de ${cfg.retentionDays} dias`);
+    log(`retenção da mídia: ${expired.length} objetos de histórico com mais de ${cfg.retentionDays} dias`);
   }
 
   const stamp = stampMinute(new Date(), cfg.timeZone);
@@ -157,6 +155,21 @@ async function main(): Promise<void> {
   };
   await putBackupJson(client, layout, runMarkerObjectKey(cfg.destPrefix, stamp), marker);
   log(`OK ${cfg.destBucket}/${cfg.destPrefix}runs/${stamp}.json em ${((Date.now() - started) / 1000).toFixed(1)}s`);
+}
+
+async function expiredMediaKeys(
+  client: ReturnType<typeof createR2Client>,
+  layout: ObjectLayout,
+  destPrefix: string,
+  day: string,
+  retentionDays: number,
+): Promise<string[]> {
+  const historyListed = await listBackupObjects(client, layout.destBucket, `${destPrefix}history/`);
+  const runsListed = await listBackupObjects(client, layout.destBucket, `${destPrefix}runs/`);
+  return [
+    ...datedKeysToDelete(historyListed.map((item) => item.key), `${destPrefix}history/`, day, retentionDays),
+    ...datedKeysToDelete(runsListed.map((item) => item.key), `${destPrefix}runs/`, day, retentionDays),
+  ];
 }
 
 async function perform(

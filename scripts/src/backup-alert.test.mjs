@@ -4,7 +4,7 @@ import test from "node:test";
 import { backupAlertText, notifyOwnerBackupAlert, ownerAlertPhone, redactAlertDetail } from "./backup-alert.mjs";
 
 const ENV = {
-  BACKUP_ALERT_WHATSAPP: "5535999999999",
+  BACKUP_ALERT_PHONE: "5535999999999",
   ZAPI_MAIN_INSTANCE_ID: "instanciaMain1",
   ZAPI_MAIN_TOKEN: "token-de-teste",
   ZAPI_CLIENT_TOKEN: "client-de-teste",
@@ -39,14 +39,14 @@ test("grupo e destino vazio não chamam a Z-API", async () => {
   };
   const group = await notifyOwnerBackupAlert({
     title: "falhou",
-    env: { ...ENV, BACKUP_ALERT_WHATSAPP: "553591710559-1525960254" },
+    env: { ...ENV, BACKUP_ALERT_PHONE: "553591710559-1525960254" },
     fetchImpl,
   });
   assert.equal(group.ok, false);
   assert.equal(group.error, "destino é grupo");
   const missing = await notifyOwnerBackupAlert({
     title: "falhou",
-    env: { ...ENV, BACKUP_ALERT_WHATSAPP: "" },
+    env: { ...ENV, BACKUP_ALERT_PHONE: "" },
     fetchImpl,
   });
   assert.equal(missing.ok, false);

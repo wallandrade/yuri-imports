@@ -37,8 +37,8 @@ function zapiReady(instanceId, token, clientToken) {
 }
 
 export function backupAlertConfigured(env = process.env) {
-  const phone = ownerAlertPhone(readEnv(env, "BACKUP_ALERT_WHATSAPP"));
-  if (!phone.ok) return { ok: false, error: phone.reason === "group" ? "destino é grupo" : "BACKUP_ALERT_WHATSAPP ausente ou inválido" };
+  const phone = ownerAlertPhone(readEnv(env, "BACKUP_ALERT_PHONE"));
+  if (!phone.ok) return { ok: false, error: phone.reason === "group" ? "destino é grupo" : "BACKUP_ALERT_PHONE ausente ou inválido" };
   const instanceId = readEnv(env, "ZAPI_MAIN_INSTANCE_ID");
   const token = readEnv(env, "ZAPI_MAIN_TOKEN");
   const clientToken = readEnv(env, "ZAPI_CLIENT_TOKEN");
@@ -47,14 +47,14 @@ export function backupAlertConfigured(env = process.env) {
 }
 
 /**
- * Sends one text to BACKUP_ALERT_WHATSAPP through the main Z-API instance.
- * Does not throw. Does not log the token or the request URL.
+ * Sends one text to BACKUP_ALERT_PHONE through the main Z-API instance.
+ * Does not throw. Does not log the token, the URL, or the phone.
  */
 export async function notifyOwnerBackupAlert({ title, lines, env = process.env, fetchImpl = fetch }) {
   const ready = backupAlertConfigured(env);
   if (!ready.ok) return ready;
-  const phone = ownerAlertPhone(readEnv(env, "BACKUP_ALERT_WHATSAPP"));
-  if (!phone.ok) return { ok: false, error: "BACKUP_ALERT_WHATSAPP ausente ou inválido" };
+  const phone = ownerAlertPhone(readEnv(env, "BACKUP_ALERT_PHONE"));
+  if (!phone.ok) return { ok: false, error: "BACKUP_ALERT_PHONE ausente ou inválido" };
   const instanceId = readEnv(env, "ZAPI_MAIN_INSTANCE_ID");
   const token = readEnv(env, "ZAPI_MAIN_TOKEN");
   const clientToken = readEnv(env, "ZAPI_CLIENT_TOKEN");
@@ -70,9 +70,15 @@ export async function notifyOwnerBackupAlert({ title, lines, env = process.env, 
       },
       body: JSON.stringify({ phone: phone.phone, message }),
     });
-    if (!response.ok) return { ok: false, error: `HTTP ${response.status}` };
+    if (!response.ok) {
+      const error = `HTTP ${response.status}`;
+      console.error(`[backup-alert] Z-API não enviou o aviso: ${error}`);
+      return { ok: false, error };
+    }
     return { ok: true, error: "" };
-  } catch {
-    return { ok: false, error: "request_failed" };
+  } catch (err) {
+    const error = err instanceof Error && err.name === "AbortError" ? "timeout" : "request_failed";
+    console.error(`[backup-alert] Z-API não enviou o aviso: ${error}`);
+    return { ok: false, error };
   }
 }

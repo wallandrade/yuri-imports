@@ -13,7 +13,7 @@ A primeira execução copia cada objeto uma vez para `media/mirror/<chave origin
 - etag diferente: o espelho atual vai para `media/history/YYYY-MM-DD/<chave>` e a versão nova entra no espelho
 - sumiu na origem: a última cópia vai para o histórico do dia e sai do espelho
 
-Um arquivo apagado ou substituído na loja continua em `media/history/` até a retenção (padrão 30 dias). O histórico mais velho que isso é apagado pelo próprio job, só debaixo de `media/history/` e `media/runs/`. O manifesto é regravado a cada 40 arquivos, então um job interrompido no dia seguinte continua de onde parou em vez de baixar tudo de novo.
+Um arquivo apagado ou substituído na loja continua em `media/history/`. O padrão é **sem expiração**: o job não apaga espelho, histórico, manifesto nem marca. `MEDIA_BACKUP_RETENTION_DAYS` com um inteiro de 1 a 3650 passa a apagar só `media/history/` e `media/runs/` mais velhos que esse prazo. `0`, `none`, `off`, `never` ou vazio voltam para sem expiração. O espelho e o prefixo `mysql/` não entram nessa limpeza. O manifesto é regravado a cada 40 arquivos, então um job interrompido no dia seguinte continua de onde parou.
 
 A marca de sucesso é `media/runs/YYYY-MM-DD_HHmm.json`. Sem ela, o vigilante trata a mídia como atrasada.
 
@@ -25,7 +25,7 @@ Obrigatórias no job `media-backup-r2`:
 
 - `CLOUDFLARE_R2_ACCOUNT_ID` — o mesmo account id do dump. O endpoint é `https://<id>.r2.cloudflarestorage.com`
 - `MEDIA_BACKUP_R2_ACCESS_KEY_ID` e `MEDIA_BACKUP_R2_SECRET_ACCESS_KEY` — token com **leitura** em `clayton-assets` e **leitura e escrita** em `yuri-imports-db-backups`. Não reutilize o token estreito do dump se ele não lê o bucket da loja. Se o painel da Cloudflare só deixar o mesmo nível nos dois buckets, use Read & Write nos dois: o script recusa escrita quando o destino é o bucket de origem
-- `BACKUP_ALERT_WHATSAPP` — **esta variável é o destino do aviso.** Celular do dono, só dígitos, DDI `55`, sem hífen (`5535999999999`). Também aceita espaço e parêntese (`+55 (35) 999999999`). Um id de grupo (`5535…-1525…` ou `@g.us`) é recusado e nenhuma mensagem sai
+- `BACKUP_ALERT_PHONE` — **esta variável é o destino do aviso.** Celular do dono, só dígitos, DDI `55`, sem hífen. O número não vai no repositório. Espaço e parêntese são aceitos; hífen não. Um id de grupo (`…-…` ou `@g.us`) é recusado e nenhuma mensagem sai. Se a Z-API recusar ou não responder, o job grava `[backup-alert] Z-API não enviou o aviso` no log, sem token e sem URL
 - `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN`, `ZAPI_CLIENT_TOKEN` — instância principal que a loja já usa. O aviso é `POST /send-text` em `https://api.z-api.io`, direto, sem n8n e sem grupo
 
 Opcionais:
@@ -34,7 +34,7 @@ Opcionais:
 - `MEDIA_BACKUP_DEST_BUCKET` — padrão `BACKUP_R2_BUCKET` ou `yuri-imports-db-backups`
 - `MEDIA_BACKUP_DEST_PREFIX` — padrão `media/`. Tem que começar com `media/`
 - `MEDIA_BACKUP_SOURCE_PREFIXES` — lista separada por vírgula. Vazio é erro, para não varrer o bucket sem querer
-- `MEDIA_BACKUP_RETENTION_DAYS` — padrão `30` (inteiro de 1 a 3650). O dia exato do corte fica; só some o que é mais velho
+- `MEDIA_BACKUP_RETENTION_DAYS` — padrão vazio, **sem expiração**. Inteiro de 1 a 3650 apaga só histórico e marcas. Não apaga `media/mirror/` nem `mysql/`
 - `BACKUP_TIME_ZONE` — padrão `America/Sao_Paulo`, usado no nome do histórico e da marca
 - `BACKUP_S3_ENDPOINT` / `BACKUP_S3_REGION` — iguais ao dump, se não for R2
 - `MEDIA_BACKUP_DRY_RUN=1` — só lista e imprime o plano. Não grava marca de sucesso
@@ -42,12 +42,12 @@ Opcionais:
 O vigilante (`backup-watchdog`) lê o bucket de backup com o token que o dump já usa:
 
 - `BACKUP_R2_ACCESS_KEY_ID`, `BACKUP_R2_SECRET_ACCESS_KEY`, `BACKUP_R2_BUCKET`, `CLOUDFLARE_R2_ACCOUNT_ID`
-- `BACKUP_ALERT_WHATSAPP` e as três `ZAPI_MAIN_*` / `ZAPI_CLIENT_TOKEN`
+- `BACKUP_ALERT_PHONE` e as três `ZAPI_MAIN_*` / `ZAPI_CLIENT_TOKEN`
 - `BACKUP_STALE_HOURS` — padrão `26`, entre 20 e 48. Idade maior ou igual a isso dispara o aviso
 - `BACKUP_KEY_PREFIX` — padrão `mysql/`, o mesmo do dump
 - `MEDIA_BACKUP_DEST_PREFIX` — se o prefixo da mídia não for `media/`
 
-Canal: WhatsApp da Z-API para o número em `BACKUP_ALERT_WHATSAPP`. E-mail da Brevo fica na tabela `site_settings` e não serve quando o MySQL está fora. O job também sai com código 1, então um alerta de job falho no painel do DigitalOcean (App → Insights → Alerts, se a conta tiver) é um segundo sinal, opcional. Não há chamada a n8n.
+Canal do texto: WhatsApp da Z-API para o número em `BACKUP_ALERT_PHONE`, instância `ZAPI_MAIN_*`. Sem n8n. E-mail da Brevo fica na tabela `site_settings` e não serve quando o MySQL está fora. O segundo canal é o e-mail de alerta do App Platform, ligado no painel (abaixo). O spec público não tem a regra “Failed job invocation”; `DEPLOYMENT_FAILED` existe, mas este repositório não guarda o app spec. Um arquivo parcial aplicado no app substituiria o que está no ar, então o e-mail não entra num yaml daqui.
 
 Sem o número ou sem a instância, o vigilante sai com código 1 mesmo com os backups em dia, para o silêncio não parecer que está tudo certo. O dump e a cópia da mídia, se terminarem bem, não falham por causa do aviso.
 
@@ -83,7 +83,7 @@ jobs:
 
 O dump continua `0 3 * * *`. Às 6h, um dump das 3h tem 3 horas. Se o dump das 3h não rodou, o de ontem tem 27 horas e o vigilante avisa. O mesmo vale para a marca `media/runs/`.
 
-No job `db-backup-r2` que já existe, acrescente `BACKUP_ALERT_WHATSAPP`, `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN` como SECRET de runtime. O comando de execução não muda.
+No job `db-backup-r2` que já existe, acrescente `BACKUP_ALERT_PHONE`, `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN` como SECRET de runtime. O comando de execução não muda.
 
 ## Passo a passo no painel (não dá para fazer daqui)
 
@@ -91,10 +91,15 @@ No job `db-backup-r2` que já existe, acrescente `BACKUP_ALERT_WHATSAPP`, `ZAPI_
 2. Crie um API token da conta com Object Read em `clayton-assets` e Object Read & Write em `yuri-imports-db-backups`. Guarde o Access Key ID e o Secret. Não cole no git.
 3. App Platform → app `yuri-imports` → Create Resources → Job → Scheduled Job.
    - Nome `media-backup-r2`. Repositório `wallandrade/yuri-imports`, branch `main`, source `/`. Build igual ao do dump. Run command `pnpm --filter @workspace/scripts backup:media:r2`. Cron `30 3 * * *`, time zone `America/Sao_Paulo`. Tamanho `apps-s-1vcpu-1gb`.
-   - Envs SECRET: `CLOUDFLARE_R2_ACCOUNT_ID`, `MEDIA_BACKUP_R2_ACCESS_KEY_ID`, `MEDIA_BACKUP_R2_SECRET_ACCESS_KEY`, `BACKUP_ALERT_WHATSAPP`, `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN`, `ZAPI_CLIENT_TOKEN`.
-4. Outro job, nome `backup-watchdog`. Run command `pnpm --filter @workspace/scripts backup:watchdog`. Cron `0 6 * * *`, o mesmo fuso e o mesmo tamanho. Envs SECRET: `CLOUDFLARE_R2_ACCOUNT_ID`, `BACKUP_R2_BUCKET` = `yuri-imports-db-backups`, `BACKUP_R2_ACCESS_KEY_ID`, `BACKUP_R2_SECRET_ACCESS_KEY` (o token do dump já lê esse bucket), mais `BACKUP_ALERT_WHATSAPP` e as três da Z-API.
-5. No job `db-backup-r2`, as quatro variáveis do aviso (`BACKUP_ALERT_WHATSAPP` e as três da Z-API).
-6. Opcional: no app, um alerta de job falho para o e-mail da conta DigitalOcean. O WhatsApp continua sendo o aviso que enxerga “não rodou”.
+   - Envs SECRET: `CLOUDFLARE_R2_ACCOUNT_ID`, `MEDIA_BACKUP_R2_ACCESS_KEY_ID`, `MEDIA_BACKUP_R2_SECRET_ACCESS_KEY`, `BACKUP_ALERT_PHONE`, `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN`, `ZAPI_CLIENT_TOKEN`.
+4. Outro job, nome `backup-watchdog`. Run command `pnpm --filter @workspace/scripts backup:watchdog`. Cron `0 6 * * *`, o mesmo fuso e o mesmo tamanho. Envs SECRET: `CLOUDFLARE_R2_ACCOUNT_ID`, `BACKUP_R2_BUCKET` = `yuri-imports-db-backups`, `BACKUP_R2_ACCESS_KEY_ID`, `BACKUP_R2_SECRET_ACCESS_KEY` (o token do dump já lê esse bucket), mais `BACKUP_ALERT_PHONE` e as três da Z-API.
+5. No job `db-backup-r2`, as quatro variáveis do aviso (`BACKUP_ALERT_PHONE` e as três da Z-API).
+6. E-mail da DigitalOcean, no app `yuri-imports` → **Settings** → **Alert Policies** → **Edit**:
+   - Ligue **Failed deployment** (deploy falhou). O e-mail padrão da conta já cobre deploy novo.
+   - Ligue **Failed job invocation** (job falhou). É o aviso quando `db-backup-r2`, `media-backup-r2` ou `backup-watchdog` saem com código 1. O vigilante sai com 1 se o backup não rodou nas últimas 26h, então o e-mail também pega “não rodou”, no dia seguinte às 6h.
+   - Método: **Email**. O destino tem que ser um membro do time com acesso ao app. Confira se o e-mail do dono está na lista. Slack não entra.
+   - **Save**.
+   Isso não dá para declarar com segurança no spec do repositório: a regra de job falho não está no enum do app spec, e não há `.do/` com o spec completo do app.
 
 Nada disso altera pedido, PIX ou estoque. Deploy do app só passa a valer depois do merge na `main` e do próximo build dos jobs. Esta mudança não publica nem faz merge.
 

@@ -23,6 +23,7 @@ import {
   type MediaManifest,
   type MediaObject,
 } from "./policy";
+import { mysqlDumpKeysToDelete } from "../mysql-retention.mjs";
 
 const PREFIXES = ["products/", "tracking-labels/", "admin-images/"];
 const DAY = "2026-11-28";
@@ -37,7 +38,7 @@ test("a configuração padrão separa a loja do bucket de backup", () => {
   assert.equal(config.sourceBucket, "clayton-assets");
   assert.equal(config.destBucket, "yuri-imports-db-backups");
   assert.equal(config.destPrefix, "media/");
-  assert.equal(config.retentionDays, 30);
+  assert.equal(config.retentionDays, null);
   assert.ok(config.prefixes.includes("products/"));
   assert.ok(config.prefixes.includes("admin-images/"));
   assert.ok(config.prefixes.includes("tracking-labels/"));
@@ -172,8 +173,12 @@ test("listagem vazia da origem não apaga um espelho que já existe", () => {
 test("a retenção guarda o dia do corte e não mexe no dump nem no espelho", () => {
   assert.equal(addCalendarDays("2026-11-28", -30), "2026-10-29");
   assert.equal(addCalendarDays("2026-01-05", -10), "2025-12-26");
-  assert.equal(readRetentionDays(undefined), 30);
-  assert.throws(() => readRetentionDays("0"), /inválido/);
+  assert.equal(readRetentionDays(undefined), null);
+  assert.equal(readRetentionDays(""), null);
+  assert.equal(readRetentionDays("none"), null);
+  assert.equal(readRetentionDays("0"), null);
+  assert.equal(readRetentionDays("30"), 30);
+  assert.throws(() => readRetentionDays("abc"), /inválido/);
   const keys = [
     "media/history/2026-10-28/products/velho.jpg",
     "media/history/2026-10-29/products/no-corte.jpg",
@@ -244,6 +249,20 @@ test("26h sem arquivo novo é atraso; backup das 3h ainda vale às 5h", () => {
   });
   assert.equal(newest.sampleKey, "mysql/2026-11-13_0300.sql.gz");
   assert.equal(newest.ok, true);
+});
+
+test("a limpeza do bucket só apaga mysql/*.sql.gz com mais de 30 dias", () => {
+  const keys = [
+    "mysql/2026-10-28_0300.sql.gz",
+    "mysql/2026-10-29_0300.sql.gz",
+    "mysql/2026-11-27_0300.sql.gz",
+    "mysql/notes.txt",
+    "media/mirror/products/a.jpg",
+    "media/history/2020-01-01/products/a.jpg",
+    "media/runs/2020-01-01_0300.json",
+    "media/mysql/2020-01-01_0300.sql.gz",
+  ];
+  assert.deepEqual(mysqlDumpKeysToDelete(keys, DAY), ["mysql/2026-10-28_0300.sql.gz"]);
 });
 
 test("o vigilante só olha dump .sql.gz e marca de execução da mídia", () => {

@@ -13,7 +13,8 @@ export const DEFAULT_SOURCE_PREFIXES = [
 
 export const DEFAULT_TIME_ZONE = "America/Sao_Paulo";
 export const DEFAULT_STALE_HOURS = 26;
-export const DEFAULT_RETENTION_DAYS = 30;
+
+const NO_MEDIA_EXPIRATION = new Set(["", "0", "none", "off", "never", "sem", "infinito"]);
 
 export type Env = Record<string, string | undefined>;
 
@@ -90,8 +91,12 @@ export function keyInPrefixes(key: string, prefixes: readonly string[]): boolean
   return prefixes.some((prefix) => key.startsWith(prefix));
 }
 
-export function readRetentionDays(raw: string | undefined): number {
-  const days = raw === undefined || raw.trim() === "" ? DEFAULT_RETENTION_DAYS : Number(raw);
+/** null = keep media forever. A positive integer expires only history/ and runs/, never the mirror. */
+export function readRetentionDays(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const trimmed = raw.trim().toLowerCase();
+  if (NO_MEDIA_EXPIRATION.has(trimmed)) return null;
+  const days = Number(trimmed);
   if (!Number.isInteger(days) || days < 1 || days > 3650) throw new Error("MEDIA_BACKUP_RETENTION_DAYS inválido");
   return days;
 }
@@ -109,7 +114,7 @@ export type MediaBackupConfig = {
   destBucket: string;
   destPrefix: string;
   prefixes: string[];
-  retentionDays: number;
+  retentionDays: number | null;
   timeZone: string;
   dryRun: boolean;
 };
