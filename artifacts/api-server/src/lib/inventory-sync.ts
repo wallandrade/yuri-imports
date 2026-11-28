@@ -4,6 +4,7 @@ import {
   db,
   inventoryMinasBalancesTable,
   inventoryMotoboyBalancesTable,
+  inventorySantaCatarinaBalancesTable,
   productsTable,
 } from "@workspace/db";
 import { signMotoboyCoverageBody } from "./motoboy-coverage-sync";
@@ -25,6 +26,7 @@ export type InventorySyncSnapshot = {
   source: "yury-imports";
   motoboy: InventorySyncBalanceRow[];
   minas: InventorySyncBalanceRow[];
+  santaCatarina: InventorySyncBalanceRow[];
 };
 
 export type InventoryChangedPayload = {
@@ -38,6 +40,7 @@ export type InventoryChangedPayload = {
   balances: {
     motoboy: number;
     minas: number;
+    santaCatarina: number;
   };
 };
 
@@ -83,7 +86,7 @@ export function isInventorySyncTokenValid(req: {
 }
 
 async function qtyFromTable(
-  table: typeof inventoryMotoboyBalancesTable | typeof inventoryMinasBalancesTable,
+  table: typeof inventoryMotoboyBalancesTable | typeof inventoryMinasBalancesTable | typeof inventorySantaCatarinaBalancesTable,
   productId: string,
 ): Promise<number> {
   const rows = await db
@@ -94,12 +97,13 @@ async function qtyFromTable(
   return Number(rows[0]?.quantity || 0);
 }
 
-export async function getProductPoolBalances(productId: string): Promise<{ motoboy: number; minas: number }> {
-  const [motoboy, minas] = await Promise.all([
+export async function getProductPoolBalances(productId: string): Promise<{ motoboy: number; minas: number; santaCatarina: number }> {
+  const [motoboy, minas, santaCatarina] = await Promise.all([
     qtyFromTable(inventoryMotoboyBalancesTable, productId),
     qtyFromTable(inventoryMinasBalancesTable, productId),
+    qtyFromTable(inventorySantaCatarinaBalancesTable, productId),
   ]);
-  return { motoboy, minas };
+  return { motoboy, minas, santaCatarina };
 }
 
 function mapBalanceRows(
@@ -116,7 +120,7 @@ function mapBalanceRows(
 }
 
 export async function getInventorySyncSnapshot(): Promise<InventorySyncSnapshot> {
-  const [motoboyRows, minasRows, productsRows] = await Promise.all([
+  const [motoboyRows, minasRows, santaCatarinaRows, productsRows] = await Promise.all([
     db
       .select({
         productId: inventoryMotoboyBalancesTable.productId,
@@ -129,13 +133,19 @@ export async function getInventorySyncSnapshot(): Promise<InventorySyncSnapshot>
         quantity: inventoryMinasBalancesTable.quantity,
       })
       .from(inventoryMinasBalancesTable),
+    db
+      .select({
+        productId: inventorySantaCatarinaBalancesTable.productId,
+        quantity: inventorySantaCatarinaBalancesTable.quantity,
+      })
+      .from(inventorySantaCatarinaBalancesTable),
     db.select({ id: productsTable.id, name: productsTable.name }).from(productsTable),
   ]);
 
   const nameById = await enrichNameMapWithLegacyOrders(
     buildProductNameMap(productsRows),
     buildCatalogIndex(productsRows),
-    [...motoboyRows, ...minasRows].map((row) => row.productId),
+    [...motoboyRows, ...minasRows, ...santaCatarinaRows].map((row) => row.productId),
   );
 
   return {
@@ -143,6 +153,7 @@ export async function getInventorySyncSnapshot(): Promise<InventorySyncSnapshot>
     source: "yury-imports",
     motoboy: mapBalanceRows(motoboyRows, nameById),
     minas: mapBalanceRows(minasRows, nameById),
+    santaCatarina: mapBalanceRows(santaCatarinaRows, nameById),
   };
 }
 

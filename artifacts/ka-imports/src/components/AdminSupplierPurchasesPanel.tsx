@@ -635,6 +635,7 @@ export function AdminSupplierPurchasesPanel({ isPrimary, onCompleted }: Props) {
                         <option value="loja">Foz Guaçu</option>
                         <option value="motoboy">Motoboy</option>
                         <option value="minas">Minas</option>
+                        <option value="santa_catarina">Santa Catarina</option>
                       </select>
                       <Button
                         type="button"

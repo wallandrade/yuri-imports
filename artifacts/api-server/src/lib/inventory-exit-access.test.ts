@@ -46,9 +46,10 @@ test("baixa de estoque não inventa senha quando a variável está vazia", () =>
   assert.equal(inventoryExitBootstrapPassword("  definida-no-ambiente  "), "definida-no-ambiente");
 });
 
-test("inventoryExitPasswordApplies só Motoboy/Minas", () => {
+test("inventoryExitPasswordApplies só Motoboy/Minas/Santa Catarina", () => {
   assert.equal(inventoryExitPasswordApplies("motoboy"), true);
   assert.equal(inventoryExitPasswordApplies("minas"), true);
+  assert.equal(inventoryExitPasswordApplies("santa_catarina"), true);
   assert.equal(inventoryExitPasswordApplies("loja"), false);
   assert.equal(inventoryExitPasswordApplies(null), false);
 });

@@ -19,7 +19,7 @@ function formatTimeBR(date: string | Date | undefined | null): string {
 
 function inventoryPoolNeedsExitPassword(pool: string | null | undefined): boolean {
   const value = String(pool || "").toLowerCase().trim();
-  return value === "motoboy" || value === "minas";
+  return value === "motoboy" || value === "minas" || value === "santa_catarina";
 }
 
 function isInventoryExitPasswordError(data: { error?: string; passwordRequired?: boolean; message?: string } | null | undefined): boolean {
@@ -399,6 +399,15 @@ function SendQueueCard<T extends {
   onPhotoOpen,
   onPhotoHover,
   onPhotoHoverEnd,
+  tone = "amber",
+  className = "mt-3",
+  onTransfer,
+  transferLabel,
+  transferIcon,
+  transferBusyId,
+  isCustomerNotified,
+  onMarkSent,
+  markSentBusyId,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -413,39 +422,81 @@ function SendQueueCard<T extends {
   onPhotoOpen: (src: string, name: string) => void;
   onPhotoHover: (hover: { src: string; name: string; top: number; left: number }) => void;
   onPhotoHoverEnd: () => void;
+  tone?: "amber" | "orange";
+  className?: string;
+  onTransfer?: (order: T, event: React.MouseEvent<HTMLButtonElement>) => void;
+  transferLabel?: string;
+  transferIcon?: React.ReactNode;
+  transferBusyId?: string | null;
+  isCustomerNotified?: (order: T) => boolean;
+  onMarkSent?: (order: T, event: React.MouseEvent<HTMLButtonElement>) => void;
+  markSentBusyId?: string | null;
 }) {
+  const palette = tone === "orange"
+    ? {
+        card: "bg-orange-50 border-orange-300 hover:bg-orange-100",
+        title: "text-orange-700",
+        button: "text-orange-900 bg-white border-orange-300 hover:bg-orange-100",
+        badge: "bg-orange-200 text-orange-800",
+        empty: "text-orange-700/80",
+        row: "bg-white border-orange-200",
+        name: "text-orange-950",
+        meta: "text-orange-700/80",
+        total: "text-orange-800 bg-orange-100",
+      }
+    : {
+        card: "bg-amber-50 border-amber-300 hover:bg-amber-100",
+        title: "text-amber-700",
+        button: "text-amber-900 bg-white border-amber-300 hover:bg-amber-100",
+        badge: "bg-amber-200 text-amber-800",
+        empty: "text-amber-700/80",
+        row: "bg-white border-amber-200",
+        name: "text-amber-900",
+        meta: "text-amber-700/80",
+        total: "text-amber-700 bg-amber-100",
+      };
   return (
     <div
-      className="mt-3 rounded-xl border p-4 bg-amber-50 border-amber-300 cursor-pointer hover:bg-amber-100 transition"
+      className={`${className} rounded-xl border p-4 cursor-pointer transition ${palette.card}`}
       onClick={onOpenList}
       title={titleAttr}
     >
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className={`text-xs font-semibold uppercase tracking-wide flex items-center gap-1.5 ${palette.title}`}>
           {icon} {title}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={onCopy}
-            className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-900 bg-white border border-amber-300 px-2 py-0.5 rounded-full hover:bg-amber-100"
+            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${palette.button}`}
           >
             <Copy className="w-3 h-3" /> Copiar TXT
           </button>
-          <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${palette.badge}`}>
             {badge}
           </span>
         </div>
       </div>
       {orders.length === 0 ? (
-        <p className="text-sm text-amber-700/80 flex items-center gap-1.5">
+        <p className={`text-sm flex items-center gap-1.5 ${palette.empty}`}>
           <CheckCircle className="w-4 h-4 text-green-500" /> {emptyText}
         </p>
       ) : (
         <div className="space-y-1.5 max-h-[320px] overflow-y-auto" onScroll={onPhotoHoverEnd}>
           {orders.map((order) => {
             const lateDays = daysSince(order.createdAt);
-            const late = lateDays > 3;
+            const notified = isCustomerNotified?.(order) === true;
+            const late = !notified && lateDays > 3;
+            const busy = transferBusyId === order.id;
+            const sending = markSentBusyId === order.id;
+            const rowClass = notified
+              ? "bg-emerald-50 border-emerald-300"
+              : late
+                ? "bg-red-50 border-red-300"
+                : palette.row;
+            const nameClass = notified ? "text-emerald-950" : late ? "text-red-950" : palette.name;
+            const metaClass = notified ? "text-emerald-800/80" : late ? "text-red-800/80" : palette.meta;
             return (
               <div
                 key={order.id}
@@ -454,7 +505,7 @@ function SendQueueCard<T extends {
                   event.stopPropagation();
                   onOpenOrder(order);
                 }}
-                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border cursor-pointer hover:brightness-[0.98] ${late ? "bg-red-50 border-red-300" : "bg-white border-amber-200"}`}
+                className={`flex items-center gap-2 rounded-lg px-3 py-1.5 border cursor-pointer hover:brightness-[0.98] ${rowClass}`}
               >
                 <SendCardProductThumbs
                   items={sendCardThumbProducts(order as SendCardOrder)}
@@ -464,17 +515,49 @@ function SendQueueCard<T extends {
                   onHoverEnd={onPhotoHoverEnd}
                 />
                 <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-medium truncate ${late ? "text-red-950" : "text-amber-900"}`}>{order.clientName}</p>
-                  <p className={`text-xs ${late ? "text-red-800/80" : "text-amber-700/80"}`}>#{getOrderReference(order)} · {formatDateBR(order.createdAt)}</p>
+                  <p className={`text-sm font-medium truncate ${nameClass}`}>{order.clientName}</p>
+                  <p className={`text-xs ${metaClass}`}>#{getOrderReference(order)} · {formatDateBR(order.createdAt)}</p>
                 </div>
+                {notified ? (
+                  <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap">
+                    Cliente avisado
+                  </span>
+                ) : null}
                 {late ? (
                   <span className="text-[10px] font-semibold text-red-800 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full whitespace-nowrap">
                     {lateDays} dias sem enviar
                   </span>
                 ) : null}
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${late ? "text-red-800 bg-red-100" : "text-amber-700 bg-amber-100"}`}>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${notified ? "text-emerald-800 bg-emerald-100" : late ? "text-red-800 bg-red-100" : palette.total}`}>
                   {formatCurrency(Number(order.total))}
                 </span>
+                {onMarkSent ? (
+                  <button
+                    type="button"
+                    title="Marcar como enviado sem baixar estoque"
+                    disabled={sending || busy}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      onMarkSent(order, event);
+                    }}
+                    className="shrink-0 h-7 px-2 rounded-full border border-emerald-600 bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {sending ? "..." : "Pedido enviado"}
+                  </button>
+                ) : null}
+                {onTransfer ? (
+                  <button
+                    type="button"
+                    title={transferLabel}
+                    aria-label={transferLabel}
+                    disabled={busy}
+                    onClick={(event) => onTransfer(order, event)}
+                    className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full border border-current/20 bg-white hover:bg-black/5 disabled:opacity-50"
+                  >
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : transferIcon}
+                  </button>
+                ) : null}
               </div>
             );
           })}
@@ -834,7 +917,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 import React, { useState, useEffect, useCallback, useMemo, useRef, startTransition } from "react";
 import { createPortal } from "react-dom";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, CheckCircle2, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, CopyPlus, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, Motorbike, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, KeyRound, Search, Wallet, Undo2, Package, ShieldAlert, IdCard, FileText, ExternalLink } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, CheckCircle2, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, CopyPlus, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, Motorbike, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, KeyRound, Search, Wallet, Undo2, Package, ShieldAlert, IdCard, FileText, ExternalLink, ArrowLeft, ArrowRight } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -845,7 +928,7 @@ import { DeliveryCorrectionModal, type DeliveryCorrectionNotice } from "@/compon
 import { AnimatePresence, motion } from "framer-motion";
 import { canSavePromoEnd, isPromoEndScheduleIncomplete, promoEndsAtFromParts, splitPromoEndsAt } from "@/lib/promo-ends-at";
 import { DEFAULT_PHARMA_GREEN, normalizeThemeColor } from "@/lib/store-theme";
-import { formatCurrency, formatDateOnlyBR, sellerListTitle, type SavedSellerItem } from "@/lib/utils";
+import { formatCurrency, formatDateOnlyBR, sellerListTitle, whatsAppSendUrl, type SavedSellerItem } from "@/lib/utils";
 import { clampLineDiscount, lineNetAmount } from "@/lib/line-discount";
 import { cartLineKey, orderCopyItemName, orderLineNameWithVariants, parseVariantGroups, readEditorVariantGroups, readOrderVariantChoices, toggleVariantOption, variantImageFromSelection, variantSelectionError, type SelectedVariant, type VariantGroup } from "@/lib/product-variants";
 import { OrderVariantChoices } from "@/components/order/OrderVariantChoices";
@@ -860,28 +943,42 @@ import {
   isCheckoutMotoboyOrder,
   isOnMotoboySendCard,
   isOnSendCard,
+  isShopeeRouteCustomerNotified,
+  sendCardOrderMarkedSent,
   sendCardBadgeCount,
   sendCardImageForProductName,
   sendCardProductImage,
   sendCardThumbProducts,
   sortSendCardOrders,
+  splitSendCardOrders,
   type SendCardCatalogProduct,
   type SendCardOrder,
 } from "@/lib/send-card-list";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import type { AdminOrder, AdminProduct, AdminUser, Coupon, CustomCharge, KycDocument, KycListItem } from "@/lib/admin-page-types";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { AdminGroupedNav } from "@/components/admin/AdminGroupedNav";
+import { AdminAuditLogPanel, AdminPreconfirmPanel } from "@/components/admin/AdminSellerStaffPanels";
+import { AdminPreconfirmQueueCard } from "@/components/admin/AdminPreconfirmQueueCard";
+import { navItemByTab, pathForTab, PRIMARY_ONLY_TABS, resolveAdminPath, type TabType } from "@/pages/admin/adminNav";
 import AdminEnvioEcomTrackingPanel from "@/pages/AdminEnvioEcomTrackingPanel";
 import LossBlacklistBoard from "@/components/admin/LossBlacklistBoard";
+import { SupplierPriceBoard } from "@/components/admin/SupplierPriceBoard";
 import AdminImagesPanel from "@/components/admin/AdminImagesPanel";
 import WhatsAppGroupCampaignCard from "@/components/admin/WhatsAppGroupCampaignCard";
 import WhatsAppSupportAiCard from "@/components/admin/WhatsAppSupportAiCard";
 import WhatsAppSupportMenuCard from "@/components/admin/WhatsAppSupportMenuCard";
+import WhatsappDispatchCard from "@/components/admin/WhatsappDispatchCard";
+import { ShopeeRouteBadge, ShopeeRouteOrderControls, ShopeeRouteSettingsCard } from "@/components/admin/ShopeeRouteAdmin";
+import { ShopeeRouteButton } from "@/components/admin/ShopeeRouteButton";
 import AdminEnvioEcomAccountsPanel, { type EnvioEcomAccountPublic } from "@/pages/AdminEnvioEcomAccountsPanel";
+import { envioecomAccountsForLabelPicker } from "@/lib/envioecom-label-accounts";
 import AdminSuperfreteAccountsPanel, { type SuperfreteAccountPublic } from "@/pages/AdminSuperfreteAccountsPanel";
 import { superfreteServiceName } from "@/lib/superfrete-status";
 import AdminInventoryExitAccessPanel from "@/pages/AdminInventoryExitAccessPanel";
 import AdminCellTechPanel from "@/pages/AdminCellTechPanel";
+import AdminCellTechConnection from "@/pages/AdminCellTechConnection";
+import AdminCellTechSituations from "@/pages/AdminCellTechSituations";
 import { AdminSplitShipmentModal, type SplitPoolKind, type SplitShipmentItem, type SplitShipmentPackage } from "@/pages/AdminSplitShipmentModal";
 import { orderCanSplitShipment } from "@/lib/split-shipment-lines";
 import { CpfQuoteWarningModal, CpfRelatedShipmentsBlock } from "@/pages/AdminCpfRelatedShipments";
@@ -907,7 +1004,8 @@ import {
   type AdminOrdersKind,
 } from "@/lib/admin-orders-kind";
 import { estimateOrderCardProfit, extraQuantityForItem, qtyByProductId, summarizeReshipmentExtra } from "@/lib/reshipment-profit";
-import { checkOrderItemsHaveStock } from "@/lib/order-stock-check";
+import { checkOrderItemsHaveStock, measureOrderItemStock, poolsCoveringOrderStock } from "@/lib/order-stock-check";
+import { LabelDebitQueuePanel } from "@/components/LabelDebitQueuePanel";
 import { sortCustomersByWalletDesc } from "@/lib/customer-list-sort";
 import { AdminDebouncedSearchInput } from "@/components/AdminDebouncedSearchInput";
 import { AdminLiveVisitorStats } from "@/components/AdminLiveVisitorStats";
@@ -1433,7 +1531,24 @@ interface ShippingOption { id: string; name: string; description: string | null;
 interface MotoboyNeighborhood { id: string; neighborhoodName: string; city: string | null; price: number; sortOrder: number; isActive: boolean; notes: string | null; createdAt: string; }
 interface MotoboyCepRange { id: string; label: string; city: string; cepStart: number; cepEnd: number; price: number; intervalHours: number; isActive: boolean; sortOrder: number; notes: string | null; }
 
-type TabType = "orders" | "charges" | "commissions" | "expenses" | "dre" | "sellers" | "coupons" | "flashCampaigns" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "biblioteca" | "inventory" | "rastreios" | "listaNegra" | "extrato" | "depositos" | "webhook" | "configuracoes" | "atendimento" | "automacao" | "imagens" | "socialProof" | "raffles" | "checkout" | "seguro" | "cellTech";
+type ConfigSection =
+  | "senhaBaixa"
+  | "freteContas"
+  | "prazoPostagem"
+  | "prazoTransportadora"
+  | "identidade"
+  | "promo"
+  | "taxas"
+  | "pagamentosLoja"
+  | "pagamentosRifa"
+  | "acesso"
+  | "pushcut"
+  | "avisos"
+  | "poly"
+  | "reportana"
+  | "brevo"
+  | "diagnostico"
+  | "ajuda";
 
 interface CommissionPendingOrder {
   id: string;
@@ -1485,25 +1600,6 @@ interface ExpenseEntry {
   createdAt: string;
   updatedAt: string;
 }
-
-const PRIMARY_ONLY_TABS = new Set<TabType>([
-  "users",
-  "coupons",
-  "flashCampaigns",
-  "products",
-  "fretes",
-  "orderBumps",
-  "inventory",
-  "socialProof",
-  "raffles",
-  "configuracoes",
-  "atendimento",
-  "automacao",
-  "checkout",
-  "seguro",
-  "listaNegra",
-  "cellTech",
-]);
 
 interface AdminRaffle {
   id: string; title: string; description: string | null; imageUrl: string | null;
@@ -1687,6 +1783,8 @@ export default function Admin() {
 
   const [dashboardImagePreview, setDashboardImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [dashboardPhotoHover, setDashboardPhotoHover] = useState<{ src: string; name: string; top: number; left: number } | null>(null);
+  const [shippingViaSavingId, setShippingViaSavingId] = useState<string | null>(null);
+  const [shopeeBoardSentId, setShopeeBoardSentId] = useState<string | null>(null);
   // Financial summary (gateway fees/liquido real)
   const [financialSummary, setFinancialSummary] = React.useState<null | {
     totalRevenue: number;
@@ -1722,8 +1820,9 @@ export default function Admin() {
     topProducts?: Array<{ name: string; quantity: number; revenue: number }>;
   }>(null);
   const [financialSummaryLoading, setFinancialSummaryLoading] = React.useState(false);
-  const [, setLocation] = useLocation();
-  const [tab, setTab] = useState<TabType>("orders");
+  const [location, setLocation] = useLocation();
+  const adminRoute = resolveAdminPath(location);
+  const tab = adminRoute.tab;
   const [ordersKind, setOrdersKind] = useState<AdminOrdersKind>("normal");
   const [pendingOrdersKindOrderId, setPendingOrdersKindOrderId] = useState<string | null>(null);
   const [orders, setOrders] = useState<AdminOrder[]>([]);
@@ -1742,6 +1841,8 @@ export default function Admin() {
   const [motoboyInventoryMovements, setMotoboyInventoryMovements] = useState<InventoryMovementRecord[]>([]);
   const [minasInventoryBalances, setMinasInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
   const [minasInventoryMovements, setMinasInventoryMovements] = useState<InventoryMovementRecord[]>([]);
+  const [santaCatarinaInventoryBalances, setSantaCatarinaInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
+  const [santaCatarinaInventoryMovements, setSantaCatarinaInventoryMovements] = useState<InventoryMovementRecord[]>([]);
   const inventoryMvDatesRef = useRef({ from: todayStr(), to: todayStr() });
   const [inventoryMvDateFrom, setInventoryMvDateFrom] = useState(inventoryMvDatesRef.current.from);
   const [inventoryMvDateTo, setInventoryMvDateTo] = useState(inventoryMvDatesRef.current.to);
@@ -1820,6 +1921,11 @@ export default function Admin() {
   const [chargesReady, setChargesReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [isPrimary, setIsPrimary] = useState(getIsPrimary);
+  const [preconfirmReload, setPreconfirmReload] = useState(0);
+  const [adminRole, setAdminRole] = useState<"admin" | "vendedora">(
+    localStorage.getItem("adminRole") === "vendedora" ? "vendedora" : "admin",
+  );
+  const sellerStaff = adminRole === "vendedora";
   const [currentUsername, setCurrentUsername] = useState(getAdminUsername);
   const [seedSearch, setSeedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -1892,6 +1998,8 @@ export default function Admin() {
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newFullAccess, setNewFullAccess] = useState(false);
+  const [newUserRole, setNewUserRole] = useState<"admin" | "vendedora">("admin");
+  const [userActiveUpdating, setUserActiveUpdating] = useState<string | null>(null);
   const [showNewPw, setShowNewPw] = useState(false);
   const [userCreating, setUserCreating] = useState(false);
   const [userDeleting, setUserDeleting] = useState<string | null>(null);
@@ -2059,8 +2167,13 @@ export default function Admin() {
     sessionStorage.removeItem("adminToken");
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
+    localStorage.removeItem("adminRole");
     localStorage.removeItem("adminUsername");
     setLocation("/admin/login");
+  }, [setLocation]);
+
+  const setTab = useCallback((next: TabType) => {
+    setLocation(pathForTab(next));
   }, [setLocation]);
 
   /** Abre pedido na aba Pedidos ampliando o filtro de data (API filtra por intervalo). */
@@ -2085,7 +2198,7 @@ export default function Admin() {
     setPendingOrdersKindOrderId(id);
     pendingScrollOrderIdRef.current = id;
     setScrollOrderNonce((current) => current + 1);
-  }, []);
+  }, [setTab]);
 
   useEffect(() => {
     if (!pendingOrdersKindOrderId) return;
@@ -2318,6 +2431,11 @@ export default function Admin() {
       }
     } catch { /* silent — don't show toast for background refreshes */ }
   }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, groupFilter, handleUnauthorized]);
+
+  const reloadPreconfirmSurfaces = useCallback(() => {
+    setPreconfirmReload((current) => current + 1);
+    void fetchOrders(true);
+  }, [fetchOrders]);
 
   const fetchCharges = useCallback(async (_silent?: boolean) => {
     try {
@@ -2690,12 +2808,13 @@ export default function Admin() {
       if (from) qs.set("dateFrom", from);
       if (to) qs.set("dateTo", to);
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      const [lojaRes, motoRes, minasRes] = await Promise.all([
+      const [lojaRes, motoRes, minasRes, santaCatarinaRes] = await Promise.all([
         fetch(`${BASE}/api/admin/inventory/overview${suffix}`, { headers: authHeaders() }),
         fetch(`${BASE}/api/admin/inventory/motoboy/overview${suffix}`, { headers: authHeaders() }),
         fetch(`${BASE}/api/admin/inventory/minas/overview${suffix}`, { headers: authHeaders() }),
+        fetch(`${BASE}/api/admin/inventory/santa_catarina/overview${suffix}`, { headers: authHeaders() }),
       ]);
-      if (lojaRes.status === 401 || motoRes.status === 401 || minasRes.status === 401) { handleUnauthorized(); return; }
+      if (lojaRes.status === 401 || motoRes.status === 401 || minasRes.status === 401 || santaCatarinaRes.status === 401) { handleUnauthorized(); return; }
       if (lojaRes.ok) {
         const data = await lojaRes.json() as {
           balances: InventoryBalanceRecord[];
@@ -2721,6 +2840,14 @@ export default function Admin() {
         };
         setMinasInventoryBalances(minasData.balances || []);
         setMinasInventoryMovements(minasData.movements || []);
+      }
+      if (santaCatarinaRes.ok) {
+        const santaCatarinaData = await santaCatarinaRes.json() as {
+          balances: InventoryBalanceRecord[];
+          movements: InventoryMovementRecord[];
+        };
+        setSantaCatarinaInventoryBalances(santaCatarinaData.balances || []);
+        setSantaCatarinaInventoryMovements(santaCatarinaData.movements || []);
       }
     } catch {
       // silent
@@ -3322,7 +3449,15 @@ export default function Admin() {
 
   const fetchAll = useCallback(() => {
     fetchStatsData();
+    const loadSettingsScreen = () => {
+      fetchSettings();
+      fetchProducts();
+      fetchClientErrors();
+      fetchBrevoStatus();
+      setLoading(false);
+    };
     if (tab === "orders")          { fetchOrders(); fetchProducts(); fetchInventoryOverview(); }
+    else if (tab === "inicio")     { fetchKycList(); fetchSupportTickets(); if (isPrimary) fetchInventoryOverview(); setLoading(false); }
     else if (tab === "charges")    fetchCharges();
     else if (tab === "users")      fetchUsers();
     else if (tab === "customers")  fetchCustomers();
@@ -3331,7 +3466,7 @@ export default function Admin() {
     else if (tab === "inventory")  { fetchInventoryOverview(); fetchProducts(); }
     else if (tab === "coupons")    { fetchCoupons(); fetchProducts(); }
     else if (tab === "products")   fetchProducts();
-    else if (tab === "configuracoes") { fetchSettings(); fetchProducts(); fetchClientErrors(); fetchBrevoStatus(); }
+    else if (tab === "configuracoes" || tab === "avisos" || tab === "poly" || tab === "identidade" || tab === "imagens" || tab === "taxas" || tab === "pagamentos" || tab === "pushcut" || tab === "email" || tab === "diagnostico") loadSettingsScreen();
     else if (tab === "atendimento") { fetchSettings(); setLoading(false); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
     else if (tab === "commissions") fetchCommissions();
@@ -3341,11 +3476,13 @@ export default function Admin() {
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
-    else if (tab === "raffles")    fetchRaffles();
+    else if (tab === "raffles")    { fetchRaffles(); fetchSettings(); }
+    else if (tab === "flashCampaigns") { fetchSettings(); setLoading(false); }
     else if (tab === "checkout")   { fetchSettings(); fetchProducts(); setLoading(false); }
     else if (tab === "seguro")     { fetchSettings(); fetchProducts(); setLoading(false); }
+    else if (tab === "conciliacao" || tab === "extrato" || tab === "depositos" || tab === "webhook") setLoading(false);
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchCommissions, fetchExpenses, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchCepRanges, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
+  }, [tab, isPrimary, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchBrevoStatus, fetchSellers, fetchSellerData, fetchCommissions, fetchExpenses, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchCepRanges, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -3507,11 +3644,15 @@ export default function Admin() {
           handleUnauthorized();
           return;
         }
-        const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string };
-        console.log('[DEBUG] Dados recebidos do backend:', data);
-        setIsPrimary(data.isPrimary);
+        const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string; role?: string };
+        console.log('[DEBUG] Dados recebidos do backend:', { ok: data.ok, isPrimary: data.isPrimary, username: data.username, role: data.role });
+        const role = data.role === "vendedora" ? "vendedora" : "admin";
+        const primary = role === "vendedora" ? false : Boolean(data.isPrimary);
+        setAdminRole(role);
+        setIsPrimary(primary);
         setCurrentUsername(data.username || "");
-        localStorage.setItem("adminIsPrimary", String(data.isPrimary));
+        localStorage.setItem("adminRole", role);
+        localStorage.setItem("adminIsPrimary", String(primary));
         localStorage.setItem("adminUsername", data.username || "");
         setAuthChecked(true);
         fetchOrders();
@@ -3580,10 +3721,20 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
+    if (!adminRoute.redirect) return;
+    const current = location.split("?")[0].split("#")[0].replace(/\/+$/, "") || "/admin";
+    if (current !== adminRoute.redirect) setLocation(adminRoute.redirect, { replace: true });
+  }, [adminRoute.redirect, location, setLocation]);
+
+  useEffect(() => {
+    if (sellerStaff) {
+      if (tab !== "inicio" && tab !== "orders") setTab("orders");
+      return;
+    }
     if (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab]);
+  }, [isPrimary, sellerStaff, tab, setTab]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -3593,6 +3744,7 @@ export default function Admin() {
     sessionStorage.removeItem("adminToken");
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
+    localStorage.removeItem("adminRole");
     localStorage.removeItem("adminUsername");
     if (sseReconnectTimerRef.current !== null) {
       window.clearTimeout(sseReconnectTimerRef.current);
@@ -3847,13 +3999,13 @@ export default function Admin() {
       : "";
     const msg = intro + orderToFullText(order);
     const p = order.clientPhone.replace(/\D/g, "");
-    window.open(`https://wa.me/${p.startsWith("55") ? p : "55" + p}?text=${encodeURIComponent(msg)}`, "_blank");
+    window.open(whatsAppSendUrl(p.startsWith("55") ? p : "55" + p, msg), "_blank");
   };
 
   const openChargeWhatsApp = (charge: CustomCharge) => {
     const msg = chargeToText(charge);
     const p = charge.clientPhone.replace(/\D/g, "");
-    window.open(`https://wa.me/${p.startsWith("55") ? p : "55" + p}?text=${encodeURIComponent(msg)}`, "_blank");
+    window.open(whatsAppSendUrl(p.startsWith("55") ? p : "55" + p, msg), "_blank");
   };
 
   // --------------------------------------------------------------------------
@@ -4261,12 +4413,17 @@ export default function Admin() {
     try {
       const res = await fetch(`${BASE}/api/admin/users`, {
         method: "POST", headers: authHeaders(),
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword, fullAccess: newFullAccess }),
+        body: JSON.stringify({
+          username: newUsername.trim(),
+          password: newPassword,
+          fullAccess: newUserRole === "vendedora" ? false : newFullAccess,
+          role: newUserRole,
+        }),
       });
       const data = await res.json() as { username?: string; message?: string };
       if (!res.ok) { toast.error(data.message || "Erro ao criar usuário."); return; }
       toast.success(`Usuário "${data.username}" criado!`);
-      setNewUsername(""); setNewPassword(""); setNewFullAccess(false);
+      setNewUsername(""); setNewPassword(""); setNewFullAccess(false); setNewUserRole("admin");
       fetchUsers();
     } catch { toast.error("Erro ao criar usuário."); }
     finally { setUserCreating(false); }
@@ -4296,6 +4453,25 @@ export default function Admin() {
       setAdminUsers((prev) => prev.filter((u) => u.id !== id));
     } catch { toast.error("Erro ao remover usuário."); }
     finally { setUserDeleting(null); }
+  };
+
+  const setUserActive = async (id: string, username: string, active: boolean) => {
+    setUserActiveUpdating(id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/users/${id}/active`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ active }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string };
+      if (!res.ok) { toast.error(data.message || "Erro ao alterar a conta."); return; }
+      toast.success(active ? `Conta de "${username}" reativada.` : `Conta de "${username}" desativada.`);
+      fetchUsers();
+    } catch {
+      toast.error("Erro ao alterar a conta.");
+    } finally {
+      setUserActiveUpdating(null);
+    }
   };
 
   const changeUserPassword = async (id: string, username: string, password: string): Promise<boolean> => {
@@ -4536,11 +4712,14 @@ export default function Admin() {
   const sendCardOrders = sortSendCardOrders(
     orders.filter((order) => isOnSendCard(order as SendCardOrder) && !isCheckoutMotoboyOrder(order)),
   );
+  const sendCardSplit = splitSendCardOrders(sendCardOrders);
   const motoboySendCardOrders = sortSendCardOrders(
     orders.filter((order) => isOnMotoboySendCard(order)),
   );
-  const postalSendCardOrders = sendCardOrders;
+  const postalSendCardOrders = sendCardSplit.postal;
+  const shopeeSendCardOrders = sendCardSplit.shopee;
   const postalSendCardBadge = sendCardBadgeCount(postalSendCardOrders as SendCardOrder[]);
+  const shopeeSendCardBadge = sendCardBadgeCount(shopeeSendCardOrders as SendCardOrder[]);
   const motoboySendCardBadge = sendCardBadgeCount(motoboySendCardOrders as SendCardOrder[]);
   const copySendQueueTxt = async (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -4560,6 +4739,70 @@ export default function Admin() {
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : `${copiedLabel} (${list.length}).`);
     } catch {
       toast.error("Nao foi possivel copiar os pedidos.");
+    }
+  };
+  const moveSendChannel = async (
+    order: AdminOrder,
+    shippingVia: "shopee" | null,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (shippingViaSavingId) return;
+    const previous = order.shippingVia === "shopee" ? "shopee" : null;
+    if (previous === shippingVia) return;
+    const apply = (list: AdminOrder[]) => list.map((row) => (row.id === order.id ? { ...row, shippingVia } : row));
+    setShippingViaSavingId(order.id);
+    setOrders(apply);
+    setSellerAllOrders(apply);
+    setStatsOrdersData(apply);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${encodeURIComponent(order.id)}/shipping-channel`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ shippingVia }),
+      });
+      if (!res.ok) throw new Error("save failed");
+      toast.success(shippingVia === "shopee" ? "Pedido marcado como Envio Shopee." : "Pedido voltou para envio normal.");
+    } catch {
+      const revert = (list: AdminOrder[]) => list.map((row) => (row.id === order.id ? { ...row, shippingVia: previous } : row));
+      setOrders(revert);
+      setSellerAllOrders(revert);
+      setStatsOrdersData(revert);
+      toast.error("Nao foi possivel mover o pedido.");
+    } finally {
+      setShippingViaSavingId(null);
+    }
+  };
+  const markShopeeBoardSent = async (
+    order: AdminOrder,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (shopeeBoardSentId) return;
+    const reference = getOrderReference(order);
+    if (!window.confirm(`Marcar o pedido #${reference} como enviado? O estoque não será baixado.`)) return;
+    const apply = (list: AdminOrder[]) => list.map((row) => (
+      row.id === order.id ? sendCardOrderMarkedSent(row) : row
+    ));
+    setShopeeBoardSentId(order.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${encodeURIComponent(order.id)}/enviado`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ enviado: true }),
+      });
+      const data = await res.json().catch(() => ({} as { message?: string }));
+      if (!res.ok) throw new Error(data.message || "save failed");
+      setOrders(apply);
+      setSellerAllOrders(apply);
+      setStatsOrdersData(apply);
+      toast.success(`Pedido #${reference} marcado como enviado. O estoque não foi baixado.`);
+    } catch (err) {
+      toast.error(err instanceof Error && err.message !== "save failed" ? err.message : "Nao foi possivel marcar o pedido como enviado.");
+    } finally {
+      setShopeeBoardSentId(null);
     }
   };
   const sendCardCatalog: SendCardCatalogProduct[] = products.map((product) => ({
@@ -5058,18 +5301,74 @@ export default function Admin() {
   ));
   const availableWhatsappGroups = Array.from(new Set([...ORDER_WHATSAPP_GROUP_OPTIONS, ...orderGroups]));
 
+  const currentNav = navItemByTab(tab);
+  const navCounts: Partial<Record<TabType, number>> = {
+    orders: orders.length || undefined,
+    inventory: pendingReshipments.length || undefined,
+    products: products.length || undefined,
+    fretes: shippingOptions.length || undefined,
+    charges: charges.length || undefined,
+    commissions: commissionSummary.pendingCount || undefined,
+    customers: customerUsers.length || undefined,
+    recurringCustomers: recurringCustomers.length || undefined,
+    expenses: expenses.length || undefined,
+    kyc: kycList.filter((item) => item.status === "submitted").length || undefined,
+    support: supportTickets.filter((item) => item.status === "open").length || undefined,
+    coupons: coupons.length || undefined,
+    raffles: rafflesList.length || undefined,
+  };
+  const pixAwaitingCount = statsOrdersData.filter((order) => order.status === "awaiting_payment").length;
+  const kycAwaitingCount = kycList.filter((item) => item.status === "submitted").length;
+  const openTicketCount = supportTickets.filter((item) => item.status === "open").length;
+  const configPanel = (sections: ConfigSection[]) => (
+    <ConfiguracoesPanel
+      sections={sections}
+      settings={settings}
+      loading={settingsLoading}
+      products={(Array.isArray(products) ? products : []).map((product) => ({
+        id: product.id,
+        name: product.name,
+        image: product.image ?? null,
+        isActive: product.isActive !== false,
+      }))}
+      productsLoading={productsLoading}
+      clientErrors={clientErrors}
+      clientErrorsLoading={clientErrorsLoading}
+      onRefreshClientErrors={fetchClientErrors}
+      onTestOutboundWebhook={testOutboundWebhook}
+      onSave={saveSetting}
+      onDelete={deleteSetting}
+      brevoApiKey={brevoApiKey}
+      setBrevoApiKey={setBrevoApiKey}
+      brevoConfigured={brevoConfigured}
+      brevoTesting={brevoTesting}
+      onTestBrevoConnection={testBrevoConnection}
+      brevoSenderEmail={brevoSenderEmail}
+      setBrevoSenderEmail={setBrevoSenderEmail}
+      brevoSenderName={brevoSenderName}
+      setBrevoSenderName={setBrevoSenderName}
+      brevoResetBaseUrl={brevoResetBaseUrl}
+      setBrevoResetBaseUrl={setBrevoResetBaseUrl}
+      brevoSenderLoaded={brevoSenderLoaded}
+      brevoSenderSaving={brevoSenderSaving}
+      onSaveBrevoSender={saveBrevoSender}
+    />
+  );
+
   // =========================================================================
   // RENDER
   // =========================================================================
   return (
     <AdminLayout>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
+      <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
 
         {/* Admin panel header bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Painel Administrativo</h1>
-            <p className="text-muted-foreground text-sm mt-0.5">Gerencie pedidos, vendas e configurações</p>
+            <h1 className="text-2xl font-bold text-foreground">{currentNav?.item.label ?? "Painel Administrativo"}</h1>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              {currentNav ? currentNav.group.label : "Gerencie pedidos, vendas e configurações"}
+            </p>
           </div>
           <div className="flex gap-2 flex-wrap self-start sm:self-auto items-center">
             <AdminLiveVisitorStats enabled={authChecked} baseUrl={BASE} authHeaders={authHeaders} />
@@ -5117,6 +5416,27 @@ export default function Admin() {
           </div>
         </div>
 
+        <>
+        {tab === "inicio" && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            {([
+              ["PIX aguardando", pixAwaitingCount, "orders" as TabType],
+              ["KYC", kycAwaitingCount, "kyc" as TabType],
+              ["Tickets abertos", openTicketCount, "support" as TabType],
+              ...(isPrimary ? [["Reenvios", pendingReshipments.length, "inventory" as TabType] as const] : []),
+            ] as Array<[string, number, TabType]>).map(([label, count, target]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setTab(target)}
+                className="rounded-xl border border-border bg-white p-4 text-left hover:border-primary/40"
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
+                <p className="mt-1 text-2xl font-bold text-foreground">{count}</p>
+              </button>
+            ))}
+          </div>
+        )}
         {/* ── Dashboard Stats ─────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-5 mb-6">
           {/* Filter row */}
@@ -5296,24 +5616,79 @@ export default function Admin() {
             </div>
           </div>
 
-          <SendQueueCard
-            title="Pedidos para Enviar"
-            icon={<Truck className="w-4 h-4" />}
-            orders={postalSendCardOrders}
-            badge={postalSendCardBadge}
-            emptyText={motoboySendCardOrders.length === 0 ? "Todos os pedidos pagos já foram enviados!" : "Nenhum pedido normal para enviar."}
-            titleAttr="Ver pedidos para enviar"
-            onOpenList={() => setTab("orders")}
-            onCopy={(event) => { void copySendQueueTxt(event, postalSendCardOrders, "Nao ha pedidos para enviar.", "Pedidos para enviar copiados"); }}
-            onOpenOrder={(order) => goToOrder(order.id, order.createdAt, getOrderReference(order))}
-            catalog={sendCardCatalog}
-            onPhotoOpen={(src, name) => {
-              setDashboardPhotoHover(null);
-              setDashboardImagePreview({ src, name });
-            }}
-            onPhotoHover={setDashboardPhotoHover}
-            onPhotoHoverEnd={() => setDashboardPhotoHover(null)}
-          />
+          <div className={`mt-3 grid grid-cols-1 gap-3 ${isPrimary && !sellerStaff ? "lg:grid-cols-2 xl:grid-cols-3" : "lg:grid-cols-2"}`}>
+            <SendQueueCard
+              className=""
+              title="Pedidos para Enviar"
+              icon={<Truck className="w-4 h-4" />}
+              orders={postalSendCardOrders}
+              badge={postalSendCardBadge}
+              emptyText={motoboySendCardOrders.length === 0 && shopeeSendCardOrders.length === 0 ? "Todos os pedidos pagos já foram enviados!" : "Nenhum pedido normal para enviar."}
+              titleAttr="Ver pedidos para enviar"
+              onOpenList={() => setTab("orders")}
+              onCopy={(event) => { void copySendQueueTxt(event, postalSendCardOrders, "Nao ha pedidos para enviar.", "Pedidos para enviar copiados"); }}
+              onOpenOrder={(order) => goToOrder(order.id, order.createdAt, getOrderReference(order))}
+              catalog={sendCardCatalog}
+              onPhotoOpen={(src, name) => {
+                setDashboardPhotoHover(null);
+                setDashboardImagePreview({ src, name });
+              }}
+              onPhotoHover={setDashboardPhotoHover}
+              onPhotoHoverEnd={() => setDashboardPhotoHover(null)}
+              onTransfer={(order, event) => { void moveSendChannel(order, "shopee", event); }}
+              transferLabel="Mover para Envio Shopee"
+              transferIcon={<ArrowRight className="w-3.5 h-3.5" />}
+              transferBusyId={shippingViaSavingId}
+            />
+            <SendQueueCard
+              className=""
+              tone="orange"
+              title="Envio Shopee"
+              icon={<Package className="w-4 h-4" />}
+              orders={shopeeSendCardOrders}
+              badge={shopeeSendCardBadge}
+              emptyText="Nenhum pedido marcado para a Shopee."
+              titleAttr="Ver envios pela Shopee"
+              onOpenList={() => setTab("orders")}
+              onCopy={(event) => { void copySendQueueTxt(event, shopeeSendCardOrders, "Nao ha pedidos da Shopee para enviar.", "Envio Shopee copiado"); }}
+              onOpenOrder={(order) => goToOrder(order.id, order.createdAt, getOrderReference(order))}
+              catalog={sendCardCatalog}
+              onPhotoOpen={(src, name) => {
+                setDashboardPhotoHover(null);
+                setDashboardImagePreview({ src, name });
+              }}
+              onPhotoHover={setDashboardPhotoHover}
+              onPhotoHoverEnd={() => setDashboardPhotoHover(null)}
+              onTransfer={(order, event) => { void moveSendChannel(order, null, event); }}
+              transferLabel="Voltar para Pedidos para enviar"
+              transferIcon={<ArrowLeft className="w-3.5 h-3.5" />}
+              transferBusyId={shippingViaSavingId}
+              isCustomerNotified={(order) => isShopeeRouteCustomerNotified(order)}
+              onMarkSent={(order, event) => { void markShopeeBoardSent(order, event); }}
+              markSentBusyId={shopeeBoardSentId}
+            />
+            {isPrimary && !sellerStaff ? (
+              <AdminPreconfirmQueueCard
+                headers={authHeaders}
+                onUnauthorized={handleUnauthorized}
+                catalog={sendCardCatalog}
+                reloadToken={preconfirmReload}
+                onReviewed={reloadPreconfirmSurfaces}
+                onOpenList={() => setTab("preconfirms")}
+                onOpenOrder={(item) => goToOrder(
+                  item.orderId,
+                  item.orderCreatedAt,
+                  item.orderNumber != null ? String(item.orderNumber) : item.orderId,
+                )}
+                onPhotoOpen={(src, name) => {
+                  setDashboardPhotoHover(null);
+                  setDashboardImagePreview({ src, name });
+                }}
+                onPhotoHover={setDashboardPhotoHover}
+                onPhotoHoverEnd={() => setDashboardPhotoHover(null)}
+              />
+            ) : null}
+          </div>
           <SendQueueCard
             title="Motoboy para Enviar"
             icon={<Motorbike className="w-4 h-4" />}
@@ -5417,67 +5792,30 @@ export default function Admin() {
           </AnimatePresence>,
           document.body,
         )}
+        </>
 
-        {/* Tabs */}
-        <div className="flex gap-0 mb-6 border-b border-border overflow-x-auto bg-white rounded-t-xl">
-          {([
-            { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
-            ...(isPrimary ? [
-              { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
-              { key: "products",      label: "Produtos",         icon: "ShoppingBag", count: products.length },
-            ] : []),
-            { key: "rastreios",     label: "Rastreios",        icon: "Truck" },
-            ...(isPrimary ? [
-              { key: "listaNegra",   label: "Lista negra",      icon: "ShieldAlert" },
-            ] : []),
-            ...(isPrimary ? [
-              { key: "configuracoes", label: "Configuração",     icon: "Settings" },
-              { key: "atendimento",   label: "Atendimento",      icon: "MessageCircle" },
-              { key: "automacao",     label: "Automação",        icon: "Send" },
-              { key: "imagens",       label: "Imagem",           icon: "Image" },
-              { key: "fretes",        label: "Fretes",           icon: "Truck",       count: shippingOptions.length },
-            ] : []),
-            { key: "extrato",       label: "Extrato",          icon: "Landmark" },
-            { key: "depositos",     label: "Depósitos",        icon: "CheckCircle" },
-            { key: "sellers",       label: "Vendedores",       icon: "Tag" },
-            { key: "commissions",   label: "Comissões",        icon: "DollarSign",  count: commissionSummary.pendingCount || undefined },
-            { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
-            { key: "recurringCustomers", label: "Clientes recorrentes", icon: "RefreshCw", count: recurringCustomers.length || undefined },
-            { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
-            { key: "expenses",      label: "Despesas",         icon: "AlertTriangle", count: expenses.length || undefined },
-            { key: "dre",           label: "DRE",              icon: "PieChart" },
-            { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
-            { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
-            { key: "biblioteca",    label: "Biblioteca",       icon: "BookOpen" },
-            ...(isPrimary ? [
-              { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
-              { key: "flashCampaigns", label: "Promoções",       icon: "Zap" },
-              { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
-              { key: "users",         label: "Usuários",         icon: "User" },
-              { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
-              { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
-              { key: "checkout",      label: "Checkout",         icon: "ShoppingBag" },
-              { key: "seguro",        label: "Seguro",           icon: "ShieldCheck" },
-            ] : []),
-            ...(isPrimary ? [
-              { key: "cellTech",      label: "Cell Tech",        icon: "Smartphone" },
-            ] : []),
-            { key: "webhook",       label: "Webhook",          icon: "Link" },
-          ] as Array<{ key: TabType; label: string; icon: string; count?: number }>).map(({ key, label, icon, count }) => (
-            <button key={key}
-              onClick={() => setTab(key)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-            >
-              <IconLucide name={icon} className="w-4 h-4" />
-              {label}
-              {count !== undefined && (
-                <span className="ml-1 bg-primary/10 text-primary text-xs px-1.5 py-0.5 rounded-full">{count}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        <div>
+        <AdminGroupedNav
+          active={tab}
+          isPrimary={isPrimary}
+          sellerStaff={sellerStaff}
+          counts={navCounts}
+          onSelect={setTab}
+        />
+        <div className="min-w-0 flex-1">
 
-        {tab === "dre" ? (
+        {tab === "preconfirms" && isPrimary ? (
+          <AdminPreconfirmPanel
+            headers={authHeaders}
+            onUnauthorized={handleUnauthorized}
+            reloadToken={preconfirmReload}
+            onReviewed={reloadPreconfirmSurfaces}
+          />
+        ) : tab === "auditLog" && isPrimary ? (
+          <AdminAuditLogPanel headers={authHeaders} onUnauthorized={handleUnauthorized} />
+        ) : tab === "fornecedores" ? (
+          <SupplierPriceBoard headers={authHeaders()} />
+        ) : tab === "dre" ? (
           <AdminDrePanel
             initialDateFrom={statsDateFrom}
             initialDateTo={statsDateTo}
@@ -5570,6 +5908,7 @@ export default function Admin() {
             inventoryBalances={inventoryBalances}
             motoboyInventoryBalances={motoboyInventoryBalances}
             minasInventoryBalances={minasInventoryBalances}
+            santaCatarinaInventoryBalances={santaCatarinaInventoryBalances}
             getCommissionRate={getCommissionRate}
             gatewayFeePercent={Number(settings["gateway_fee_percent"] || 0)}
             gatewayFeeFixed={Number(settings["gateway_fee_fixed"] || 0)}
@@ -5586,6 +5925,8 @@ export default function Admin() {
             onOpenCardPaidModal={(id) => { setCardPaidModal(id); setCardPaidForm({ installments: "", installmentValue: "", totalValue: "" }); }}
             updateOrderObservation={updateOrderObservation}
             isPrimary={isPrimary}
+            sellerStaff={sellerStaff}
+            sellers={sellers}
             onEditOrder={openEditOrder}
             onOpenKycModal={openKycModal}
             onSetOrderEnviado={(id, enviado) => {
@@ -5722,18 +6063,19 @@ export default function Admin() {
             onUnauthorized={handleUnauthorized}
             onGoToOrder={goToOrder}
           />
-        ) : tab === "extrato" ? (
-          <AdminBankStatementPanel
-            authHeaders={authHeaders}
-            onUnauthorized={handleUnauthorized}
-            onGoToOrder={goToOrder}
-          />
-        ) : tab === "depositos" ? (
-          <AdminBankDepositsPanel
-            authHeaders={authHeaders}
-            onUnauthorized={handleUnauthorized}
-            onGoToOrder={goToOrder}
-          />
+        ) : (tab === "extrato" || tab === "depositos" || tab === "conciliacao") ? (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+            <AdminBankStatementPanel
+              authHeaders={authHeaders}
+              onUnauthorized={handleUnauthorized}
+              onGoToOrder={goToOrder}
+            />
+            <AdminBankDepositsPanel
+              authHeaders={authHeaders}
+              onUnauthorized={handleUnauthorized}
+              onGoToOrder={goToOrder}
+            />
+          </div>
         ) : tab === "commissions" ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-2">
@@ -6096,7 +6438,10 @@ export default function Admin() {
             ) : null}
           </div>
         ) : tab === "flashCampaigns" ? (
-          <FlashCampaignsPanel onUnauthorized={handleUnauthorized} />
+          <div className="space-y-8">
+            {configPanel(["promo"])}
+            <FlashCampaignsPanel onUnauthorized={handleUnauthorized} />
+          </div>
         ) : tab === "coupons" ? (
           <CouponsPanel
             coupons={coupons}
@@ -6290,6 +6635,8 @@ export default function Admin() {
             motoboyMovements={motoboyInventoryMovements}
             minasBalances={minasInventoryBalances}
             minasMovements={minasInventoryMovements}
+            santaCatarinaBalances={santaCatarinaInventoryBalances}
+            santaCatarinaMovements={santaCatarinaInventoryMovements}
             movementDateFrom={inventoryMvDateFrom}
             movementDateTo={inventoryMvDateTo}
             onMovementDatesChange={(from, to) => {
@@ -6422,6 +6769,36 @@ export default function Admin() {
                 setInventorySubmitting(false);
               }
             }}
+            onCreateSantaCatarinaEntry={async () => {
+              const productId = String(inventoryEntryForm.productId || "").trim();
+              const quantity = Number(inventoryEntryForm.quantity || 0);
+              const reason = String(inventoryEntryForm.reason || "").trim();
+              const movementType = inventoryEntryForm.movementType === "exit" ? "exit" : "entry";
+              if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+                toast.error("Selecione o produto e informe quantidade válida.");
+                return;
+              }
+              setInventorySubmitting(true);
+              try {
+                const res = await fetch(`${BASE}/api/admin/inventory/santa_catarina/entries`, {
+                  method: "POST",
+                  headers: authHeaders(),
+                  body: JSON.stringify({ productId, quantity, reason, movementType }),
+                });
+                const data = await res.json() as { message?: string };
+                if (!res.ok) {
+                  toast.error(data?.message || "Erro ao registrar estoque Santa Catarina.");
+                  return;
+                }
+                setInventoryEntryForm((prev) => ({ ...prev, productId: "", quantity: "", reason: "" }));
+                fetchInventoryOverview();
+                toast.success(movementType === "exit" ? "Saída Santa Catarina registrada." : "Entrada Santa Catarina registrada.");
+              } catch {
+                toast.error("Erro ao registrar estoque Santa Catarina.");
+              } finally {
+                setInventorySubmitting(false);
+              }
+            }}
             onZeroBalances={async (pool) => {
               setInventorySubmitting(true);
               try {
@@ -6512,16 +6889,20 @@ export default function Admin() {
             setNewPassword={setNewPassword}
             newFullAccess={newFullAccess}
             setNewFullAccess={setNewFullAccess}
+            newUserRole={newUserRole}
+            setNewUserRole={setNewUserRole}
             showNewPw={showNewPw}
             setShowNewPw={setShowNewPw}
             userCreating={userCreating}
             userDeleting={userDeleting}
             userAccessUpdating={userAccessUpdating}
             userPasswordUpdating={userPasswordUpdating}
+            userActiveUpdating={userActiveUpdating}
             createUser={createUser}
             deleteUser={deleteUser}
             toggleUserAccess={toggleUserAccess}
             changeUserPassword={changeUserPassword}
+            setUserActive={setUserActive}
           />
         ) : tab === "products" ? (
           <ProductsPanel
@@ -6588,6 +6969,8 @@ export default function Admin() {
             sellers={sellers}
           />
         ) : tab === "fretes" ? (
+          <>
+          {configPanel(["freteContas", "prazoPostagem", "prazoTransportadora"])}
           <FretePanel
             options={shippingOptions}
             form={shippingForm}
@@ -6725,6 +7108,7 @@ export default function Admin() {
             onSaveSetting={saveSetting}
             onDeleteSetting={deleteSetting}
           />
+          </>
         ) : tab === "orderBumps" ? (
           <OrderBumpsPanel
             bumps={orderBumps}
@@ -8101,6 +8485,7 @@ export default function Admin() {
                 )}
               </>
             )}
+            {configPanel(["pagamentosRifa"])}
           </div>
         ) : tab === "webhook" ? (
           <WebhookPanel
@@ -8199,45 +8584,42 @@ export default function Admin() {
             <WhatsAppSupportAiCard />
           </div>
         ) : tab === "automacao" ? (
-          <WhatsAppGroupCampaignCard />
-        ) : tab === "imagens" ? (
-          <AdminImagesPanel />
+          <div className="space-y-4">
+            <WhatsAppGroupCampaignCard />
+            <p className="text-sm text-muted-foreground">
+              O envio para o grupo da Cell Tech continua no painel de Assistência.
+              <button type="button" className="ml-2 font-semibold text-primary" onClick={() => setTab("cellTech")}>
+                Abrir Cell Tech
+              </button>
+            </p>
+          </div>
+        ) : (tab === "imagens" || tab === "identidade") ? (
+          <div className="space-y-8">
+            {configPanel(["identidade"])}
+            <AdminImagesPanel />
+          </div>
+        ) : tab === "avisos" ? (
+          configPanel(["avisos"])
+        ) : tab === "poly" ? (
+          configPanel(["poly"])
+        ) : tab === "taxas" ? (
+          configPanel(["taxas"])
+        ) : tab === "pagamentos" ? (
+          configPanel(["pagamentosLoja"])
+        ) : tab === "pushcut" ? (
+          configPanel(["pushcut"])
+        ) : tab === "email" ? (
+          configPanel(["brevo"])
+        ) : tab === "diagnostico" ? (
+          configPanel(["diagnostico"])
         ) : tab === "cellTech" ? (
           <AdminCellTechPanel />
+        ) : tab === "cellTechConexao" ? (
+          <AdminCellTechConnection />
+        ) : tab === "cellTechSituacoes" ? (
+          <AdminCellTechSituations />
         ) : tab === "configuracoes" ? (
-          <div className="space-y-6">
-            <ConfiguracoesPanel
-              settings={settings}
-              loading={settingsLoading}
-              products={(Array.isArray(products) ? products : []).map((product) => ({
-                id: product.id,
-                name: product.name,
-                image: product.image ?? null,
-                isActive: product.isActive !== false,
-              }))}
-              productsLoading={productsLoading}
-              clientErrors={clientErrors}
-              clientErrorsLoading={clientErrorsLoading}
-              onRefreshClientErrors={fetchClientErrors}
-              onTestOutboundWebhook={testOutboundWebhook}
-              onSave={saveSetting}
-              onDelete={deleteSetting}
-              brevoApiKey={brevoApiKey}
-              setBrevoApiKey={setBrevoApiKey}
-              brevoConfigured={brevoConfigured}
-              brevoTesting={brevoTesting}
-              onTestBrevoConnection={testBrevoConnection}
-              brevoSenderEmail={brevoSenderEmail}
-              setBrevoSenderEmail={setBrevoSenderEmail}
-              brevoSenderName={brevoSenderName}
-              setBrevoSenderName={setBrevoSenderName}
-              brevoResetBaseUrl={brevoResetBaseUrl}
-              setBrevoResetBaseUrl={setBrevoResetBaseUrl}
-              brevoSenderLoaded={brevoSenderLoaded}
-              brevoSenderSaving={brevoSenderSaving}
-              onSaveBrevoSender={saveBrevoSender}
-            />
-          </div>
+          configPanel(["senhaBaixa", "acesso", "reportana", "ajuda"])
         ) : null}
 
         {/* Raffle delete confirmation modal */}
@@ -9137,6 +9519,8 @@ export default function Admin() {
           )}
         </AnimatePresence>
       </div>
+      </div>
+      </div>
     </AdminLayout>
   );
 }
@@ -9509,8 +9893,8 @@ function SupportTicketsPanel({
   );
 }
 
-type InventoryPoolKind = "loja" | "motoboy" | "minas";
-type StockTabKind = InventoryPoolKind | "resumo";
+type InventoryPoolKind = "loja" | "motoboy" | "minas" | "santa_catarina";
+type StockTabKind = InventoryPoolKind | "resumo" | "baixas";
 
 type InventoryCatalogLite = {
   id: string;
@@ -9593,6 +9977,7 @@ function InventoryStockSummary({
   balances,
   motoboyBalances,
   minasBalances,
+  santaCatarinaBalances,
   onRefresh,
 }: {
   loading: boolean;
@@ -9600,6 +9985,7 @@ function InventoryStockSummary({
   balances: InventoryBalanceRecord[];
   motoboyBalances: InventoryBalanceRecord[];
   minasBalances: InventoryBalanceRecord[];
+  santaCatarinaBalances: InventoryBalanceRecord[];
   onRefresh: () => void;
 }) {
   const [search, setSearch] = useState("");
@@ -9609,9 +9995,10 @@ function InventoryStockSummary({
     const lojaMap = inventoryQtyMap(balances);
     const motoboyMap = inventoryQtyMap(motoboyBalances);
     const minasMap = inventoryQtyMap(minasBalances);
+    const santaCatarinaMap = inventoryQtyMap(santaCatarinaBalances);
     const nameById = new Map<string, string>();
     const imageById = new Map<string, string>();
-    for (const row of [...balances, ...motoboyBalances, ...minasBalances]) {
+    for (const row of [...balances, ...motoboyBalances, ...minasBalances, ...santaCatarinaBalances]) {
       nameById.set(row.productId, row.productName);
       const img = String(row.image || "").trim();
       if (img) imageById.set(row.productId, img);
@@ -9628,6 +10015,7 @@ function InventoryStockSummary({
       ...lojaMap.keys(),
       ...motoboyMap.keys(),
       ...minasMap.keys(),
+      ...santaCatarinaMap.keys(),
     ]);
 
     return Array.from(ids).map((productId) => {
@@ -9637,7 +10025,8 @@ function InventoryStockSummary({
       const qtyLoja = lojaMap.get(productId) || 0;
       const qtyMotoboy = motoboyMap.get(productId) || 0;
       const qtyMinas = minasMap.get(productId) || 0;
-      const totalQty = qtyLoja + qtyMotoboy + qtyMinas;
+      const qtySantaCatarina = santaCatarinaMap.get(productId) || 0;
+      const totalQty = qtyLoja + qtyMotoboy + qtyMinas + qtySantaCatarina;
       const costUnit = Math.max(0, Number(product?.costPrice || 0) || 0);
       const saleUnit = getCatalogSalePrice(product);
       return {
@@ -9647,6 +10036,7 @@ function InventoryStockSummary({
         qtyLoja,
         qtyMotoboy,
         qtyMinas,
+        qtySantaCatarina,
         totalQty,
         costUnit,
         saleUnit,
@@ -9659,7 +10049,7 @@ function InventoryStockSummary({
       if (b.totalQty !== a.totalQty) return b.totalQty - a.totalQty;
       return a.name.localeCompare(b.name, "pt-BR");
     });
-  }, [products, balances, motoboyBalances, minasBalances]);
+  }, [products, balances, motoboyBalances, minasBalances, santaCatarinaBalances]);
 
   const normalized = search.trim().toLowerCase();
   const visible = rows.filter((row) => {
@@ -9679,6 +10069,8 @@ function InventoryStockSummary({
       acc.motoboySale += row.qtyMotoboy * row.saleUnit;
       acc.minasCost += row.qtyMinas * row.costUnit;
       acc.minasSale += row.qtyMinas * row.saleUnit;
+      acc.santaCatarinaCost += row.qtySantaCatarina * row.costUnit;
+      acc.santaCatarinaSale += row.qtySantaCatarina * row.saleUnit;
       if (row.missingCost) acc.missing += 1;
       return acc;
     },
@@ -9692,6 +10084,8 @@ function InventoryStockSummary({
       motoboySale: 0,
       minasCost: 0,
       minasSale: 0,
+      santaCatarinaCost: 0,
+      santaCatarinaSale: 0,
       missing: 0,
     },
   );
@@ -9708,14 +10102,14 @@ function InventoryStockSummary({
     const lines = visible
       .filter((row) => row.totalQty > 0)
       .map((row) =>
-        `${row.totalQty} un · ${row.name} · Foz ${row.qtyLoja} / Moto ${row.qtyMotoboy} / Minas ${row.qtyMinas} · custo ${formatCurrency(row.costTotal)} · venda ${formatCurrency(row.saleTotal)}`,
+        `${row.totalQty} un · ${row.name} · Foz ${row.qtyLoja} / Moto ${row.qtyMotoboy} / Minas ${row.qtyMinas} / SC ${row.qtySantaCatarina} · custo ${formatCurrency(row.costTotal)} · venda ${formatCurrency(row.saleTotal)}`,
       );
     const text = [
       `RESUMO ESTOQUE (${when})`,
       `Empatado: ${formatCurrency(totals.cost)}`,
       `Se vender tudo: ${formatCurrency(totals.sale)}`,
       `Lucro potencial: ${formatCurrency(profit)}`,
-      `Foz Guaçu ${formatCurrency(totals.lojaCost)} · Motoboy ${formatCurrency(totals.motoboyCost)} · Minas ${formatCurrency(totals.minasCost)}`,
+      `Foz Guaçu ${formatCurrency(totals.lojaCost)} · Motoboy ${formatCurrency(totals.motoboyCost)} · Minas ${formatCurrency(totals.minasCost)} · Santa Catarina ${formatCurrency(totals.santaCatarinaCost)}`,
       "",
       ...lines,
     ].join("\n");
@@ -9730,7 +10124,7 @@ function InventoryStockSummary({
           <div>
             <p className="text-sm font-semibold">Resumo de valores</p>
             <p className="text-xs text-muted-foreground">
-              Junta Loja, Motoboy e Minas. Custo e venda vêm do cadastro do produto (promo se estiver ativa). Sem entrada/saída nesta aba.
+              Junta Foz Guaçu, Motoboy, Minas e Santa Catarina. Custo e venda vêm do cadastro do produto (promo se estiver ativa). Sem entrada/saída nesta aba.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
@@ -9753,7 +10147,7 @@ function InventoryStockSummary({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2 text-xs">
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2">
             <span className="font-semibold">Foz Guaçu:</span> {formatCurrency(totals.lojaCost)} custo · {formatCurrency(totals.lojaSale)} venda
           </p>
@@ -9762,6 +10156,9 @@ function InventoryStockSummary({
           </p>
           <p className="rounded-lg border border-border bg-muted/40 px-3 py-2">
             <span className="font-semibold">Minas:</span> {formatCurrency(totals.minasCost)} custo · {formatCurrency(totals.minasSale)} venda
+          </p>
+          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+            <span className="font-semibold">Santa Catarina:</span> {formatCurrency(totals.santaCatarinaCost)} custo · {formatCurrency(totals.santaCatarinaSale)} venda
           </p>
         </div>
         {totals.missing > 0 && (
@@ -9818,7 +10215,7 @@ function InventoryStockSummary({
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{row.name}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        Foz Guaçu {row.qtyLoja} · Motoboy {row.qtyMotoboy} · Minas {row.qtyMinas} · {row.totalQty} un
+                        Foz Guaçu {row.qtyLoja} · Motoboy {row.qtyMotoboy} · Minas {row.qtyMinas} · Santa Catarina {row.qtySantaCatarina} · {row.totalQty} un
                       </p>
                     </div>
                   </div>
@@ -9842,14 +10239,25 @@ function InventoryStockSummary({
 
 function parseInventoryPool(raw: unknown): InventoryPoolKind | null {
   const value = String(raw || "").toLowerCase().trim();
-  if (value === "loja" || value === "motoboy" || value === "minas") return value;
+  if (value === "loja" || value === "motoboy" || value === "minas" || value === "santa_catarina") return value;
   return null;
 }
 
 function inventoryPoolLabel(pool: InventoryPoolKind): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
+  if (pool === "santa_catarina") return "Santa Catarina";
   return "Foz Guaçu";
+}
+
+function inventoryPoolChipClass(pool: InventoryPoolKind, selected: boolean, hasStock: boolean): string {
+  const base = "h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60";
+  if (selected && pool === "loja") return `${base} bg-slate-800 text-white border-slate-800`;
+  if (selected && pool === "motoboy") return `${base} bg-orange-600 text-white border-orange-600`;
+  if (selected && pool === "minas") return `${base} bg-indigo-700 text-white border-indigo-700`;
+  if (selected && pool === "santa_catarina") return `${base} bg-sky-700 text-white border-sky-700`;
+  if (hasStock) return `${base} bg-emerald-50 text-emerald-900 border-emerald-500 hover:bg-emerald-100`;
+  return `${base} bg-white text-slate-700 border-amber-200 hover:bg-amber-100`;
 }
 
 function inventoryPoolForEnvioEcomAccount(
@@ -9861,6 +10269,7 @@ function inventoryPoolForEnvioEcomAccount(
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+  if (/santa catarina/.test(name)) return "santa_catarina";
   if (/\bminas\b|\bmg\b/.test(name)) return "minas";
   if (/sao paulo|\bsp\b|servidor/.test(name)) return "motoboy";
   if (id === "env") return "motoboy";
@@ -9869,7 +10278,7 @@ function inventoryPoolForEnvioEcomAccount(
 }
 
 function isDeferredDebitPool(pool: InventoryPoolKind): boolean {
-  return pool === "motoboy" || pool === "minas";
+  return pool === "motoboy" || pool === "minas" || pool === "santa_catarina";
 }
 
 function InventoryPanel({
@@ -9881,6 +10290,8 @@ function InventoryPanel({
   motoboyMovements,
   minasBalances,
   minasMovements,
+  santaCatarinaBalances,
+  santaCatarinaMovements,
   movementDateFrom,
   movementDateTo,
   onMovementDatesChange,
@@ -9896,6 +10307,7 @@ function InventoryPanel({
   onCreateEntry,
   onCreateMotoboyEntry,
   onCreateMinasEntry,
+  onCreateSantaCatarinaEntry,
   onZeroBalances,
   onCreateManualReshipment,
   onUndoMovement,
@@ -9909,6 +10321,8 @@ function InventoryPanel({
   motoboyMovements: InventoryMovementRecord[];
   minasBalances: InventoryBalanceRecord[];
   minasMovements: InventoryMovementRecord[];
+  santaCatarinaBalances: InventoryBalanceRecord[];
+  santaCatarinaMovements: InventoryMovementRecord[];
   movementDateFrom: string;
   movementDateTo: string;
   onMovementDatesChange: (from: string, to: string) => void;
@@ -9980,6 +10394,7 @@ function InventoryPanel({
   onCreateEntry: () => void;
   onCreateMotoboyEntry: () => void;
   onCreateMinasEntry: () => void;
+  onCreateSantaCatarinaEntry: () => void;
   onZeroBalances: (pool: InventoryPoolKind) => Promise<void>;
   onCreateManualReshipment: () => void;
   onUndoMovement: (pool: InventoryPoolKind, movementId: string) => Promise<void>;
@@ -10020,19 +10435,23 @@ function InventoryPanel({
   };
 
   const normalizedBalanceSearch = balanceSearch.trim().toLowerCase();
-  const poolTab: InventoryPoolKind = stockTab === "resumo" ? "loja" : stockTab;
+  const poolTab: InventoryPoolKind = stockTab === "resumo" || stockTab === "baixas" ? "loja" : stockTab;
   const isDeferredStockTab = isDeferredDebitPool(poolTab);
   const stockTabLabel = inventoryPoolLabel(poolTab);
   const activeBalances = stockTab === "motoboy"
     ? motoboyBalances
     : stockTab === "minas"
       ? minasBalances
-      : balances;
+      : stockTab === "santa_catarina"
+        ? santaCatarinaBalances
+        : balances;
   const activeMovements = stockTab === "motoboy"
     ? motoboyMovements
     : stockTab === "minas"
       ? minasMovements
-      : movements;
+      : stockTab === "santa_catarina"
+        ? santaCatarinaMovements
+        : movements;
   const resolvedBalances = activeBalances.map((row) => {
     const display = resolveInventoryDisplay(products, row.productId, row.productName, row.image);
     return { ...row, displayName: display.name, displayImage: display.image };
@@ -10226,6 +10645,17 @@ function InventoryPanel({
         </button>
         <button
           type="button"
+          onClick={() => setStockTab("santa_catarina")}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition ${
+            stockTab === "santa_catarina"
+              ? "bg-sky-700 text-white border-sky-700"
+              : "bg-white text-muted-foreground border-border hover:border-sky-300"
+          }`}
+        >
+          Estoque Santa Catarina
+        </button>
+        <button
+          type="button"
           onClick={() => setStockTab("resumo")}
           className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition ${
             stockTab === "resumo"
@@ -10235,15 +10665,35 @@ function InventoryPanel({
         >
           Resumo
         </button>
+        <button
+          type="button"
+          onClick={() => setStockTab("baixas")}
+          className={`px-3 py-1.5 rounded-full text-sm font-semibold border transition ${
+            stockTab === "baixas"
+              ? "bg-emerald-700 text-white border-emerald-700"
+              : "bg-white text-muted-foreground border-border hover:border-emerald-300"
+          }`}
+        >
+          Baixa de etiqueta
+        </button>
       </div>
 
-      {stockTab === "resumo" ? (
+      {stockTab === "baixas" ? (
+        <LabelDebitQueuePanel
+          products={products}
+          motoboyBalances={motoboyBalances}
+          minasBalances={minasBalances}
+          santaCatarinaBalances={santaCatarinaBalances}
+          onRefresh={onRefresh}
+        />
+      ) : stockTab === "resumo" ? (
         <InventoryStockSummary
           loading={loading}
           products={products}
           balances={balances}
           motoboyBalances={motoboyBalances}
           minasBalances={minasBalances}
+          santaCatarinaBalances={santaCatarinaBalances}
           onRefresh={onRefresh}
         />
       ) : (
@@ -10256,14 +10706,18 @@ function InventoryPanel({
                 ? "Estoque Motoboy"
                 : stockTab === "minas"
                   ? "Estoque Minas"
-                  : "Estoque Foz Guaçu"}
+                  : stockTab === "santa_catarina"
+                    ? "Estoque Santa Catarina"
+                    : "Estoque Foz Guaçu"}
             </p>
             <p className="text-xs text-muted-foreground">
               {stockTab === "motoboy"
                   ? "Registre o que está na mão do motoboy. Pedidos só baixam com Dar baixa agora no card. Pedidos com etiqueta EE aparecem como previsão (linha imaginária), sem baixar."
                 : stockTab === "minas"
                   ? "Registre o que está no estoque Minas. Pedidos só baixam com Dar baixa agora no card."
-                  : "Registre entrada ou saída de estoque. Pedidos Foz também só baixam com Dar baixa agora. Entradas por compra ou devolução liberam reenvios automaticamente."}
+                  : stockTab === "santa_catarina"
+                    ? "Registre o que está no estoque Santa Catarina. Pedidos só baixam com Dar baixa agora no card."
+                    : "Registre entrada ou saída de estoque. Pedidos Foz também só baixam com Dar baixa agora. Entradas por compra ou devolução liberam reenvios automaticamente."}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -10321,6 +10775,7 @@ function InventoryPanel({
             onClick={() => {
               if (stockTab === "motoboy") onCreateMotoboyEntry();
               else if (stockTab === "minas") onCreateMinasEntry();
+              else if (stockTab === "santa_catarina") onCreateSantaCatarinaEntry();
               else onCreateEntry();
             }}
             disabled={submitting}
@@ -10459,7 +10914,9 @@ function InventoryPanel({
                       ? "copy-motoboy-stock-btn"
                       : stockTab === "minas"
                         ? "copy-minas-stock-btn"
-                        : "copy-stock-btn";
+                        : stockTab === "santa_catarina"
+                          ? "copy-santa-catarina-stock-btn"
+                          : "copy-stock-btn";
                     const btn = document.getElementById(copyBtnId);
                     if (btn) {
                       const original = btn.textContent;
@@ -10468,7 +10925,7 @@ function InventoryPanel({
                     }
                   });
                 }}
-                id={stockTab === "motoboy" ? "copy-motoboy-stock-btn" : stockTab === "minas" ? "copy-minas-stock-btn" : "copy-stock-btn"}
+                id={stockTab === "motoboy" ? "copy-motoboy-stock-btn" : stockTab === "minas" ? "copy-minas-stock-btn" : stockTab === "santa_catarina" ? "copy-santa-catarina-stock-btn" : "copy-stock-btn"}
                 className="text-xs px-2 py-1 rounded-md border border-border bg-muted hover:bg-accent transition-colors font-medium"
               >
                 {`Copiar ${stockTabLabel}`}
@@ -11065,13 +11522,14 @@ function OrdersPanel({
   inventoryBalances,
   motoboyInventoryBalances,
   minasInventoryBalances,
+  santaCatarinaInventoryBalances,
   getCommissionRate,
   gatewayFeePercent,
   gatewayFeeFixed,
   gatewayFeeMin,
   orders, statusUpdating, storeCreditApplying, applyCustomerStoreCredit, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
-  onOpenCardPaidModal, updateOrderObservation, isPrimary, onEditOrder, onOpenKycModal,
+  onOpenCardPaidModal, updateOrderObservation, isPrimary, sellerStaff = false, sellers, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups,   onSetReshipmentStatus, onRemoveOrder,
   shippingQueueMap, onRefreshInventory, onRefreshOrders,
   emptyMessage,
@@ -11084,6 +11542,7 @@ function OrdersPanel({
   inventoryBalances: InventoryBalanceRecord[];
   motoboyInventoryBalances: InventoryBalanceRecord[];
   minasInventoryBalances: InventoryBalanceRecord[];
+  santaCatarinaInventoryBalances: InventoryBalanceRecord[];
   getCommissionRate: (sellerCode?: string | null, snapshot?: number | null) => number;
   gatewayFeePercent: number;
   gatewayFeeFixed: number;
@@ -11107,6 +11566,8 @@ function OrdersPanel({
   onOpenCardPaidModal: (id: string) => void;
   updateOrderObservation: (id: string, observation: string, visibleToCustomer?: boolean) => void;
   isPrimary: boolean;
+  sellerStaff?: boolean;
+  sellers: SavedSellerItem[];
   onEditOrder: (order: AdminOrder) => void;
   onOpenKycModal: (orderId: string) => void;
   onSetOrderEnviado: (id: string, enviado: boolean) => void;
@@ -11133,8 +11594,14 @@ function OrdersPanel({
   const [inventoryPoolSaving, setInventoryPoolSaving] = useState<Record<string, boolean>>({});
   const [inventoryExitPasswordDraft, setInventoryExitPasswordDraft] = useState<Record<string, string>>({});
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
+  const [preconfirmOrderId, setPreconfirmOrderId] = useState<string | null>(null);
+  const [preconfirmNote, setPreconfirmNote] = useState("");
+  const [preconfirmProof, setPreconfirmProof] = useState("");
+  const [preconfirmSaving, setPreconfirmSaving] = useState(false);
+  const [preconfirmedIds, setPreconfirmedIds] = useState<Record<string, boolean>>({});
   const [trackingUploading, setTrackingUploading] = useState<Record<string, boolean>>({});
   const [envioecomBusy, setEnvioecomBusy] = useState<Record<string, boolean>>({});
+  const envioecomCreateLock = useRef(new Set<string>());
   const [envioecomSelectedCarriers, setEnvioecomSelectedCarriers] = useState<string[]>([]);
   const [envioecomQuoteModal, setEnvioecomQuoteModal] = useState<null | {
     order: AdminOrder;
@@ -11150,6 +11617,7 @@ function OrdersPanel({
     accountId?: string | null;
     accountName?: string | null;
     packageId?: string | null;
+    createError?: string | null;
   }>(null);
   const [lossBlacklistModal, setLossBlacklistModal] = useState<null | {
     order: AdminOrder;
@@ -11204,6 +11672,9 @@ function OrdersPanel({
   }>(null);
   const [splitShipmentModal, setSplitShipmentModal] = useState<AdminOrder | null>(null);
   const [splitShipmentSaving, setSplitShipmentSaving] = useState(false);
+  const [sellerChangeOrder, setSellerChangeOrder] = useState<AdminOrder | null>(null);
+  const [sellerChangeTarget, setSellerChangeTarget] = useState("");
+  const [sellerChangeSaving, setSellerChangeSaving] = useState(false);
   const [shippingForecastSaving, setShippingForecastSaving] = useState<Record<string, boolean>>({});
   const trackingInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [trackingReview, setTrackingReview] = useState<null | {
@@ -11252,6 +11723,44 @@ function OrdersPanel({
     const current = ordersLookup.find((o) => o.id === orderId);
     if (!current) return;
     onSetOrderPatched({ ...current, ...patch } as AdminOrder);
+  };
+
+  const sellerRateOf = (seller: SavedSellerItem | undefined) => {
+    if (!seller || seller.hasCommission === false) return 0;
+    const rate = Number(seller.commissionRate ?? 0);
+    return Number.isFinite(rate) ? rate : 0;
+  };
+
+  const openSellerChange = (order: AdminOrder) => {
+    const current = String(order.sellerCode || "").trim().toLowerCase();
+    const next = sellers.find((seller) => seller.slug.toLowerCase() !== current);
+    setSellerChangeTarget(next?.slug || "");
+    setSellerChangeOrder(order);
+  };
+
+  const saveSellerChange = async () => {
+    if (!sellerChangeOrder || !sellerChangeTarget) return;
+    setSellerChangeSaving(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${sellerChangeOrder.id}/seller`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ sellerCode: sellerChangeTarget }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; order?: AdminOrder };
+      if (!res.ok || !data.order) {
+        toast.error(data.message || "Não foi possível trocar o vendedor.");
+        return;
+      }
+      onSetOrderPatched(data.order);
+      const chosen = sellers.find((seller) => seller.slug === sellerChangeTarget);
+      toast.success(`Venda passou para ${sellerListTitle(chosen || { slug: sellerChangeTarget, whatsapp: "" })}. A comissão fica com esse vendedor.`);
+      setSellerChangeOrder(null);
+    } catch {
+      toast.error("Erro ao trocar o vendedor.");
+    } finally {
+      setSellerChangeSaving(false);
+    }
   };
 
   const saveShippingForecast = async (order: AdminOrder, date: string | null, packageId?: string | null) => {
@@ -11322,7 +11831,7 @@ function OrdersPanel({
     return () => { cancelled = true; };
   }, []);
 
-  const selectableEnvioEcomAccounts = envioecomAccounts.filter((account) => account.configured);
+  const selectableEnvioEcomAccounts = envioecomAccountsForLabelPicker(envioecomAccounts);
   const envioecomAccountNameById = (id: string | null | undefined) =>
     envioecomAccounts.find((account) => account.id === id)?.name || null;
 
@@ -11512,7 +12021,7 @@ function OrdersPanel({
       : refreshEnvioEcomAccounts();
     const relatedPromise = fetchRelatedShipments(order.id, authHeaders()).catch(() => null);
     const [list, related] = await Promise.all([accountsPromise, relatedPromise]);
-    const ready = list.filter((account) => account.configured);
+    const ready = envioecomAccountsForLabelPicker(list);
     if (!ready.length) {
       toast.error("Nenhuma API EnvioEcom configurada. Cadastre em Configurações.");
       return;
@@ -11733,10 +12242,12 @@ function OrdersPanel({
       toast.error("Cotação sem transportadora.");
       return;
     }
+    if (envioecomCreateLock.current.has(order.id) || envioecomBusy[order.id]) return;
     if (quote.lossAlert?.message) {
       const proceed = window.confirm(`${quote.lossAlert.message}\n\nGerar a etiqueta mesmo assim?`);
       if (!proceed) return;
     }
+    envioecomCreateLock.current.add(order.id);
     setEnvioecomBusy((prev) => ({ ...prev, [order.id]: true }));
     try {
       const cepOrigem = String(originZipcode || "").replace(/\D/g, "");
@@ -11747,32 +12258,40 @@ function OrdersPanel({
           shipping_company: shippingCompany,
           freight_cost: quote.price != null ? String(quote.price) : undefined,
           delivery_time: quote.delivery_time != null ? String(quote.delivery_time) : undefined,
+          quote,
           ...(cepOrigem.length === 8 ? { cep_origem: cepOrigem } : {}),
           ...(envioecomQuoteModal?.accountId ? { accountId: envioecomQuoteModal.accountId } : {}),
           ...(envioecomQuoteModal?.packageId ? { packageId: envioecomQuoteModal.packageId } : {}),
         }),
       });
-      const data = await res.json() as {
+      const raw = await res.text();
+      let data: {
         ok?: boolean;
         barcode?: string | null;
         shipmentId?: string | null;
         trackingKey?: string | null;
         status?: string;
         message?: string;
-        details?: unknown;
         error?: string;
         accountId?: string | null;
         packages?: unknown[];
         packageId?: string | null;
         deliveryCorrection?: DeliveryCorrectionNotice;
-      };
+      } = {};
+      try {
+        data = raw ? JSON.parse(raw) as typeof data : {};
+      } catch {
+        data = {};
+      }
+      const message = data.message && !data.message.includes("<")
+        ? data.message
+        : "Falha ao criar envio EnvioEcom.";
       if (!res.ok) {
         showDeliveryCorrection(order, data);
-        const extra =
-          data.details && typeof data.details === "object"
-            ? ` ${JSON.stringify(data.details)}`
-            : "";
-        toast.error((data.message || "Falha ao criar envio EnvioEcom.") + extra);
+        setEnvioecomQuoteModal((current) => current && current.order.id === order.id
+          ? { ...current, createError: message }
+          : current);
+        toast.error(message);
         return;
       }
       patchOrderLocal(order.id, {
@@ -11798,6 +12317,7 @@ function OrdersPanel({
     } catch {
       toast.error("Erro ao criar envio EnvioEcom.");
     } finally {
+      envioecomCreateLock.current.delete(order.id);
       setEnvioecomBusy((prev) => ({ ...prev, [order.id]: false }));
     }
   };
@@ -11835,7 +12355,7 @@ function OrdersPanel({
     const list = selectableEnvioEcomAccounts.length
       ? envioecomAccounts
       : await refreshEnvioEcomAccounts();
-    const ready = list.filter((account) => account.configured);
+    const ready = envioecomAccountsForLabelPicker(list);
     if (!ready.length) {
       toast.error("Nenhuma API EnvioEcom configurada. Cadastre em Configurações.");
       return;
@@ -12689,6 +13209,7 @@ function OrdersPanel({
   const balancesForInventoryPool = (pool: InventoryPoolKind): InventoryBalanceRecord[] => {
     if (pool === "motoboy") return motoboyInventoryBalances;
     if (pool === "minas") return minasInventoryBalances;
+    if (pool === "santa_catarina") return santaCatarinaInventoryBalances;
     return inventoryBalances;
   };
 
@@ -13440,7 +13961,8 @@ function OrdersPanel({
     : inventoryBalances;
   const trackingInventoryReady = modalInventoryBalances.length > 0
     || motoboyInventoryBalances.length > 0
-    || minasInventoryBalances.length > 0;
+    || minasInventoryBalances.length > 0
+    || santaCatarinaInventoryBalances.length > 0;
   const trackingReviewPool = trackingReview ? resolveInventoryPoolForOrder(trackingReview.order.id) : "loja" as InventoryPoolKind;
   const trackingTargetPool = trackingTargetOrderId ? resolveInventoryPoolForOrder(trackingTargetOrderId) : "loja" as InventoryPoolKind;
   const trackingReviewBalances = trackingReviewPool === "loja"
@@ -13516,11 +14038,27 @@ function OrdersPanel({
           const isExpanded = expandedOrder === order.id;
           // Estoque no card mesmo com enviado/EE (alerta visual). Lista "para enviar" continua só com !enviado.
           const selectedInventoryPool = resolveInventoryPoolForOrder(order.id);
-          const poolInventoryReady = balancesForInventoryPool(selectedInventoryPool).length > 0;
-          const orderStockCheck = !poolInventoryReady
+          const orderProducts = getOrderProducts(order.products);
+          const inventorySnapshotReady = inventoryBalances.length > 0
+            || motoboyInventoryBalances.length > 0
+            || minasInventoryBalances.length > 0
+            || santaCatarinaInventoryBalances.length > 0;
+          const stockPools = poolsCoveringOrderStock({
+            items: orderProducts,
+            balancesByPool: {
+              loja: inventoryBalances,
+              motoboy: motoboyInventoryBalances,
+              minas: minasInventoryBalances,
+              santa_catarina: santaCatarinaInventoryBalances,
+            },
+            catalogNames: productNameById,
+          });
+          const stockPoolLabel = stockPools.map((pool) => inventoryPoolLabel(pool)).join(" · ");
+          const reservedOnSelectedPool = !!inventoryReservedByOrder[order.id]
+            && String((order as { inventoryPool?: string }).inventoryPool || "").toLowerCase() === selectedInventoryPool;
+          const orderStockCheck = !inventorySnapshotReady
             ? { hasStock: true, message: "", missingItems: [] as string[] }
             : verifyOrderStock(order.id, undefined, selectedInventoryPool);
-          const orderProducts = getOrderProducts(order.products);
           const isCancelledCard = isCancelledOrderStatus(order.status);
           const isReshipmentChild = isReshipmentChildOrder(order as {
             shippingType?: string | null;
@@ -13700,24 +14238,26 @@ function OrdersPanel({
                           </span>
                         )}
                         <span
-                          title={!poolInventoryReady
+                          title={!inventorySnapshotReady
                             ? "Carregando saldo de estoque"
-                            : orderStockCheck.hasStock
-                              ? `Estoque ${inventoryPoolLabel(selectedInventoryPool)} suficiente para envio`
-                              : orderStockCheck.missingItems.join("\n") || `Sem estoque ${inventoryPoolLabel(selectedInventoryPool)} dos produtos do pedido`}
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!poolInventoryReady
+                            : reservedOnSelectedPool
+                              ? `Baixa já feita no estoque ${inventoryPoolLabel(selectedInventoryPool)}`
+                              : stockPools.length > 0
+                                ? `Saldo suficiente em ${stockPoolLabel}`
+                                : orderStockCheck.missingItems.join("\n") || "Nenhum depósito tem saldo suficiente deste pedido"}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!inventorySnapshotReady
                             ? "bg-slate-100 text-slate-700 border-slate-200"
-                            : orderStockCheck.hasStock
+                            : reservedOnSelectedPool || stockPools.length > 0
                             ? "bg-green-100 text-green-800 border-green-200"
                             : "bg-red-100 text-red-800 border-red-200"}`}
                         >
-                          {!poolInventoryReady
+                          {!inventorySnapshotReady
                             ? "Estoque carregando"
-                            : inventoryReservedByOrder[order.id] && String((order as { inventoryPool?: string }).inventoryPool || "").toLowerCase() === selectedInventoryPool
+                            : reservedOnSelectedPool
                               ? `Reservado ${inventoryPoolLabel(selectedInventoryPool)}`
-                            : (orderStockCheck.hasStock
-                              ? `Estoque ${inventoryPoolLabel(selectedInventoryPool)} OK`
-                              : `sem estoque ${inventoryPoolLabel(selectedInventoryPool)}`)}
+                              : stockPools.length > 0
+                                ? `Estoque ${stockPoolLabel}`
+                                : "sem estoque"}
                         </span>
                         {isReshipment && (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
@@ -13881,7 +14421,7 @@ function OrdersPanel({
                 <p className={`text-sm font-semibold mb-3 ${isCard ? "text-purple-800" : "text-blue-800"}`}>
                   Gestão — {isCard ? "Cartão (simulação)" : "PIX"}
                 </p>
-                <div className="flex items-center gap-2 flex-wrap mb-3">
+                {!sellerStaff && <div className="flex items-center gap-2 flex-wrap mb-3">
                   <select
                     value={whatsappGroupDrafts[order.id] || "__none"}
                     onChange={(event) => setWhatsappGroupDrafts((prev) => ({ ...prev, [order.id]: event.target.value }))}
@@ -13902,18 +14442,92 @@ function OrdersPanel({
                     {whatsappGroupUpdating[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                     Salvar grupo
                   </Button>
-                </div>
+                </div>}
                 <div className="flex flex-col gap-2">
                   {(!isCancelledCard || hasProofs || !isPaidOrCompleted) && (
                   <div className="flex gap-2 flex-wrap items-center">
-                  {!isPaidOrCompleted && (
+                  {sellerStaff && !isPaidOrCompleted && (
+                    preconfirmOrderId === order.id ? (
+                      <div className="w-full rounded-lg border border-emerald-200 bg-white p-3 space-y-2">
+                        <p className="text-xs text-emerald-800">Pré-confirmação. O admin principal ainda precisa aprovar. Nada é marcado como pago agora.</p>
+                        <textarea
+                          value={preconfirmNote}
+                          onChange={(event) => setPreconfirmNote(event.target.value)}
+                          placeholder="Observação (opcional)"
+                          className="w-full min-h-16 rounded-lg border border-border px-2 py-1 text-sm"
+                        />
+                        <input
+                          type="file"
+                          accept="image/*,.pdf"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 1_400_000) {
+                              toast.error("Comprovante grande demais.");
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = () => setPreconfirmProof(String(reader.result || ""));
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={preconfirmSaving}
+                            onClick={() => {
+                              void (async () => {
+                                setPreconfirmSaving(true);
+                                try {
+                                  const res = await fetch(`${BASE}/api/admin/orders/${order.id}/payment-preconfirm`, {
+                                    method: "POST",
+                                    headers: authHeaders(),
+                                    body: JSON.stringify({ note: preconfirmNote, proofUrl: preconfirmProof || undefined }),
+                                  });
+                                  const data = await res.json().catch(() => ({})) as { message?: string };
+                                  if (!res.ok) { toast.error(data.message || "Não foi possível pré-confirmar."); return; }
+                                  toast.success("Pré-confirmação enviada. Aguardando o admin.");
+                                  setPreconfirmedIds((prev) => ({ ...prev, [order.id]: true }));
+                                  setPreconfirmOrderId(null);
+                                  setPreconfirmNote("");
+                                  setPreconfirmProof("");
+                                } catch {
+                                  toast.error("Não foi possível pré-confirmar.");
+                                } finally {
+                                  setPreconfirmSaving(false);
+                                }
+                              })();
+                            }}
+                          >
+                            {preconfirmSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                            Enviar pré-confirmação
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setPreconfirmOrderId(null)}>Cancelar</Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50"
+                        disabled={Boolean(preconfirmedIds[order.id])}
+                        onClick={() => { setPreconfirmOrderId(order.id); setPreconfirmNote(""); setPreconfirmProof(""); }}
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        {preconfirmedIds[order.id] ? "Pré-confirmação enviada" : "Pré-confirmar pagamento"}
+                      </Button>
+                    )
+                  )}
+                  {!sellerStaff && !isPaidOrCompleted && (
                   <Button type="button" size="sm" variant="outline" className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50"
                     disabled={statusUpdating === order.id}
                     onClick={() => isCard ? onOpenCardPaidModal(order.id) : updateOrderStatus(order.id, "paid")}>
                     <CheckCircle className="w-3.5 h-3.5" />Marcar Pago
                   </Button>
                   )}
-                  {!isCancelledCard && canApplyStoreCredit && (
+                  {!sellerStaff && !isCancelledCard && canApplyStoreCredit && (
                     <Button
                       type="button"
                       size="sm"
@@ -13928,7 +14542,7 @@ function OrdersPanel({
                       Abater saldo do cliente
                     </Button>
                   )}
-                  {!isCancelledCard && (
+                  {!sellerStaff && !isCancelledCard && (
                   <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
                     type="button"
                     disabled={statusUpdating === order.id}
@@ -13949,7 +14563,7 @@ function OrdersPanel({
                     <XCircle className="w-3.5 h-3.5" />Cancelar
                   </Button>
                   )}
-                  {!isPaidOrCompleted && (
+                  {!sellerStaff && !isPaidOrCompleted && (
                   <Button type="button" size="sm" variant="outline" className="gap-1.5 text-blue-600 border-blue-200 hover:bg-blue-50"
                     onClick={() => setProofModal(order.id)}>
                     <Upload className="w-3.5 h-3.5" />
@@ -13989,6 +14603,25 @@ function OrdersPanel({
                       uploadTrackingLabel(order.id, file);
                     }}
                   />
+                  {!isCancelledCard && (
+                  <div className="flex flex-col gap-2">
+                    <ShopeeRouteBadge
+                      requestedAt={order.shopeeRouteRequestedAt}
+                      shopeeOrderId={order.shopeeOrderId}
+                      reviewReason={order.shopeeRouteReviewReason}
+                    />
+                    <div className="flex gap-2 flex-wrap items-center">
+                      <ShopeeRouteOrderControls
+                        order={order}
+                        canCredit={isPrimary}
+                        hideSend={isSplitShipment}
+                        onPatched={(patch) => {
+                          onSetOrderPatched({ ...order, ...patch });
+                        }}
+                      />
+                    </div>
+                  </div>
+                  )}
                   {!isCancelledCard && (
                   <div className="flex gap-2 flex-wrap items-center">
                   <Button
@@ -14215,7 +14848,30 @@ function OrdersPanel({
                           onChange={(date) => { void saveShippingForecast(order, date, pkg.id); }}
                         />
                       )}
-                      {!isCancelledCard && pkg.id && !pkg.inventoryReserved && (
+                      {!isCancelledCard && pkg.id && (
+                        <ShopeeRouteButton
+                          orderId={order.id}
+                          packageId={pkg.id}
+                          sentAt={pkg.shopeeRouteSentAt}
+                          items={(pkg.items || []).map((item) => ({
+                            quantity: item.quantity,
+                            name: item.productName,
+                          }))}
+                          onSent={(sentAt) => {
+                            const packageId = String(pkg.id);
+                            onSetOrderPatched({
+                              ...order,
+                              shopeeRouteRequestedAt: sentAt,
+                              shopeeRouteReviewReason: null,
+                              shippingVia: "shopee",
+                              envioecomPackages: (order.envioecomPackages || []).map((entry) => (
+                                entry?.id === packageId ? { ...entry, shopeeRouteSentAt: sentAt } : entry
+                              )),
+                            });
+                          }}
+                        />
+                      )}
+                      {!sellerStaff && !isCancelledCard && pkg.id && !pkg.inventoryReserved && (
                         <>
                           {inventoryPoolNeedsExitPassword(pkg.inventoryPool) && (
                             <input
@@ -14364,52 +15020,27 @@ function OrdersPanel({
                     <span className="whitespace-nowrap">
                       {inventoryReservedByOrder[order.id] ? "Baixa feita:" : "Baixa estoque:"}
                     </span>
-                    <button
-                      type="button"
-                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
-                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
-                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
-                        : undefined}
-                      onClick={() => { void saveInventoryPoolForOrder(order.id, "loja"); }}
-                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
-                        selectedInventoryPool === "loja"
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
-                      }`}
-                    >
-                      Foz Guaçu
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
-                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
-                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
-                        : undefined}
-                      onClick={() => { void saveInventoryPoolForOrder(order.id, "motoboy"); }}
-                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
-                        selectedInventoryPool === "motoboy"
-                          ? "bg-orange-600 text-white border-orange-600"
-                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
-                      }`}
-                    >
-                      {inventoryPoolSaving[order.id] ? "..." : "Motoboy"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!inventoryPoolSaving[order.id] || (showEnviadoUi && !!inventoryReservedByOrder[order.id])}
-                      title={showEnviadoUi && inventoryReservedByOrder[order.id]
-                        ? "Estoque já baixado. Marque como Pendente para trocar o pool."
-                        : undefined}
-                      onClick={() => { void saveInventoryPoolForOrder(order.id, "minas"); }}
-                      className={`h-6 px-2 rounded-full border text-[11px] font-bold transition disabled:opacity-60 ${
-                        selectedInventoryPool === "minas"
-                          ? "bg-indigo-700 text-white border-indigo-700"
-                          : "bg-white text-slate-700 border-amber-200 hover:bg-amber-100"
-                      }`}
-                    >
-                      Minas
-                    </button>
-                    {!inventoryReservedByOrder[order.id] && (
+                    {(["loja", "motoboy", "minas", "santa_catarina"] as const).map((pool) => {
+                      const poolHasStock = stockPools.includes(pool);
+                      const poolLocked = showEnviadoUi && !!inventoryReservedByOrder[order.id];
+                      return (
+                        <button
+                          key={pool}
+                          type="button"
+                          disabled={!!inventoryPoolSaving[order.id] || poolLocked}
+                          title={poolLocked
+                            ? "Estoque já baixado. Marque como Pendente para trocar o pool."
+                            : poolHasStock
+                              ? `Este pedido tem saldo em ${inventoryPoolLabel(pool)}`
+                              : undefined}
+                          onClick={() => { void saveInventoryPoolForOrder(order.id, pool); }}
+                          className={inventoryPoolChipClass(pool, selectedInventoryPool === pool, poolHasStock)}
+                        >
+                          {pool === "motoboy" && inventoryPoolSaving[order.id] ? "..." : inventoryPoolLabel(pool)}
+                        </button>
+                      );
+                    })}
+                    {!sellerStaff && !inventoryReservedByOrder[order.id] && (
                       <>
                         {inventoryPoolNeedsExitPassword(selectedInventoryPool) ? (
                           <input
@@ -14490,6 +15121,12 @@ function OrdersPanel({
                   <Button size="sm" variant="outline" className="gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50"
                     onClick={() => onEditOrder(order)}>
                     <Pencil className="w-3.5 h-3.5" />Editar Pedido
+                  </Button>
+                )}
+                {isPrimary && (
+                  <Button size="sm" variant="outline" className="gap-1.5 text-orange-700 border-orange-200 hover:bg-orange-50"
+                    onClick={() => openSellerChange(order)}>
+                    <Users className="w-3.5 h-3.5" />Trocar vendedor
                   </Button>
                 )}
                 {isCard && (
@@ -14977,6 +15614,94 @@ function OrdersPanel({
           </motion.div>
         )}
 
+        {sellerChangeOrder && (
+          <div className="fixed inset-0 z-[130] bg-black/45 flex items-center justify-center p-4">
+            <div className="w-full max-w-md rounded-2xl border border-border bg-white shadow-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-foreground">Trocar vendedor</h3>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Pedido #{getOrderReference(sellerChangeOrder)} · {sellerChangeOrder.clientName}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="p-1.5 rounded-lg hover:bg-muted"
+                  onClick={() => setSellerChangeOrder(null)}
+                  disabled={sellerChangeSaving}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="p-5 space-y-4">
+                {(() => {
+                  const order = sellerChangeOrder;
+                  if (!order) return null;
+                  const currentSlug = String(order.sellerCode || "").trim().toLowerCase();
+                  const currentSeller = sellers.find((seller) => seller.slug.toLowerCase() === currentSlug);
+                  const currentRate = getCommissionRate(order.sellerCode, order.sellerCommissionRateSnapshot);
+                  const nextSeller = sellers.find((seller) => seller.slug === sellerChangeTarget);
+                  const nextRate = sellerRateOf(nextSeller);
+                  const base = Number(order.total) || 0;
+                  const paid = Boolean(order.sellerCommissionPaidAt);
+                  const options = sellers.filter((seller) => seller.slug.toLowerCase() !== currentSlug);
+                  return (
+                    <>
+                      <p className="text-sm text-foreground">
+                        Agora está com <strong>{currentSeller ? sellerListTitle(currentSeller) : (currentSlug || "sem vendedor")}</strong>
+                        {currentSlug ? ` · comissão ${currentRate}% (${formatCurrency((base * currentRate) / 100)})` : ""}.
+                      </p>
+                      {paid ? (
+                        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                          A comissão deste pedido já foi paga. Não dá para passar para outro vendedor.
+                        </p>
+                      ) : options.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Cadastre outro vendedor para poder trocar.</p>
+                      ) : (
+                        <>
+                          <label className="block text-sm font-medium text-foreground">
+                            Novo vendedor
+                            <select
+                              value={sellerChangeTarget}
+                              onChange={(event) => setSellerChangeTarget(event.target.value)}
+                              className="mt-1.5 w-full h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-orange-500 outline-none text-sm"
+                            >
+                              {options.map((seller) => (
+                                <option key={seller.slug} value={seller.slug}>
+                                  {sellerListTitle(seller)} · {sellerRateOf(seller)}%
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {nextSeller && (
+                            <p className="text-sm text-orange-900 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2">
+                              A comissão passa a ser de <strong>{sellerListTitle(nextSeller)}</strong>: {nextRate}% ({formatCurrency((base * nextRate) / 100)}).
+                              {order.sellerCommissionBatchId ? " O pedido sai do lote de comissão ainda aberto." : ""}
+                            </p>
+                          )}
+                        </>
+                      )}
+                      <div className="flex justify-end gap-2 pt-1">
+                        <Button type="button" variant="outline" disabled={sellerChangeSaving} onClick={() => setSellerChangeOrder(null)}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="button"
+                          className="bg-orange-600 hover:bg-orange-700 text-white"
+                          disabled={sellerChangeSaving || paid || !sellerChangeTarget || options.length === 0}
+                          onClick={() => { void saveSellerChange(); }}
+                        >
+                          {sellerChangeSaving ? "Salvando..." : "Trocar vendedor"}
+                        </Button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        )}
+
         {splitShipmentModal && (
           <AdminSplitShipmentModal
             orderRef={String(getOrderReference(splitShipmentModal))}
@@ -15030,11 +15755,41 @@ function OrdersPanel({
                 </button>
               </div>
               <div className="p-4 space-y-2">
-                {selectableEnvioEcomAccounts.map((account) => (
+                {selectableEnvioEcomAccounts.map((account) => {
+                  const pickerOrder = envioecomAccountPicker.order;
+                  const pickerPackageId = String(envioecomAccountPicker.packageId || "").trim();
+                  const pickerPackage = pickerPackageId
+                    ? (pickerOrder.envioecomPackages || []).find((pkg) => String(pkg?.id || "") === pickerPackageId)
+                    : null;
+                  const pickerItems = pickerPackage?.items?.length
+                    ? pickerPackage.items.map((item) => ({
+                      id: item.productId,
+                      name: String(item.variantOption || item.productName || "Produto"),
+                      quantity: item.quantity,
+                    }))
+                    : getOrderProducts(pickerOrder.products);
+                  const pickerPool = inventoryPoolForEnvioEcomAccount(account.id, account.name);
+                  const pickerReady = inventoryBalances.length > 0
+                    || motoboyInventoryBalances.length > 0
+                    || minasInventoryBalances.length > 0
+                    || santaCatarinaInventoryBalances.length > 0;
+                  const pickerLines = pickerPool
+                    ? measureOrderItemStock({
+                      items: pickerItems,
+                      balances: balancesForInventoryPool(pickerPool),
+                      catalogNames: productNameById,
+                    })
+                    : [];
+                  const pickerCovers = pickerReady
+                    && pickerLines.length > 0
+                    && pickerLines.every((line) => line.available >= line.needed);
+                  return (
                   <button
                     key={account.id}
                     type="button"
-                    className="w-full text-left rounded-xl border border-border hover:border-teal-300 hover:bg-teal-50/50 px-4 py-3 transition"
+                    className={`w-full text-left rounded-xl border px-4 py-3 transition ${pickerCovers
+                      ? "border-emerald-400 bg-emerald-50/70 hover:bg-emerald-50"
+                      : "border-border hover:border-teal-300 hover:bg-teal-50/50"}`}
                     onClick={() => {
                       const picked = envioecomAccountPicker;
                       if (
@@ -15059,10 +15814,30 @@ function OrdersPanel({
                     <p className="font-semibold text-foreground">{account.name}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {account.fromEnv ? "Conta do servidor" : "Conta cadastrada"}
-                      {account.originCep ? ` · CEP ${account.originCep}` : ""}
+                      {account.originCep ? ` · CEP origem ${account.originCep}` : ""}
                     </p>
+                    {!pickerReady ? (
+                      <p className="text-xs text-slate-500 mt-1">Estoque carregando</p>
+                    ) : pickerLines.map((line) => {
+                      const short = line.available < line.needed;
+                      const text = line.available <= 0
+                        ? `${line.label}: sem estoque`
+                        : short
+                          ? `${line.label}: tem ${line.available}, precisa ${line.needed}`
+                          : `${line.label}: ${line.available} em estoque`;
+                      return (
+                        <p
+                          key={`${account.id}-${line.label}`}
+                          className={`text-xs mt-0.5 ${short ? "text-red-700" : "text-emerald-800"}`}
+                          title={text}
+                        >
+                          {text}
+                        </p>
+                      );
+                    })}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -15267,6 +16042,11 @@ function OrdersPanel({
                 </div>
               </div>
               <div className="p-4 space-y-2 max-h-[50vh] overflow-y-auto">
+                {envioecomQuoteModal.createError ? (
+                  <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                    {envioecomQuoteModal.createError}
+                  </p>
+                ) : null}
                 {(() => {
                   const notes = envioecomQuoteModal.customerCarriers || [];
                   const inTransit = notes.filter((note) => note.inTransit).map((note) => note.carrier);
@@ -17275,7 +18055,7 @@ function RecurringCustomersPanel({
       .replace(/\{\{\s*total\s*\}\}/gi, formatCurrency(Number(customer.totalSpent || 0)))
       .replace(/\{\{\s*dias_sem_compra\s*\}\}/gi, String(daysSince(customer.lastOrderAt)))
       .trim();
-    window.open(`https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`, "_blank");
+    window.open(whatsAppSendUrl(normalizedPhone, message), "_blank");
   };
 
   return (
@@ -17453,18 +18233,20 @@ function RecurringCustomersPanel({
 
 function UsersPanel({
   users, newUsername, setNewUsername, newPassword, setNewPassword,
-  newFullAccess, setNewFullAccess, showNewPw, setShowNewPw,
-  userCreating, userDeleting, userAccessUpdating, userPasswordUpdating,
-  createUser, deleteUser, toggleUserAccess, changeUserPassword,
+  newFullAccess, setNewFullAccess, newUserRole, setNewUserRole, showNewPw, setShowNewPw,
+  userCreating, userDeleting, userAccessUpdating, userPasswordUpdating, userActiveUpdating,
+  createUser, deleteUser, toggleUserAccess, changeUserPassword, setUserActive,
 }: {
   users: AdminUser[]; newUsername: string; setNewUsername: (v: string) => void;
   newPassword: string; setNewPassword: (v: string) => void;
   newFullAccess: boolean; setNewFullAccess: (v: boolean) => void;
+  newUserRole: "admin" | "vendedora"; setNewUserRole: (v: "admin" | "vendedora") => void;
   showNewPw: boolean; setShowNewPw: (v: boolean) => void;
-  userCreating: boolean; userDeleting: string | null; userAccessUpdating: string | null; userPasswordUpdating: string | null;
+  userCreating: boolean; userDeleting: string | null; userAccessUpdating: string | null; userPasswordUpdating: string | null; userActiveUpdating: string | null;
   createUser: () => void; deleteUser: (id: string, username: string) => void;
   toggleUserAccess: (id: string, username: string, fullAccess: boolean) => void;
   changeUserPassword: (id: string, username: string, password: string) => Promise<boolean>;
+  setUserActive: (id: string, username: string, active: boolean) => void;
 }) {
   const [editingPasswordUserId, setEditingPasswordUserId] = useState<string | null>(null);
   const [passwordDraft, setPasswordDraft] = useState("");
@@ -17514,9 +18296,26 @@ function UsersPanel({
             </button>
           </div>
 
+          <label className="block text-sm">
+            <span className="text-xs font-semibold text-muted-foreground">Papel</span>
+            <select
+              value={newUserRole}
+              onChange={(event) => {
+                const role = event.target.value === "vendedora" ? "vendedora" : "admin";
+                setNewUserRole(role);
+                if (role === "vendedora") setNewFullAccess(false);
+              }}
+              className="mt-1 w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+            >
+              <option value="admin">Admin</option>
+              <option value="vendedora">Vendedora (pré-confirma pagamento, vê vendas e lucro)</option>
+            </select>
+          </label>
+
           {/* Full access toggle */}
           <button
             type="button"
+            disabled={newUserRole === "vendedora"}
             onClick={() => setNewFullAccess(!newFullAccess)}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-colors text-left ${
               newFullAccess
@@ -17561,11 +18360,13 @@ function UsersPanel({
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="font-bold capitalize">{u.username}</p>
                 <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${
-                  u.isPrimary
+                  u.role === "vendedora"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : u.isPrimary
                     ? "bg-primary/10 text-primary border-primary/20"
                     : "bg-muted text-muted-foreground border-border"
                 }`}>
-                  {u.isPrimary ? "Acesso Total" : "Limitado"}
+                  {u.role === "vendedora" ? (u.active === false ? "Vendedora desativada" : "Vendedora") : u.isPrimary ? "Acesso Total" : "Limitado"}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground">
@@ -17574,7 +18375,7 @@ function UsersPanel({
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {/* Toggle access level */}
-              <button
+              {u.role !== "vendedora" && <button
                 type="button"
                 title={u.isPrimary ? "Remover acesso total" : "Conceder acesso total"}
                 disabled={userAccessUpdating === u.id}
@@ -17586,7 +18387,7 @@ function UsersPanel({
                   : u.isPrimary
                     ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" />
                     : <ToggleLeft className="w-6 h-6" />}
-              </button>
+              </button>}
               <Button
                 size="sm"
                 variant="outline"
@@ -17598,8 +18399,18 @@ function UsersPanel({
                 Alterar senha
               </Button>
               {/* Delete */}
+              {u.role === "vendedora" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={userActiveUpdating === u.id}
+                  onClick={() => setUserActive(u.id, u.username, u.active === false)}
+                >
+                  {userActiveUpdating === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : (u.active === false ? "Reativar" : "Desativar")}
+                </Button>
+              )}
               <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 shrink-0"
-                disabled={userDeleting === u.id}
+                disabled={userDeleting === u.id || u.role === "vendedora"}
                 onClick={() => deleteUser(u.id, u.username)}>
                 {userDeleting === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
               </Button>
@@ -19001,7 +19812,7 @@ function ProductsPanel({
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Até durar o estoque</label>
-                        <p className="text-xs text-muted-foreground mt-1">Ligado, a promoção usa o saldo Motoboy + Minas e baixa a cada pedido pago. Desligado, vale a data e a hora.</p>
+                        <p className="text-xs text-muted-foreground mt-1">Ligado, a promoção usa o saldo Motoboy + Minas + Santa Catarina e baixa a cada pedido pago. Desligado, vale a data e a hora.</p>
                       </div>
                       <button
                         type="button"
@@ -19025,7 +19836,7 @@ function ProductsPanel({
                     {(productForm as { promoUntilStock?: boolean }).promoUntilStock === true ? (
                       <p className="text-xs font-medium text-emerald-800">
                         {(productForm as { promoStockLeft?: number | null }).promoStockLeft == null
-                          ? "Ao salvar, o saldo copia o estoque Motoboy + Minas."
+                          ? "Ao salvar, o saldo copia o estoque Motoboy + Minas + Santa Catarina."
                           : `Restam ${(productForm as { promoStockLeft?: number | null }).promoStockLeft} nesta promoção. A baixa do depósito continua no botão Dar baixa agora.`}
                       </p>
                     ) : (
@@ -19362,7 +20173,7 @@ function ProductsPanel({
                   <div className="sm:col-span-2 flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3">
                     <div>
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Mostrar estoque ao cliente</p>
-                      <p className="text-xs text-muted-foreground mt-1">Soma Motoboy + Minas. Foz Guaçu não entra e o carrinho continua igual.</p>
+                      <p className="text-xs text-muted-foreground mt-1">Soma Motoboy + Minas + Santa Catarina. Foz Guaçu não entra e o carrinho continua igual.</p>
                     </div>
                     <button
                       type="button"
@@ -20154,7 +20965,8 @@ function ReportanaSettingsCard() {
   );
 }
 
-function ConfiguracoesPanel({ settings, loading, products, productsLoading, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection, brevoSenderEmail, setBrevoSenderEmail, brevoSenderName, setBrevoSenderName, brevoResetBaseUrl, setBrevoResetBaseUrl, brevoSenderLoaded, brevoSenderSaving, onSaveBrevoSender }: {
+function ConfiguracoesPanel({ sections, settings, loading, products, productsLoading, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection, brevoSenderEmail, setBrevoSenderEmail, brevoSenderName, setBrevoSenderName, brevoResetBaseUrl, setBrevoResetBaseUrl, brevoSenderLoaded, brevoSenderSaving, onSaveBrevoSender }: {
+  sections?: ConfigSection[];
   settings: Record<string, string>;
   loading: Record<string, boolean>;
   products: BannerLinkProduct[];
@@ -20180,6 +20992,7 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
   brevoSenderSaving: boolean;
   onSaveBrevoSender: () => void;
 }) {
+  const show = (id: ConfigSection) => !sections || sections.includes(id);
   const [sitePw, setSitePw] = useState(settings["site_password"] ?? "");
   const [paymentPw, setPaymentPw] = useState(settings["payment_password"] ?? "");
   const [outboundUrl, setOutboundUrl] = useState(settings["outbound_webhook_url"] ?? "");
@@ -20286,11 +21099,15 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
 
   return (
     <div className="space-y-8">
-      {/* ── APIs EnvioEcom ──────────────────────────────────────────────── */}
-      <AdminEnvioEcomAccountsPanel />
-      <AdminSuperfreteAccountsPanel />
-      <AdminInventoryExitAccessPanel />
+      {show("freteContas") && (
+        <>
+          <AdminEnvioEcomAccountsPanel />
+          <AdminSuperfreteAccountsPanel />
+        </>
+      )}
+      {show("senhaBaixa") && <AdminInventoryExitAccessPanel />}
 
+      {show("prazoPostagem") && (
       <div className="max-w-3xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
           <Clock className="w-5 h-5 text-primary" />
@@ -20352,6 +21169,9 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      )}
+
+      {show("prazoTransportadora") && (
       <div className="max-w-3xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
           <Truck className="w-5 h-5 text-primary" />
@@ -20441,6 +21261,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      )}
+
+      {show("identidade") && (
+      <>
       {/* ── Identidade Visual ─────────────────────────────────────────────── */}
       <div>
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -20631,6 +21455,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("promo") && (
+      <>
       {/* ── Cronograma de Promoção no Topo ─────────────────────────────── */}
       <div className="max-w-3xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -20731,6 +21560,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("taxas") && (
+      <>
       {/* ── Taxas do Gateway ─────────────────────────────────────────────── */}
       <div className="max-w-2xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -20812,7 +21646,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
-      {/* ── Pagamentos por Canal ─────────────────────────────────────────── */}
+      </>
+      )}
+
+      {show("pagamentosLoja") && (
       <div className="max-w-3xl space-y-6">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
           <CreditCard className="w-5 h-5 text-primary" />
@@ -20945,7 +21782,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
             </div>
           )}
         </div>
+      </div>
+      )}
 
+      {show("pagamentosRifa") && (
+      <div className="max-w-3xl">
         <div className="bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
           <h3 className="font-semibold flex items-center gap-2"><Ticket className="w-4 h-4 text-primary" />Rifa</h3>
           <p className="text-xs text-muted-foreground">Essas opções afetam apenas o pagamento das reservas de rifa.</p>
@@ -21030,7 +21871,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
           </div>
         </div>
       </div>
+      )}
 
+      {show("acesso") && (
+      <>
       {/* ── Controle de Acesso ────────────────────────────────────────────── */}
       <div className="max-w-2xl">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
@@ -21094,6 +21938,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("pushcut") && (
+      <>
       {/* ── Webhook de Saída (Pushcut/Automations) ───────────────────────── */}
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
@@ -21243,13 +22092,19 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </p>
       </div>
 
+      </>
+      )}
+
+      {show("avisos") && (
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
-          <h2 className="text-lg font-bold mb-1">WhatsApp do pedido pago</h2>
+          <h2 className="text-lg font-bold mb-1">Avisos de pedido</h2>
           <p className="text-muted-foreground text-sm">
-            Quando o pedido fica pago pela primeira vez, a loja manda o telefone do cliente e o texto do pós-pagamento para o n8n. O n8n envia pela Z-API. Sem essa URL, nada sai.
+            Cada aviso sai direto pela Z-API, na fila de 6 minutos. A URL do n8n só vale se a chave daquele aviso estiver em n8n. Sem chave salva, vale direto.
           </p>
         </div>
+        <WhatsappDispatchCard settings={settings} loading={loading} onSave={onSave} />
+        <ShopeeRouteSettingsCard settings={settings} loading={loading} onSave={onSave} onDelete={onDelete} />
         <div>
           <label className="block text-xs font-medium mb-1">URL de produção do webhook</label>
           <div className="flex gap-2">
@@ -21326,7 +22181,7 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Quando a EnvioEcom marca saiu para entrega, a loja manda o telefone e a legenda para o webhook Filmagem. A imagem fica no n8n. No pagamento, o aviso da filmagem entra no texto do pedido pago, sem esta foto. No HTTP Request, o campo caption precisa ser expressão: {`{{ $json.body.caption }}`}. Com o campo vazio, vale https://wallandrade.app.n8n.cloud/webhook/filmagem. O texto de parabéns continua no webhook de cima.
+          No modo direto, a foto sai pela Z-API com a imagem que já estava no n8n e com a legenda que a loja monta: o comunicado no envio antigo, ou o lembrete quando a EnvioEcom marca saiu para entrega. No pagamento, o aviso curto continua dentro do texto do pedido pago, sem esta foto. No modo n8n, o POST segue com phone e caption. Com a URL vazia, vale https://wallandrade.app.n8n.cloud/webhook/filmagem.
         </p>
         <div>
           <label className="block text-xs font-medium mb-1">URL do rastreio</label>
@@ -21505,15 +22360,18 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
           </div>
         </div>
         <p className="text-xs text-muted-foreground break-all">
-          Meu pedido: o cliente manda o número ou o CPF e recebe situação, produtos e rastreio. No n8n, o webhook atendimento fica igual aos outros, com phone e message em expressão. Na Z-API, em Ao receber, cole {n8nSupportToken.trim().length >= 8 ? `https://api.yury-imports.com/api/whatsapp/support/inbound?token=${n8nSupportToken.trim()}` : "https://api.yury-imports.com/api/whatsapp/support/inbound?token=SEU_TOKEN"}.
+          Meu pedido: o cliente manda o número ou o CPF e recebe situação, produtos e rastreio. A Z-API, em Ao receber, aponta direto para a API, sem n8n. Cole {n8nSupportToken.trim().length >= 8 ? `https://yuri-imports-9483v.ondigitalocean.app/api/whatsapp/support/inbound?token=${n8nSupportToken.trim()}` : "https://yuri-imports-9483v.ondigitalocean.app/api/whatsapp/support/inbound?token=SEU_TOKEN"}. O menu da Poly continua desligado.
         </p>
       </div>
 
+      )}
+
+      {show("poly") && (
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
           <h2 className="text-lg font-bold mb-1">WhatsApp da Poly</h2>
           <p className="text-muted-foreground text-sm">
-            Pedido da Poly e da Bruna (código 123) sai só por estas URLs. Yuri e os outros continuam no card de cima. O mesmo aviso não sai pelos dois números. Sem a URL da Poly, o pedido delas ainda sai pelo número de hoje.
+            No modo direto, pedido da Poly e da Bruna (código 123) sai só pela instância da Poly. Não cai no número de hoje. As URLs abaixo só valem se o aviso estiver em n8n. Nesse caso, sem a URL da Poly, o aviso ainda sai pelo número de hoje. O menu de atendimento da Poly continua desligado.
           </p>
         </div>
         {([
@@ -21557,8 +22415,14 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </p>
       </div>
 
-      <ReportanaSettingsCard />
+      )}
 
+      {show("reportana") && (
+        <ReportanaSettingsCard />
+      )}
+
+      {show("brevo") && (
+      <>
       {/* ── Integração Brevo ─────────────────────────────────────────────── */}
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div>
@@ -21629,11 +22493,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
             type="url"
             value={brevoResetBaseUrl}
             onChange={(e) => setBrevoResetBaseUrl(e.target.value)}
-            placeholder="https://www.yury-imports.com"
+            placeholder="https://www.compras-yu.com"
             className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
           />
           <p className="text-xs text-muted-foreground">
-            Se ficar vazio, o link usa https://www.yury-imports.com/redefinir-senha. Sem chave ou sem e-mail do remetente, a loja não envia e o cliente vê a mesma mensagem genérica.
+            Se ficar vazio, o link usa https://www.compras-yu.com/redefinir-senha. Sem chave ou sem e-mail do remetente, a loja não envia e o cliente vê a mesma mensagem genérica.
           </p>
         </div>
         <div className="flex justify-end">
@@ -21644,6 +22508,11 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         </div>
       </div>
 
+      </>
+      )}
+
+      {show("diagnostico") && (
+      <>
       {/* ── Info ──────────────────────────────────────────────────────────── */}
       <div className="max-w-5xl bg-white border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -21697,6 +22566,10 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
         )}
       </div>
 
+      </>
+      )}
+
+      {show("ajuda") && (
       <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 text-sm text-blue-800 max-w-2xl">
         <p className="font-semibold mb-1">Como funciona?</p>
         <ul className="list-disc list-inside space-y-1 text-blue-700">
@@ -21707,6 +22580,8 @@ function ConfiguracoesPanel({ settings, loading, products, productsLoading, clie
           <li>As senhas de acesso ficam em vigor até você as remover.</li>
         </ul>
       </div>
+
+      )}
     </div>
   );
 }

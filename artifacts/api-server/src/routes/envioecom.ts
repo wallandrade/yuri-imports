@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, gt, gte, inArray, isNotNull, ne, or, sql, type AnyColumn } from "drizzle-orm";
 import { db, orderShipmentsTable, ordersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { broadcastNotification } from "./notifications";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { uploadBufferToR2 } from "../lib/r2";
@@ -56,6 +57,14 @@ import {
 } from "../lib/shipping-control-tower";
 import { closeOpenReshipmentIfLabelTracked } from "../lib/reshipment-label-tracked-apply";
 import { refreshShippingQueueForOrder } from "../lib/shipping-queue-allocator";
+import {
+  carrierDeclaredLimitFromQuote,
+  claimEnvioEcomCreateSlot,
+  fitDeclaredShipmentItems,
+  isJtCarrier,
+  quoteProductsForCarriers,
+  releaseEnvioEcomCreateSlot,
+} from "../lib/envioecom-declared-cap";
 import {
   EnvioEcomApiError,
   appendStatusHistory,
@@ -792,7 +801,7 @@ async function noteCarrierLoss(
 // --------------------------------------------------------------------------
 // GET /api/admin/envioecom/status — health / config
 // --------------------------------------------------------------------------
-router.get("/admin/envioecom/status", requireAdminAuth, async (_req, res) => {
+router.get("/admin/envioecom/status", requireAdminAuth, forbidSellerStaff, async (_req, res) => {
   const accounts = await listEnvioEcomAccountsPublic();
   res.json({
     configured: await hasAnyEnvioEcomAccount(),
@@ -805,7 +814,7 @@ router.get("/admin/envioecom/status", requireAdminAuth, async (_req, res) => {
 // --------------------------------------------------------------------------
 // CRUD contas EnvioEcom extras (Configurações). Token/senha não voltam no GET.
 // --------------------------------------------------------------------------
-router.get("/admin/envioecom/accounts", requireAdminAuth, async (_req, res) => {
+router.get("/admin/envioecom/accounts", requireAdminAuth, forbidSellerStaff, async (_req, res) => {
   try {
     const accounts = await listEnvioEcomAccountsPublic();
     res.json({
@@ -818,7 +827,7 @@ router.get("/admin/envioecom/accounts", requireAdminAuth, async (_req, res) => {
   }
 });
 
-router.post("/admin/envioecom/accounts", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/envioecom/accounts", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const account = await createEnvioEcomAccount({
       name: String(req.body?.name || ""),
@@ -833,7 +842,7 @@ router.post("/admin/envioecom/accounts", requirePrimaryAdmin, async (req, res) =
   }
 });
 
-router.put("/admin/envioecom/accounts/:id", requirePrimaryAdmin, async (req, res) => {
+router.put("/admin/envioecom/accounts/:id", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const account = await updateEnvioEcomAccount(String(req.params.id || ""), {
       name: req.body?.name != null ? String(req.body.name) : undefined,
@@ -848,7 +857,7 @@ router.put("/admin/envioecom/accounts/:id", requirePrimaryAdmin, async (req, res
   }
 });
 
-router.delete("/admin/envioecom/accounts/:id", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/envioecom/accounts/:id", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await deleteEnvioEcomAccount(String(req.params.id || ""));
     res.json({ ok: true });
@@ -860,7 +869,7 @@ router.delete("/admin/envioecom/accounts/:id", requirePrimaryAdmin, async (req, 
 // --------------------------------------------------------------------------
 // POST /api/admin/envioecom/orders/:id/quote
 // --------------------------------------------------------------------------
-router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnyEnvioEcomAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "EnvioEcom não configurado (cadastre uma API em Configurações ou ENVIOECOM_TOKEN)." });
@@ -884,9 +893,10 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
       return;
     }
 
-    const products = buildQuoteProductsFromOrder(order);
     const carriers =
       parseCarriersInput(req.body?.carriers) || getDefaultCarriersFromEnv();
+    const quoted = quoteProductsForCarriers(buildQuoteProductsFromOrder(order), carriers, carriers);
+    const products = quoted.products;
     const { result: quote, accountId } = await withEnvioEcomAccount(readAccountId(req.body), async () =>
       quoteFreight({
         postal_code_destination: cep,
@@ -928,7 +938,7 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
   }
 });
 
-router.get("/admin/envioecom/loss-blacklist", requireAdminAuth, async (req, res) => {
+router.get("/admin/envioecom/loss-blacklist", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = getAdminScope(req);
     if (!adminScope) {
@@ -950,7 +960,7 @@ router.get("/admin/envioecom/loss-blacklist", requireAdminAuth, async (req, res)
   }
 });
 
-router.post("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const orderId = String(req.params.id || "").trim();
     const loaded = await loadOrderForAdmin(req, orderId);
@@ -982,7 +992,7 @@ router.post("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, asyn
   }
 });
 
-router.delete("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, async (req, res) => {
+router.delete("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const orderId = String(req.params.id || "").trim();
     const loaded = await loadOrderForAdmin(req, orderId);
@@ -1011,7 +1021,7 @@ router.delete("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, as
 // POST /api/admin/envioecom/orders/:id/create
 // body: { shipping_company, freight_cost?, delivery_time?, defer_payment? }
 // --------------------------------------------------------------------------
-router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnyEnvioEcomAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "EnvioEcom não configurado." });
@@ -1038,6 +1048,15 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       });
       return;
     }
+
+    const guardKey = `${order.id}:${targetPackage?.id || ""}`;
+    const blocked = claimEnvioEcomCreateSlot(guardKey);
+    if (blocked) {
+      res.status(409).json({ error: "CREATE_IN_PROGRESS", message: blocked });
+      return;
+    }
+    let createdShipment = false;
+    try {
 
     const shippingCompany = String(req.body?.shipping_company || "").trim();
     if (!shippingCompany) {
@@ -1126,6 +1145,18 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
 
     const labelProfile = await consumeShipmentLabelProfile();
     const labelItems = buildShipmentLabelItem(labelProfile);
+    const declaredTotal = labelProfile.quantity * labelProfile.declaredValue;
+    const jtLimit = isJtCarrier(shippingCompany) ? carrierDeclaredLimitFromQuote(req.body?.quote) : null;
+    const fitted = fitDeclaredShipmentItems(labelItems, declaredTotal, shippingCompany, jtLimit);
+    if (fitted.capped) {
+      console.log("[EnvioEcom] declared-cap", {
+        from: fitted.from,
+        to: fitted.declaredCost,
+        limit: fitted.limit,
+        carrier: shippingCompany,
+        accountId,
+      });
+    }
 
     const shipment: EnvioEcomCreateShipmentInput = {
       orderId: externalOrderNumber,
@@ -1138,7 +1169,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       width: formatDimString(pack.width),
       length: formatDimString(pack.length),
       weight: formatWeightString(pack.weight),
-      cost: formatMoneyString(labelProfile.quantity * labelProfile.declaredValue),
+      cost: formatMoneyString(fitted.declaredCost),
       name: String(order.clientName || "").trim().slice(0, 120) || "Cliente",
       document_number: document,
       phone_number: phone,
@@ -1149,7 +1180,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       localidade,
       uf,
       ...(order.addressComplement ? { complemento: String(order.addressComplement).trim().slice(0, 60) } : {}),
-      items: labelItems.map((item) => ({
+      items: fitted.items.map((item) => ({
         name: item.name,
         quantity: item.quantity,
         unit_cost: Number(formatMoneyString(item.unit_cost)),
@@ -1229,13 +1260,11 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       if (createError?.code === "DUPLICATE_ORDER") {
         await rememberBurnedOrderNumber(externalOrderNumber);
       }
-      const message = createError?.message
-        ? `EnvioEcom: ${createError.message}`
-        : "EnvioEcom não retornou barcode/shipping_id. Verifique saldo e resposta da API.";
-      res.status(502).json(await withDeliveryCorrection(order.id, {
-        error: createError?.code || "CREATE_INCOMPLETE",
+      const rawMessage = createError?.message || "A EnvioEcom recusou o envio.";
+      const message = rawMessage.startsWith("EnvioEcom") ? rawMessage : `EnvioEcom: ${rawMessage}`;
+      res.status(422).json(await withDeliveryCorrection(order.id, {
+        error: createError?.code || "CREATE_REJECTED",
         message,
-        createResponse: created,
       }));
       return;
     }
@@ -1292,6 +1321,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         })
         .where(eq(ordersTable.id, order.id));
     }
+    createdShipment = true;
 
     // Se veio shipping_id, busca detalhe fresco (barcode definitivo / status pago)
     let finalBarcode = barcode;
@@ -1354,6 +1384,9 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       packages: packages.map(mapOrderShipmentPublic),
       createResponse: created,
     });
+  } finally {
+    releaseEnvioEcomCreateSlot(guardKey, createdShipment);
+  }
   } catch (err) {
     await replyFreightError(err, res, String(req.params.id || ""));
   }
@@ -1362,7 +1395,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
 // --------------------------------------------------------------------------
 // POST /api/admin/envioecom/orders/:id/labels
 // --------------------------------------------------------------------------
-router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnyEnvioEcomAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "EnvioEcom não configurado." });
@@ -1705,7 +1738,7 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
 // --------------------------------------------------------------------------
 // POST /api/admin/envioecom/orders/:id/sync
 // --------------------------------------------------------------------------
-router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnyEnvioEcomAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "EnvioEcom não configurado." });
@@ -1849,7 +1882,7 @@ router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, async (req, re
 // POST /api/admin/envioecom/orders/:id/cancel
 // body: { reason? }
 // --------------------------------------------------------------------------
-router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnyEnvioEcomAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "EnvioEcom não configurado." });
@@ -1946,7 +1979,7 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
 // Solta ID/barcode/PDF no Yury. NÃO cancela na EnvioEcom.
 // Split: body { packageId } — só aquele pacote.
 // --------------------------------------------------------------------------
-router.post("/admin/envioecom/orders/:id/unlink", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/orders/:id/unlink", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const orderId = String(req.params.id || "").trim();
     const loaded = await loadOrderForAdmin(req, orderId);
@@ -2013,7 +2046,7 @@ router.post("/admin/envioecom/orders/:id/unlink", requireAdminAuth, async (req, 
 // --------------------------------------------------------------------------
 // GET/PUT /api/admin/envioecom/shipment-item-name — nome/qty/valor só no create (não na cotação)
 // --------------------------------------------------------------------------
-router.get("/admin/envioecom/shipment-item-name", requireAdminAuth, async (_req, res) => {
+router.get("/admin/envioecom/shipment-item-name", requireAdminAuth, forbidSellerStaff, async (_req, res) => {
   try {
     const { name, quantity, declaredValue, options, valueMin, valueMax } = await readShipmentLabelSettings();
     res.json({
@@ -2039,7 +2072,7 @@ router.get("/admin/envioecom/shipment-item-name", requireAdminAuth, async (_req,
   }
 });
 
-router.put("/admin/envioecom/shipment-item-name", requireAdminAuth, async (req, res) => {
+router.put("/admin/envioecom/shipment-item-name", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const body = (req.body || {}) as {
       name?: unknown;
@@ -2133,7 +2166,7 @@ router.put("/admin/envioecom/shipment-item-name", requireAdminAuth, async (req, 
 // --------------------------------------------------------------------------
 // GET /api/admin/envioecom/tracking-board — painel de todos os rastreios
 // --------------------------------------------------------------------------
-router.get("/admin/envioecom/tracking-board", requireAdminAuth, async (req, res) => {
+router.get("/admin/envioecom/tracking-board", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = getAdminScope(req);
     if (!adminScope) {
@@ -2327,7 +2360,7 @@ async function packageCountsForOrders(orderIds: string[]): Promise<Map<string, n
 // --------------------------------------------------------------------------
 // GET /api/admin/envioecom/control-tower — ocorrências abertas (só leitura)
 // --------------------------------------------------------------------------
-router.get("/admin/envioecom/control-tower", requireAdminAuth, async (req, res) => {
+router.get("/admin/envioecom/control-tower", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = getAdminScope(req);
     if (!adminScope) {
@@ -2463,7 +2496,7 @@ router.get("/admin/envioecom/control-tower", requireAdminAuth, async (req, res) 
 // POST /api/admin/envioecom/tracking-board/sync — sync em lote (limitado)
 // body: { orderIds?: string[], limit?: number }
 // --------------------------------------------------------------------------
-router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, async (req, res) => {
+router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnyEnvioEcomAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "EnvioEcom não configurado." });
@@ -2577,7 +2610,7 @@ router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, async (req
 // --------------------------------------------------------------------------
 // Webhook register / get (primary admin)
 // --------------------------------------------------------------------------
-router.get("/admin/envioecom/webhook", requirePrimaryAdmin, async (_req, res) => {
+router.get("/admin/envioecom/webhook", requirePrimaryAdmin, forbidSellerStaff, async (_req, res) => {
   try {
     const auths = await listConfiguredEnvioEcomAuths();
     if (!auths[0]) {
@@ -2591,7 +2624,7 @@ router.get("/admin/envioecom/webhook", requirePrimaryAdmin, async (_req, res) =>
   }
 });
 
-router.post("/admin/envioecom/webhook", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/envioecom/webhook", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     if (!(await hasAnyEnvioEcomAccount())) {
       res.status(503).json({ error: "NOT_CONFIGURED", message: "EnvioEcom não configurado." });

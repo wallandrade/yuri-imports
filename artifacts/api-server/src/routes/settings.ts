@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, productsTable, siteSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
 import {
   CHECKOUT_CARRIER_PRIORITY_KEY,
@@ -15,6 +16,20 @@ import {
 import { MOTOBOY_SLOT_HOURS_KEY, motoboySlotHoursSaveError } from "../lib/motoboy-slot-window";
 import { supportMenuSaveError, WHATSAPP_SUPPORT_MENU_SETTING } from "../lib/whatsapp-support-menu";
 import { N8N_POLY_INSTANCE_SETTING, POLY_N8N_SETTING_KEYS, polyInstanceIdSaveError } from "../lib/whatsapp-line";
+import {
+  WHATSAPP_CHANNEL_SETTING_KEYS,
+  WHATSAPP_SUPPORT_DELIVERY_SETTING,
+  normalizeSupportDelivery,
+  normalizeWhatsappChannel,
+  whatsappChannelSaveError,
+  whatsappSupportDeliverySaveError,
+} from "../lib/whatsapp-outbound-policy";
+import {
+  SHOPEE_ROUTE_MESSAGE_KEY,
+  SHOPEE_ROUTE_PRODUCT_URL_KEY,
+  normalizeShopeeProductUrl,
+  parseShopeeRouteMessage,
+} from "../lib/shopee-route-core";
 
 const router: IRouter = Router();
 
@@ -89,8 +104,13 @@ const ALLOWED_KEYS = [
   "n8n_support_webhook_url",
   "n8n_support_menu_webhook_url",
   "n8n_delivery_correction_webhook_url",
+  "supplier_price_collect_enabled",
+  "supplier_price_collect_interval_hours",
+  "supplier_price_draw_offset",
+  "supplier_price_sales_window_days",
   "n8n_whatsapp_support_token",
   ...POLY_N8N_SETTING_KEYS,
+  ...WHATSAPP_CHANNEL_SETTING_KEYS,
   WHATSAPP_SUPPORT_MENU_SETTING,
   // Admin helpers
   "admin_saved_brands",
@@ -107,6 +127,8 @@ const ALLOWED_KEYS = [
   SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
   SHIPPING_QUEUE_MANUAL_HOURS_KEY,
   CHECKOUT_CARRIER_PRIORITY_KEY,
+  SHOPEE_ROUTE_PRODUCT_URL_KEY,
+  SHOPEE_ROUTE_MESSAGE_KEY,
 ];
 
 const IMAGE_SETTING_KEYS = new Set([
@@ -149,7 +171,7 @@ router.get("/admin/settings", requirePrimaryAdmin, async (_req, res) => {
 });
 
 /** PUT /api/admin/settings/:key — admin only, upsert a setting value */
-router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
+router.put("/admin/settings/:key", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
@@ -204,6 +226,22 @@ router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
       await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
     } else {
       let storedValue = themeColor ?? value;
+      if ((WHATSAPP_CHANNEL_SETTING_KEYS as readonly string[]).includes(key) && key !== WHATSAPP_SUPPORT_DELIVERY_SETTING) {
+        const message = whatsappChannelSaveError(String(value ?? ""));
+        if (message) {
+          res.status(400).json({ error: "INVALID_VALUE", message });
+          return;
+        }
+        storedValue = normalizeWhatsappChannel(String(value));
+      }
+      if (key === WHATSAPP_SUPPORT_DELIVERY_SETTING) {
+        const message = whatsappSupportDeliverySaveError(String(value ?? ""));
+        if (message) {
+          res.status(400).json({ error: "INVALID_VALUE", message });
+          return;
+        }
+        storedValue = normalizeSupportDelivery(String(value));
+      }
       if (key === "logo_scale_pct") {
         const parsed = Number(value);
         if (!Number.isFinite(parsed)) {
@@ -244,6 +282,27 @@ router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
           return;
         }
         storedValue = parsed.id;
+      }
+      if (key === SHOPEE_ROUTE_PRODUCT_URL_KEY) {
+        const normalized = normalizeShopeeProductUrl(value);
+        if (!normalized) {
+          res.status(400).json({ error: "INVALID_VALUE", message: "O link da Shopee precisa ser https, sem usuário na URL." });
+          return;
+        }
+        storedValue = normalized;
+      }
+      if (key === SHOPEE_ROUTE_MESSAGE_KEY) {
+        const parsed = parseShopeeRouteMessage(value);
+        if (!parsed.ok) {
+          res.status(400).json({ error: "INVALID_VALUE", message: parsed.message });
+          return;
+        }
+        if (!parsed.value) {
+          await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
+          res.json({ ok: true });
+          return;
+        }
+        storedValue = parsed.value;
       }
       if (key === WHATSAPP_SUPPORT_MENU_SETTING) {
         const parsed = supportMenuSaveError(value);
@@ -326,7 +385,7 @@ router.get("/is-protected", async (_req, res) => {
 });
 
 /** DELETE /api/admin/settings/:key — remove a setting (restore default) */
-router.delete("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/settings/:key", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {

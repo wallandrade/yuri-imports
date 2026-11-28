@@ -8,7 +8,9 @@ import { envioecomTrackingUrl } from "./order-tracking-whatsapp";
 import { isCustomerTrackingCode } from "./reportana-payload";
 import { isSuperfreteDelivered, isSuperfretePosted } from "./superfrete-status";
 import { trySupportAiReply } from "./whatsapp-support-ai";
+import { STORE_ORIGIN } from "./whatsapp-line";
 import {
+  SUPPORT_PIX_KEY_ID,
   defaultSupportMenu,
   parseSupportMenu,
   supportMenuFollowup,
@@ -22,7 +24,6 @@ import {
 export const N8N_SUPPORT_WEBHOOK_SETTING = "n8n_support_webhook_url";
 export const N8N_SUPPORT_MENU_WEBHOOK_SETTING = "n8n_support_menu_webhook_url";
 export const N8N_SUPPORT_TOKEN_SETTING = "n8n_whatsapp_support_token";
-const TIMEOUT_MS = 8000;
 const MAX_ORDERS = 3;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_MAX = 20;
@@ -66,6 +67,10 @@ export type SupportSession = {
   nudgeCount?: number;
   /** Epoch ms do último aviso. */
   lastNudgeAt?: number | null;
+  /** Epoch ms do último pedido de CPF. */
+  lastCpfPromptAt?: number | null;
+  /** Epoch ms da frase "número ou CPF". Não é a trava do pedido de CPF. */
+  lastUnknownPromptAt?: number | null;
 };
 
 export type SupportOption = {
@@ -295,6 +300,29 @@ export function supportNudgeCooldownMs(raw = process.env.SUPPORT_NUDGE_COOLDOWN_
   return Math.round(minutes * 60 * 1000);
 }
 
+const CPF_PROMPT_COOLDOWN_DEFAULT_MS = 120 * 60 * 1000;
+
+/** Minutos em `SUPPORT_CPF_PROMPT_COOLDOWN_MIN`. Vazio ou inválido volta para 120. */
+export function supportCpfPromptCooldownMs(raw = process.env.SUPPORT_CPF_PROMPT_COOLDOWN_MIN): number {
+  const text = String(raw ?? "").trim();
+  if (!text) return CPF_PROMPT_COOLDOWN_DEFAULT_MS;
+  const minutes = Number(text);
+  if (!Number.isFinite(minutes) || minutes <= 0) return CPF_PROMPT_COOLDOWN_DEFAULT_MS;
+  return Math.round(minutes * 60 * 1000);
+}
+
+/** O pedido de CPF cabe agora. `lastAt` nulo sempre cabe. */
+export function cpfPromptIsDue(lastAt: number | null | undefined, now: number, cooldownMs: number): boolean {
+  if (lastAt == null) return true;
+  return now - lastAt >= cooldownMs;
+}
+
+/** Segundo local, sem milissegundos. A gravação e a devolução usam o mesmo texto. */
+export function cpfPromptStamp(now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
 /** Frase solta no menu inicial. Saudação, opção, CPF e atendente ficam de fora. */
 export function isSupportAiCandidate(input: { text?: string | null; choiceId?: string | null; session?: SupportSession | null }): boolean {
   const text = String(input.text || "").trim();
@@ -334,19 +362,28 @@ function activeItems(menu: SupportMenuConfig, session: SupportSession): SupportM
   return firstList?.items || menu.items;
 }
 
+function isPixKeyText(raw: string): boolean {
+  const value = plain(raw).replace(/\s+/g, " ");
+  return value === "pix" || value === "chave pix" || value === "chavepix";
+}
+
 function resolveChoice(choiceId: string, text: string, step: SupportStep, menu: SupportMenuConfig, session: SupportSession): string | null {
   const direct = String(choiceId || "").trim();
   if (direct && supportMenuItems(menu).some((item) => item.id === direct)) return direct;
   if (step === "await_lookup" || step === "await_problem" || step === "await_cpf" || step === "human") return null;
-  return optionByLooseText(direct || text, activeItems(menu, session).map(toOption));
+  const options = activeItems(menu, session).map(toOption);
+  const loose = optionByLooseText(direct || text, options);
+  if (loose) return loose;
+  if (isPixKeyText(direct || text) && options.some((option) => option.id === SUPPORT_PIX_KEY_ID)) return SUPPORT_PIX_KEY_ID;
+  return null;
 }
 
 function menuSession(): SupportSession {
-  return { step: "menu", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null };
+  return { step: "menu", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null, lastCpfPromptAt: null, lastUnknownPromptAt: null };
 }
 
 function humanSession(): SupportSession {
-  return { step: "human", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null };
+  return { step: "human", problem: null, orderNumber: null, nudgeCount: 0, lastNudgeAt: null, lastCpfPromptAt: null, lastUnknownPromptAt: null };
 }
 
 function keepNudge(session: SupportSession): SupportSession {
@@ -356,14 +393,28 @@ function keepNudge(session: SupportSession): SupportSession {
     orderNumber: session.orderNumber ?? null,
     nudgeCount: session.nudgeCount ?? 0,
     lastNudgeAt: session.lastNudgeAt ?? null,
+    lastCpfPromptAt: session.lastCpfPromptAt ?? null,
+    lastUnknownPromptAt: session.lastUnknownPromptAt ?? null,
   };
 }
 
-function askCpf(session: SupportSession, orderNumber: number): SupportTurn {
+function keepCpf(session: SupportSession, orderNumber = session.orderNumber ?? null): SupportSession {
+  return {
+    ...keepNudge(session),
+    step: "await_cpf",
+    orderNumber,
+  };
+}
+
+function askCpf(session: SupportSession, orderNumber: number, now: number, cooldownMs: number): SupportTurn {
+  const next = keepCpf(session, orderNumber);
+  if (!cpfPromptIsDue(session.lastCpfPromptAt, now, cooldownMs)) {
+    return { kind: "silent", session: next };
+  }
   return {
     kind: "text",
     message: ASK_CPF_MESSAGE,
-    session: { step: "await_cpf", problem: session.problem, orderNumber },
+    session: { ...next, lastCpfPromptAt: now },
   };
 }
 
@@ -455,6 +506,7 @@ export function decideSupportTurn(input: {
   media?: boolean;
   now?: number;
   cooldownMs?: number;
+  cpfCooldownMs?: number;
 }, menu?: SupportMenuConfig | null): SupportTurn {
   const config = menu ? (supportMenuSaveError(menu).menu ?? defaultSupportMenu()) : defaultSupportMenu();
   const session = input.session?.step ? input.session : menuSession();
@@ -462,13 +514,14 @@ export function decideSupportTurn(input: {
   const choiceId = String(input.choiceId || "");
   const now = input.now ?? Date.now();
   const cooldownMs = input.cooldownMs ?? supportNudgeCooldownMs();
+  const cpfCooldownMs = input.cpfCooldownMs ?? supportCpfPromptCooldownMs();
   if (session.step === "human") {
     const tapped = choiceId.trim();
     if (!supportMenuItems(config).some((item) => item.id === tapped)) {
       return { kind: "silent", session: humanSession() };
     }
   }
-  if (!choiceId && isGreeting(text) && !listAlreadyOpen(input.session)) {
+  if (!choiceId && isGreeting(text) && session.step !== "await_cpf" && !listAlreadyOpen(input.session)) {
     return mainList(config);
   }
 
@@ -478,7 +531,7 @@ export function decideSupportTurn(input: {
 
   if (session.step === "await_cpf") {
     const intent = classifySupportText(text);
-    if (intent.kind === "order") return askCpf(session, intent.orderNumber);
+    if (intent.kind === "order") return askCpf(session, intent.orderNumber, now, cpfCooldownMs);
     const orderNumber = Number(session.orderNumber);
     if (intent.kind === "document" && Number.isSafeInteger(orderNumber) && orderNumber > 0) {
       const handoffItem = session.problem ? findMenuItem(config, session.problem) : null;
@@ -494,12 +547,19 @@ export function decideSupportTurn(input: {
         session: session.problem ? humanSession() : menuSession(),
       };
     }
-    return { kind: "text", message: ASK_CPF_MESSAGE, session };
+    if (!cpfPromptIsDue(session.lastCpfPromptAt, now, cpfCooldownMs)) {
+      return { kind: "silent", session: keepCpf(session) };
+    }
+    return {
+      kind: "text",
+      message: ASK_CPF_MESSAGE,
+      session: { ...keepCpf(session), lastCpfPromptAt: now },
+    };
   }
 
   if (session.step === "await_lookup" || session.step === "await_problem") {
     const intent = classifySupportText(text);
-    if (intent.kind === "order") return askCpf(session, intent.orderNumber);
+    if (intent.kind === "order") return askCpf(session, intent.orderNumber, now, cpfCooldownMs);
     if (intent.kind === "document") {
       const handoff = session.step === "await_problem";
       const handoffItem = handoff ? findMenuItem(config, session.problem) : null;
@@ -515,10 +575,13 @@ export function decideSupportTurn(input: {
         session: handoff ? humanSession() : menuSession(),
       };
     }
+    if (!cpfPromptIsDue(session.lastUnknownPromptAt, now, cpfCooldownMs)) {
+      return { kind: "silent", session: keepNudge(session) };
+    }
     return {
       kind: "text",
       message: buildSupportUnknownMessage(),
-      session,
+      session: { ...keepNudge(session), lastUnknownPromptAt: now },
     };
   }
 
@@ -535,7 +598,8 @@ export function supportListText(turn: Extract<SupportTurn, { kind: "list" }>): s
 
 function comparableSupportText(value: string): string {
   return value
-    .replace(/https:\/\/www\.yury-imports\.com\/(?:yuri|poly)\b/g, "https://www.yury-imports.com")
+    .replace(/https:\/\/(?:www\.)?(?:yury-imports\.com|yuri-imports-py\.com|imports-py\.com)(?:\/(?:yuri|poly))?\b/g, STORE_ORIGIN)
+    .replace(/https:\/\/(?:www\.)?compras-yu\.com\/(?:yuri|poly)\b/g, STORE_ORIGIN)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\*/g, "")
@@ -593,7 +657,7 @@ function isAutomaticStoreNotice(text: string): boolean {
   if (folded.includes("pedido saiu para entrega")) return true;
   if (folded.includes("comunicado oficial")) return true;
   if (folded.includes("filmagem completa da abertura")) return true;
-  if (folded.includes("pode ver em https://www.yury-imports.com")) return true;
+  if (folded.includes(`pode ver em ${STORE_ORIGIN}`)) return true;
   if (folded.includes("qual produto voce quer saber o valor")) return true;
   if (folded.includes("tem mais de um parecido")) return true;
   if (/pedido #\d+/.test(folded) && (folded.includes("pagamento:") || folded.includes("situacao:") || folded.includes("produtos:"))) return true;
@@ -884,12 +948,16 @@ async function loadSession(phone: string): Promise<SupportSession | null> {
   const pending = Number(row.pendingOrder);
   const nudgeCount = Number(row.nudgeCount);
   const lastNudge = row.lastNudgeAt instanceof Date ? row.lastNudgeAt.getTime() : null;
+  const lastCpf = row.lastCpfPromptAt instanceof Date ? row.lastCpfPromptAt.getTime() : null;
+  const lastUnknown = row.lastUnknownPromptAt instanceof Date ? row.lastUnknownPromptAt.getTime() : null;
   return {
     step: row.step,
     problem: row.problem || null,
     orderNumber: Number.isSafeInteger(pending) && pending > 0 ? pending : null,
     nudgeCount: Number.isFinite(nudgeCount) && nudgeCount > 0 ? Math.floor(nudgeCount) : 0,
     lastNudgeAt: lastNudge,
+    lastCpfPromptAt: lastCpf,
+    lastUnknownPromptAt: lastUnknown,
   };
 }
 
@@ -905,6 +973,8 @@ async function saveSession(phone: string, session: SupportSession): Promise<void
       pendingOrder: session.orderNumber ?? null,
       nudgeCount: session.nudgeCount ?? 0,
       lastNudgeAt: session.lastNudgeAt ? new Date(session.lastNudgeAt) : null,
+      lastCpfPromptAt: session.lastCpfPromptAt ? new Date(session.lastCpfPromptAt) : null,
+      lastUnknownPromptAt: session.lastUnknownPromptAt ? new Date(session.lastUnknownPromptAt) : null,
       updatedAt: now,
     })
     .onDuplicateKeyUpdate({
@@ -914,6 +984,8 @@ async function saveSession(phone: string, session: SupportSession): Promise<void
         pendingOrder: session.orderNumber ?? null,
         nudgeCount: session.nudgeCount ?? 0,
         lastNudgeAt: session.lastNudgeAt ? new Date(session.lastNudgeAt) : null,
+        lastCpfPromptAt: session.lastCpfPromptAt ? new Date(session.lastCpfPromptAt) : null,
+        lastUnknownPromptAt: session.lastUnknownPromptAt ? new Date(session.lastUnknownPromptAt) : null,
         updatedAt: now,
       },
     });
@@ -954,6 +1026,140 @@ export async function claimSupportNudge(phone: string, now = new Date()): Promis
   );
   if (mysqlAffectedRows(handed) === 1) return "handoff";
   return "cooldown";
+}
+
+/** Reserva o pedido de CPF. Só uma mensagem no intervalo altera a linha. */
+export async function claimSupportCpfPrompt(phone: string, session: SupportSession, now = new Date()): Promise<"claimed" | "cooldown"> {
+  const { pool } = await database();
+  const cutoff = new Date(now.getTime() - supportCpfPromptCooldownMs());
+  const stamp = cpfPromptStamp(now);
+  await pool.query(
+    `INSERT INTO whatsapp_support_sessions
+      (phone, step, problem, pending_order, nudge_count, last_cpf_prompt_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?)
+     ON DUPLICATE KEY UPDATE updated_at = updated_at`,
+    [phone, session.step, session.problem, session.orderNumber ?? null, session.nudgeCount ?? 0, now],
+  );
+  const [claimed] = await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET last_cpf_prompt_at = ?,
+            step = ?,
+            problem = ?,
+            pending_order = ?,
+            updated_at = ?
+      WHERE phone = ?
+        AND (last_cpf_prompt_at IS NULL OR last_cpf_prompt_at <= ?)`,
+    [stamp, session.step, session.problem, session.orderNumber ?? null, now, phone, cutoff],
+  );
+  if (mysqlAffectedRows(claimed) === 1) return "claimed";
+  await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET step = ?,
+            problem = ?,
+            pending_order = ?,
+            updated_at = updated_at
+      WHERE phone = ?`,
+    [session.step, session.problem, session.orderNumber ?? null, phone],
+  );
+  return "cooldown";
+}
+
+/** Devolve o intervalo se o n8n não entregou esta reserva. Não apaga uma marca mais nova. */
+export async function releaseSupportCpfPrompt(phone: string, claimedAt: Date): Promise<void> {
+  const { pool } = await database();
+  await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET last_cpf_prompt_at = NULL,
+            updated_at = updated_at
+      WHERE phone = ?
+        AND last_cpf_prompt_at = ?`,
+    [phone, cpfPromptStamp(claimedAt)],
+  );
+}
+
+/** Manda o CPF só com a reserva. Se o envio falha ou estoura, devolve a marca. */
+export async function sendClaimedCpfPrompt(input: {
+  claim: () => Promise<"claimed" | "cooldown">;
+  send: () => Promise<boolean>;
+  release: () => Promise<void>;
+}): Promise<"sent" | "silent" | "failed"> {
+  if (await input.claim() !== "claimed") return "silent";
+  try {
+    if (await input.send()) return "sent";
+  } catch (err) {
+    console.warn("[WhatsApp atendimento] pedido de CPF", err instanceof Error ? err.message : err);
+  }
+  await input.release();
+  return "failed";
+}
+
+/** Reserva a frase "número ou CPF". Não mexe na trava do pedido de CPF. */
+export async function claimSupportUnknownPrompt(phone: string, session: SupportSession, now = new Date()): Promise<"claimed" | "cooldown"> {
+  const { pool } = await database();
+  const cutoff = new Date(now.getTime() - supportCpfPromptCooldownMs());
+  const stamp = cpfPromptStamp(now);
+  await pool.query(
+    `INSERT INTO whatsapp_support_sessions
+      (phone, step, problem, pending_order, nudge_count, last_unknown_prompt_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, NULL, ?)
+     ON DUPLICATE KEY UPDATE updated_at = updated_at`,
+    [phone, session.step, session.problem, session.orderNumber ?? null, session.nudgeCount ?? 0, now],
+  );
+  const [claimed] = await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET last_unknown_prompt_at = ?,
+            step = ?,
+            problem = ?,
+            pending_order = ?,
+            updated_at = ?
+      WHERE phone = ?
+        AND (last_unknown_prompt_at IS NULL OR last_unknown_prompt_at <= ?)`,
+    [stamp, session.step, session.problem, session.orderNumber ?? null, now, phone, cutoff],
+  );
+  if (mysqlAffectedRows(claimed) === 1) return "claimed";
+  await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET step = ?,
+            problem = ?,
+            pending_order = ?,
+            updated_at = updated_at
+      WHERE phone = ?`,
+    [session.step, session.problem, session.orderNumber ?? null, phone],
+  );
+  return "cooldown";
+}
+
+/** Devolve a frase "número ou CPF" se o n8n não entregou. Não apaga o pedido de CPF. */
+export async function releaseSupportUnknownPrompt(phone: string, claimedAt: Date): Promise<void> {
+  const { pool } = await database();
+  await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET last_unknown_prompt_at = NULL,
+            updated_at = updated_at
+      WHERE phone = ?
+        AND last_unknown_prompt_at = ?`,
+    [phone, cpfPromptStamp(claimedAt)],
+  );
+}
+
+function cpfSessionChanged(before: SupportSession | null, after: SupportSession): boolean {
+  if (!before) return true;
+  return before.step !== after.step
+    || (before.problem ?? null) !== (after.problem ?? null)
+    || (before.orderNumber ?? null) !== (after.orderNumber ?? null);
+}
+
+async function rememberCpfSession(phone: string, session: SupportSession): Promise<void> {
+  const { pool } = await database();
+  await pool.query(
+    `UPDATE whatsapp_support_sessions
+        SET step = ?,
+            problem = ?,
+            pending_order = ?,
+            updated_at = updated_at
+      WHERE phone = ?`,
+    [session.step, session.problem, session.orderNumber ?? null, phone],
+  );
 }
 
 async function withPackages(rows: Array<{
@@ -1047,46 +1253,74 @@ export async function findSupportOrders(intent: SupportIntent): Promise<{ orders
   };
 }
 
-async function postWebhook(url: string, body: Record<string, unknown>): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    return response.ok;
-  } catch (err) {
-    console.warn("[WhatsApp atendimento] falha", err instanceof Error ? err.message : err);
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function sendText(phone: string, message: string, line: "poly" | "main"): Promise<boolean> {
+  const { supportLineCanReply } = await import("./whatsapp-outbound-policy");
+  if (!supportLineCanReply(line)) return false;
+  const { dispatchWhatsappNotice } = await import("./whatsapp-dispatch");
   const url = await supportWebhookUrl(line);
-  if (!url) return false;
   const { withWhatsappSellerStoreLink } = await import("./whatsapp-line");
-  return postWebhook(url, { phone, message: withWhatsappSellerStoreLink(message, line) });
+  const text = withWhatsappSellerStoreLink(message, line);
+  const result = await dispatchWhatsappNotice({
+    origin: "atendimento",
+    instance: "main",
+    phone,
+    kind: "text",
+    message: text,
+    n8nUrl: url,
+    n8nBody: { phone, message: text },
+  });
+  return result.ok;
 }
 
 async function sendList(phone: string, turn: Extract<SupportTurn, { kind: "list" }>, line: "poly" | "main"): Promise<boolean> {
+  const { supportLineCanReply } = await import("./whatsapp-outbound-policy");
+  if (!supportLineCanReply(line)) return false;
+  const { dispatchWhatsappNotice, readWhatsappChannel } = await import("./whatsapp-dispatch");
+  const channel = await readWhatsappChannel("atendimento_menu");
   const url = await supportMenuWebhookUrl(line);
-  if (!url) return sendText(phone, supportListText(turn), line);
-  const sent = await postWebhook(url, {
+  if (channel === "n8n" && !url) return sendText(phone, supportListText(turn), line);
+  const optionList = {
+    title: turn.title,
+    buttonLabel: turn.buttonLabel,
+    options: turn.options,
+  };
+  const { withWhatsappSellerStoreLink } = await import("./whatsapp-line");
+  const fallbackMessage = withWhatsappSellerStoreLink(supportListText(turn), line);
+  const result = await dispatchWhatsappNotice({
+    origin: "atendimento_menu",
+    instance: line === "poly" ? "poly" : "main",
     phone,
+    kind: "option_list",
     message: turn.message,
-    optionList: {
-      title: turn.title,
-      buttonLabel: turn.buttonLabel,
-      options: turn.options,
-    },
+    optionList,
+    fallbackMessage,
+    n8nUrl: url,
+    n8nBody: { phone, message: turn.message, optionList },
   });
-  if (sent) return true;
+  if (result.ok) return true;
   return sendText(phone, supportListText(turn), line);
+}
+
+async function maybeShopeeRouteReply(
+  body: unknown,
+  phone: string,
+  line: "poly" | "main",
+): Promise<"stop" | "continue"> {
+  const { handleShopeeOnSupportMessage } = await import("./shopee-route-support");
+  const { phoneHasAwaitingShopeeRoute, receiveShopeeRouteInbound } = await import("./shopee-route");
+  return handleShopeeOnSupportMessage(body, {
+    hasAwaiting: (value) => phoneHasAwaitingShopeeRoute(value),
+    receive: async (input) => {
+      const result = await receiveShopeeRouteInbound(input);
+      if (!result.ok) return { ok: false, motivo: result.motivo };
+      return {
+        ok: true,
+        ja_processado: result.ja_processado,
+        mensagem_para_cliente: result.mensagem_para_cliente,
+      };
+    },
+    send: (message) => sendText(phone, message, line),
+  });
 }
 
 /** Responde uma mensagem recebida. Texto digitado na loja cala o menu. Aviso automático não. */
@@ -1111,7 +1345,13 @@ export async function handleSupportInbound(body: unknown): Promise<{ ok: boolean
   if (inbound.skip || !inbound.phone || isSupportFloodText(inbound.text)) return { ok: true, skipped: true };
   if (isStoreLinePhone(inbound.phone, await storeLinePhones())) return { ok: true, skipped: true };
   const { resolveWhatsappLine } = await import("./whatsapp-line");
+  const { supportLineCanReply } = await import("./whatsapp-outbound-policy");
   const line = await resolveWhatsappLine(inbound.instanceId);
+  if (!supportLineCanReply(line)) return { ok: true, skipped: true, silenced: true, line };
+  if (inbound.text && !inbound.choiceId) {
+    const shopee = await maybeShopeeRouteReply(body, inbound.phone, line);
+    if (shopee === "stop") return { ok: true, line };
+  }
   const rate = supportRateDecision(inbound.phone);
   if (rate === "block") return { ok: true, skipped: true };
   if (rate === "warn") {
@@ -1130,8 +1370,38 @@ export async function handleSupportInbound(body: unknown): Promise<{ ok: boolean
     media: inbound.media,
   }, menu);
   if (turn.kind === "silent") {
+    if (turn.session.step === "await_cpf" || turn.session.step === "await_lookup" || turn.session.step === "await_problem") {
+      if (cpfSessionChanged(session, turn.session)) await rememberCpfSession(inbound.phone, turn.session);
+      return { ok: true, silenced: true, line };
+    }
     await saveSession(inbound.phone, turn.session);
     return { ok: true, silenced: true, line };
+  }
+  if (turn.kind === "text" && turn.message === ASK_CPF_MESSAGE && turn.session.step === "await_cpf") {
+    const claimedAt = new Date();
+    const delivery = await sendClaimedCpfPrompt({
+      claim: () => claimSupportCpfPrompt(inbound.phone, turn.session, claimedAt),
+      send: () => sendText(inbound.phone, turn.message, line),
+      release: () => releaseSupportCpfPrompt(inbound.phone, claimedAt),
+    });
+    if (delivery === "silent") return { ok: true, silenced: true, line };
+    if (delivery === "failed") return { ok: false, error: "not_configured", line };
+    return { ok: true, line };
+  }
+  if (
+    turn.kind === "text"
+    && turn.message === buildSupportUnknownMessage()
+    && (turn.session.step === "await_lookup" || turn.session.step === "await_problem")
+  ) {
+    const claimedAt = new Date();
+    const delivery = await sendClaimedCpfPrompt({
+      claim: () => claimSupportUnknownPrompt(inbound.phone, turn.session, claimedAt),
+      send: () => sendText(inbound.phone, turn.message, line),
+      release: () => releaseSupportUnknownPrompt(inbound.phone, claimedAt),
+    });
+    if (delivery === "silent") return { ok: true, silenced: true, line };
+    if (delivery === "failed") return { ok: false, error: "not_configured", line };
+    return { ok: true, line };
   }
   const autoHuman = turn.kind === "text"
     && turn.message === SUPPORT_HUMAN_HANDOFF_TEXT

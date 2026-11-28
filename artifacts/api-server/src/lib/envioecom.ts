@@ -7,11 +7,17 @@ import { AsyncLocalStorage } from "async_hooks";
 
 const DEFAULT_BASE = "https://envioecom.com.br/api/v1/whitelabel";
 
-/** Conta vinda das env vars do servidor (Railway). */
+/** Conta vinda das env vars do servidor. */
 export const ENVIOECOM_ENV_ACCOUNT_ID = "env";
 
-/** Pool de estoque ligado à conta EnvioEcom: SP → Motoboy, MG → Minas. Sem conta = null. */
-export type EnvioEcomInventoryPool = "motoboy" | "minas";
+/** Sem conta escolhida, a etiqueta usa uma conta salva. A do servidor só entra se não houver outra. */
+export function pickEnvioEcomLabelAuth<T extends { accountId: string }>(auths: T[]): T | null {
+  const saved = auths.find((auth) => auth.accountId !== ENVIOECOM_ENV_ACCOUNT_ID);
+  return saved || auths[0] || null;
+}
+
+/** Pool de estoque ligado à conta EnvioEcom: SP → Motoboy, MG → Minas, Santa Catarina pelo nome. Sem conta = null. */
+export type EnvioEcomInventoryPool = "motoboy" | "minas" | "santa_catarina";
 
 /** Nome do PDF ao baixar. O id do pedido fica só na pasta, para o arquivo não ser um número. */
 export function envioecomLabelDownloadName(clientName: string | null | undefined): string {
@@ -35,6 +41,7 @@ export function inventoryPoolForEnvioEcomAccount(
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
+  if (/santa catarina/.test(name)) return "santa_catarina";
   if (/\bminas\b|\bmg\b/.test(name)) return "minas";
   if (/sao paulo|\bsp\b|servidor/.test(name)) return "motoboy";
   if (id === ENVIOECOM_ENV_ACCOUNT_ID) return "motoboy";
@@ -775,20 +782,29 @@ export function extractCreatedShipment(created: {
   };
 }
 
-/** Erro de negócio dentro de shipping_create.results (HTTP 200, created 0). */
+/** Erro de negócio dentro de shipping_create (HTTP 200, sem envio criado). */
 export function envioEcomCreateResultError(created: {
+  message?: unknown;
+  error?: unknown;
   shipping_create?: {
+    success?: boolean;
+    created?: number;
     results?: Array<Record<string, unknown>>;
-  };
+  } | null;
 }): { code: string; message: string } | null {
-  const results = Array.isArray(created.shipping_create?.results)
-    ? created.shipping_create.results
-    : [];
+  const shipping = created.shipping_create;
+  const results = Array.isArray(shipping?.results) ? shipping.results : [];
   const first = (results[0] || {}) as Record<string, unknown>;
   const code = String(first.error_code || first.errorCode || "").trim();
   const message = String(first.error || first.message || "").trim();
-  if (!code && !message) return null;
-  return { code, message };
+  if (code || message) {
+    return { code: code || "CREATE_REJECTED", message: message || code };
+  }
+  if (!shipping) return null;
+  const refused = shipping.success === false || shipping.created === 0 || results.length === 0;
+  if (!refused) return null;
+  const top = String(created.message || created.error || "").trim();
+  return { code: "CREATE_REJECTED", message: top || "A EnvioEcom recusou o envio." };
 }
 
 /**

@@ -4,7 +4,9 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { ShieldCheck, Camera, IdCard, FileText, Upload, CheckCircle2, Loader2, AlertCircle, X, MessageCircle, Trash2 } from "lucide-react";
+import { BrandLoader } from "@/components/pharma/BrandLoader";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
+import { whatsAppSendUrl } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const DEFAULT_WHATSAPP = "5535999768759";
@@ -240,7 +242,7 @@ function PhotoUpload({
           className="w-full h-36 rounded-2xl border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-2 text-muted-foreground"
         >
           {loading ? (
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <BrandLoader size="md" />
           ) : (
             <>
               <Upload className="w-8 h-8" />
@@ -358,7 +360,7 @@ function CameraOnlyUpload({
           className="w-full h-36 rounded-2xl border-2 border-dashed border-primary/50 hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-2 text-primary"
         >
           {loading ? (
-            <Loader2 className="w-8 h-8 animate-spin" />
+            <BrandLoader size="md" />
           ) : (
             <>
               <Camera className="w-8 h-8" />
@@ -454,7 +456,7 @@ export default function KYCSubmit() {
     return (
       <AppLayout minimal>
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-10 h-10 animate-spin text-primary" />
+          <BrandLoader size="lg" />
         </div>
       </AppLayout>
     );
@@ -526,7 +528,12 @@ export default function KYCSubmit() {
               </>
             )}
             <a
-              href={`https://wa.me/${order.sellerWhatsapp?.replace(/\D/g, "") || DEFAULT_WHATSAPP}?text=${encodeURIComponent(kyc?.status === "approved" ? `Olá! Meu KYC já foi aprovado (pedido #${orderRef}). Como prosseguir?` : `Olá! Acabei de enviar meus documentos KYC para o pedido #${orderRef}. Aguardo seu contato para concluir a compra!`)}`}
+              href={whatsAppSendUrl(
+                order.sellerWhatsapp?.replace(/\D/g, "") || DEFAULT_WHATSAPP,
+                kyc?.status === "approved"
+                  ? `Olá! Meu KYC já foi aprovado (pedido #${orderRef}). Como prosseguir?`
+                  : `Olá! Acabei de enviar meus documentos KYC para o pedido #${orderRef}. Aguardo seu contato para concluir a compra!`,
+              )}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-6 py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
@@ -774,7 +781,10 @@ export default function KYCSubmit() {
             {/* WhatsApp support link at the bottom of the form */}
             <div className="text-center pt-2">
               <a
-                href={`https://wa.me/${order.sellerWhatsapp?.replace(/\D/g, "") || DEFAULT_WHATSAPP}?text=${encodeURIComponent(`Olá! Preciso de ajuda com o KYC do pedido #${orderRef}.`)}`}
+                href={whatsAppSendUrl(
+                  order.sellerWhatsapp?.replace(/\D/g, "") || DEFAULT_WHATSAPP,
+                  `Olá! Preciso de ajuda com o KYC do pedido #${orderRef}.`,
+                )}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-green-600 transition-colors"

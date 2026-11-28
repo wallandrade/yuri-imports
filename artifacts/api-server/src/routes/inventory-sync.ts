@@ -4,6 +4,7 @@ import {
   db,
   inventoryMinasMovementsTable,
   inventoryMotoboyMovementsTable,
+  inventorySantaCatarinaMovementsTable,
   ordersTable,
 } from "@workspace/db";
 import {
@@ -25,8 +26,10 @@ import { listOrderShipments } from "../lib/order-shipments";
 import {
   getMinasStockMap,
   getMotoboyStockMap,
+  getSantaCatarinaStockMap,
   registerMinasInventoryEntry,
   registerMotoboyInventoryEntry,
+  registerSantaCatarinaInventoryEntry,
 } from "../lib/reshipments";
 import {
   getInventoryExitAccessStatus,
@@ -35,6 +38,7 @@ import {
   unlockInventoryExit,
 } from "../lib/inventory-exit-access";
 import { requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 
 const router: IRouter = Router();
 
@@ -73,7 +77,11 @@ async function findOrderForIntegrationExit(rawId: string) {
 }
 
 async function hasExitWithReference(pool: InventorySyncPool, referenceId: string): Promise<boolean> {
-  const table = pool === "motoboy" ? inventoryMotoboyMovementsTable : inventoryMinasMovementsTable;
+  const table = pool === "motoboy"
+    ? inventoryMotoboyMovementsTable
+    : pool === "santa_catarina"
+      ? inventorySantaCatarinaMovementsTable
+      : inventoryMinasMovementsTable;
   const rows = await db
     .select({ id: table.id })
     .from(table)
@@ -91,7 +99,9 @@ async function debitSkuItems(params: {
   const ids = params.items.map((item) => item.productId);
   const stockMap = params.pool === "motoboy"
     ? await getMotoboyStockMap(ids)
-    : await getMinasStockMap(ids);
+    : params.pool === "santa_catarina"
+      ? await getSantaCatarinaStockMap(ids)
+      : await getMinasStockMap(ids);
   const missing: string[] = [];
   for (const item of params.items) {
     const available = stockMap.get(item.productId) || 0;
@@ -112,6 +122,8 @@ async function debitSkuItems(params: {
     };
     if (params.pool === "motoboy") {
       await registerMotoboyInventoryEntry(entry);
+    } else if (params.pool === "santa_catarina") {
+      await registerSantaCatarinaInventoryEntry(entry);
     } else {
       await registerMinasInventoryEntry(entry);
     }
@@ -121,7 +133,7 @@ async function debitSkuItems(params: {
 
 /**
  * GET /api/integrations/inventory/snapshot
- * Pull: estoque Motoboy + Minas juntos.
+ * Pull: estoque Motoboy + Minas + Santa Catarina.
  * Auth: Bearer / X-Api-Key = INVENTORY_SYNC_TOKEN (fallback MOTOBOY_SYNC_TOKEN).
  */
 router.get("/integrations/inventory/snapshot", async (req, res) => {
@@ -131,7 +143,7 @@ router.get("/integrations/inventory/snapshot", async (req, res) => {
     res.json(snapshot);
   } catch (err) {
     console.error("[INVENTORY_SYNC] snapshot pull error:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar estoque Motoboy/Minas." });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar estoque Motoboy/Minas/Santa Catarina." });
   }
 });
 
@@ -188,7 +200,7 @@ router.post("/integrations/inventory/unlock", async (req, res) => {
  * GET /api/admin/integrations/inventory/exit-access
  * PUT /api/admin/integrations/inventory/exit-password
  */
-router.get("/admin/integrations/inventory/exit-access", requireAdminAuth, async (_req, res) => {
+router.get("/admin/integrations/inventory/exit-access", requireAdminAuth, forbidSellerStaff, async (_req, res) => {
   try {
     const status = await getInventoryExitAccessStatus();
     res.json({
@@ -203,7 +215,7 @@ router.get("/admin/integrations/inventory/exit-access", requireAdminAuth, async 
   }
 });
 
-router.post("/admin/integrations/inventory/unlock", requireAdminAuth, async (req, res) => {
+router.post("/admin/integrations/inventory/unlock", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const unlocked = await unlockInventoryExit(readPasswordFromBody(req.body));
     if (!unlocked.ok) {
@@ -227,7 +239,7 @@ router.post("/admin/integrations/inventory/unlock", requireAdminAuth, async (req
   }
 });
 
-router.put("/admin/integrations/inventory/exit-password", requirePrimaryAdmin, async (req, res) => {
+router.put("/admin/integrations/inventory/exit-password", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const password = readPasswordFromBody(req.body);
     await setInventoryExitPassword(password);
@@ -243,7 +255,7 @@ router.put("/admin/integrations/inventory/exit-password", requirePrimaryAdmin, a
 
 /**
  * POST /api/integrations/inventory/exit
- * Baixa Motoboy/Minas. Mesmo token do snapshot. Sem senha e sem janela.
+ * Baixa Motoboy/Minas/Santa Catarina. Mesmo token do snapshot. Sem senha e sem janela.
  * Body: { pool, productId, quantity } ou { pool, items[] } ou { pool, orderId }.
  */
 router.post("/integrations/inventory/exit", async (req, res) => {
@@ -265,7 +277,7 @@ router.post("/integrations/inventory/exit", async (req, res) => {
 
     if (referenceId && await hasExitWithReference(pool, referenceId)) {
       const firstId = items[0]?.productId;
-      const balances = firstId ? await getProductPoolBalances(firstId) : { motoboy: 0, minas: 0 };
+      const balances = firstId ? await getProductPoolBalances(firstId) : { motoboy: 0, minas: 0, santaCatarina: 0 };
       res.json({
         ok: true,
         alreadyDebited: true,
@@ -384,7 +396,7 @@ router.post("/integrations/inventory/exit", async (req, res) => {
 
     const balances = items[0]
       ? await getProductPoolBalances(items[0].productId)
-      : { motoboy: 0, minas: 0 };
+      : { motoboy: 0, minas: 0, santaCatarina: 0 };
 
     res.status(201).json({
       ok: true,

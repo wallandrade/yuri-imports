@@ -1,6 +1,6 @@
 # Auth e permissões — Yuri Import
 
-> **Última atualização:** 2026-11-10
+> **Última atualização:** 2026-11-27
 
 RBAC/admin e auth de cliente **como implementados**. Precedência: código > memória.
 
@@ -8,6 +8,11 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | Card Pré-confirmados só com admin principal | O painel não monta o card para a vendedora. A fila continua em `requirePrimaryAdmin` | Sessão, papel e o bloqueio 403 das rotas de preço, estoque e envio iguais |
+| 2026-11-27 | Papel vendedora no login do admin | Conta própria, PBKDF2, desativar e trocar senha só o admin principal. Ela vê pedidos e o resumo financeiro. Pré-confirma pagamento. Preço, desconto, estoque, produto, cupom, configuração, usuário e envio respondem 403 | Sessão de 12 h, cookie e o admin primário iguais. Senha de baixa não foi aberta. Sem filial |
+| 2026-11-23 | Crédito da Rota Shopee só com acesso global | `POST /api/admin/orders/:id/shopee-wallet-credit` exige `hasGlobalAccess`. O botão some para o admin de vendedor. Avisar o cliente e gravar o ID seguem o escopo do pedido | Sessão, senha de baixa e PIX iguais |
+| 2026-11-17 | Menu esconde Conciliação, DRE, Despesas e Webhook do PIX de quem não é primário | `PRIMARY_ONLY_TABS` em `adminNav.ts`. O restante do que já era só primário continua | API de extrato, depósitos, DRE e despesas segue `requireAdminAuth`. Webhook PIX público não foi mexido |
+| 2026-11-16 | Senha de baixa vale para Santa Catarina | Dar baixa agora desse pool pede a mesma senha de Motoboy/Minas. O espelho baixa `santa_catarina` só com o token | Foz Guaçu continua sem senha. Janela de 30 min igual |
 | 2026-11-10 | Aba Entrar sem CPF | A tela `/login` pede só e-mail e senha. O pedido sem conta continua ligando pelo e-mail. CPF já gravado na conta continua valendo | API de login ainda aceita `document`. Aba Criar conta, pharma e o claim iguais |
 | 2026-11-10 | Pedido de senha diz o que aconteceu | `POST /api/auth/forgot-password` devolve `sent`, `unknown_email`, `rate_limited`, `invalid_email`, `not_configured` ou `failed`. Sucesso só com `messageId` do Brevo. Log do e-mail ausente sai mascarado | Token SHA-256, 1 h, uso único, limite 3/e-mail e 8/IP, PBKDF2 e `set-password` iguais |
 | 2026-11-10 | Cliente pede link de senha por e-mail | `POST /api/auth/forgot-password` responde sempre a mesma frase. `POST /api/auth/reset-password` troca a senha com o token. A tela `/redefinir-senha` cria a senha nova. O admin continua com `set-password` | Sessão, PBKDF2 e a senha de baixa iguais. PIX, estoque e Cell Tech iguais |
@@ -36,19 +41,25 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 - Sessão persistida em `admin_sessions`; token no JSON + cookie httpOnly `admin_session`.
 - Seed se `admin_users` vazio: `ADMIN_USERNAME`/`ADMIN_PASSWORD` (primário) e `ADMIN_USERNAME_2`/`ADMIN_PASSWORD_2` (secundário). O seed grava PBKDF2.
 - Hash de senha admin: PBKDF2 nas senhas novas. SHA-256 + salt ainda valida o que já está no banco. Comparação em tempo constante. `?token=` só com `ADMIN_ALLOW_QUERY_TOKEN=true`.
-- Middlewares: `requireAdminAuth`, `requirePrimaryAdmin` (mesmo arquivo de rotas/auth).
+- Middlewares: `requireAdminAuth`, `requirePrimaryAdmin` (mesmo arquivo de rotas/auth). `forbidSellerStaff` bloqueia a vendedora nas rotas de escrita de preço, desconto, estoque, produto, cupom, configuração, usuário e envio.
+- Papel `vendedora` fica em `admin_user_roles` (migration). Sem a tabela, o login continua admin. Conta inativa não entra e a sessão cai.
+- A vendedora enxerga a loja inteira nas rotas liberadas (não é filial). O restante do `/api/admin` responde 403 dentro do `requireAdminAuth`.
+- O card **Pré-confirmados** do painel só é montado para o admin principal. A vendedora não vê. Aprovar e recusar continuam em `requirePrimaryAdmin`.
 
 ### Escopo
 
 - `isPrimary === true` → acesso global.
 - Admin não primário → precisa de seller vinculado via env `ADMIN_SELLER_SCOPE_MAP` (JSON `{"usuario":"seller-slug"}`). Sem vínculo → erro pedindo configuração do mapa.
 - Gestão de usuários admin (criar, promoção `isPrimary`, senha): rotas sob `/api/admin/users*` com `requirePrimaryAdmin` onde aplicável.
+- Troca de vendedor de um pedido: `PATCH /api/admin/orders/:id/seller` = `requirePrimaryAdmin`. O card mostra **Trocar vendedor** só com `isPrimary`.
+- Crédito da Rota Shopee: `POST /api/admin/orders/:id/shopee-wallet-credit` exige `hasGlobalAccess`. O card mostra **Lançar crédito na carteira** só com `isPrimary`. Avisar o cliente e salvar o ID usam o escopo do vendedor.
 - Contas extras EnvioEcom: `POST/PUT/DELETE /api/admin/envioecom/accounts` = `requirePrimaryAdmin`; `GET` = qualquer admin autenticado (seletor no card).
 - **Não** há multi-tenant por `tenant_id`; isolamento = `sellerCode` + escopo.
 - Aba **Biblioteca** (fichas de compostos): todos os admins autenticados; não está em `PRIMARY_ONLY_TABS`. API das fichas continua pública (`/api/chat/*`).
 - Aba **Promoções** (oferta relâmpago): `PRIMARY_ONLY_TABS`. `GET/POST/PATCH/DELETE /api/admin/flash-campaigns` = `requirePrimaryAdmin`.
 - Aba **Seguro**: `PRIMARY_ONLY_TABS`. `GET/POST /api/admin/store-credits*` = `requirePrimaryAdmin`. `POST /api/admin/orders/:id/insurance-claim` = `requireAdminAuth`.
 - Aba **Clientes**: listagem `GET /api/admin/customers` = `requireAdminAuth`. Ajuste de carteira `POST /api/admin/customers/:id/store-credit` = admin primário (`hasGlobalAccess`), igual senha/impersonate.
+- Menu: `primaryOnly` no `adminNav.ts` esconde a tela para quem não é primário e o efeito manda de volta para Pedidos. Além do que a barra antiga já escondia, Conciliação (Extrato e Depósitos), DRE, Despesas e Webhook do PIX agora também ficam só no menu do primário. As rotas `GET/POST /api/admin/bank-statement/*`, `GET /api/admin/bank-deposits`, `GET /api/admin/financial-dre` e `/api/admin/expenses` continuam `requireAdminAuth`. O POST público `/api/webhook/pix` não tem sessão admin.
 
 ## Portal Motoboy (link secreto)
 
@@ -64,11 +75,11 @@ RBAC/admin e auth de cliente **como implementados**. Precedência: código > mem
 - Pull: `GET /api/integrations/motoboy/coverage` com Bearer ou `X-Api-Key`.
 - Não usa sessão admin nem `MOTOBOY_PORTAL_TOKEN`.
 
-## Sync estoque Motoboy + Minas (espelho externo)
+## Sync estoque Motoboy + Minas + Santa Catarina (espelho externo)
 
 - Pull: `GET /api/integrations/inventory/snapshot` — Bearer ou `X-Api-Key` = `INVENTORY_SYNC_TOKEN` ou, se vazio, `MOTOBOY_SYNC_TOKEN`. Sem token → 503.
-- Baixa: `POST /api/integrations/inventory/exit` — mesmo token, **sem senha**. `GET .../exit-status` devolve `passwordRequired: false`. `POST .../unlock` continua; o exit não exige a janela.
-- Admin Pedidos: Dar baixa agora Motoboy/Minas — mesma senha (modal). Foz sem senha.
+- Baixa: `POST /api/integrations/inventory/exit` — mesmo token, **sem senha**. Pool `motoboy`, `minas` ou `santa_catarina`. `GET .../exit-status` devolve `passwordRequired: false`. `POST .../unlock` continua; o exit não exige a janela.
+- Admin Pedidos: Dar baixa agora Motoboy/Minas/Santa Catarina — mesma senha (modal). Foz sem senha.
 - Admin: `GET /api/admin/integrations/inventory/exit-access` e `POST .../unlock` = `requireAdminAuth`. `PUT .../exit-password` = `requirePrimaryAdmin`. Hash, senha não volta no GET.
 - Push: `INVENTORY_SYNC_WEBHOOK_URL` + `INVENTORY_SYNC_WEBHOOK_SECRET` (secret pode cair no da cobertura). Sem URL = no-op.
 - Não usa sessão admin.

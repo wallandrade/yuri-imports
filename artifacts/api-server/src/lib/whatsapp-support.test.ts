@@ -4,8 +4,11 @@ import test from "node:test";
 import {
   buildSupportOrderMessage,
   buildSupportOrdersMessage,
+  buildSupportUnknownMessage,
   classifySupportText,
   decideSupportTurn,
+  cpfPromptIsDue,
+  sendClaimedCpfPrompt,
   type SupportSession,
   isSupportAcknowledgement,
   SUPPORT_HUMAN_HANDOFF_TEXT,
@@ -22,7 +25,7 @@ import {
   supportSituationLabel,
   supportTokensMatch,
 } from "./whatsapp-support";
-import { defaultSupportMenu, supportMenuSaveError } from "./whatsapp-support-menu";
+import { defaultSupportMenu, supportMenuSaveError, supportPixKeyMessage, SUPPORT_PIX_KEY_MESSAGE } from "./whatsapp-support-menu";
 
 test("oi abre o menu e número ou CPF viram busca", () => {
   assert.equal(classifySupportText("Oi!").kind, "menu");
@@ -61,6 +64,221 @@ test("oi abre a lista e o pedido só entra depois do toque", () => {
   assert.equal(supportDocumentMatches("123.456.789-09", "12345678909"), true);
   assert.equal(supportDocumentMatches("123.456.789-09", "00000000000"), false);
   assert.equal(supportDocumentMatches("", "12345678909"), false);
+});
+
+test("chave pix manda a chave e as outras opções seguem iguais", () => {
+  const previous = process.env.SUPPORT_PIX_KEY_MESSAGE;
+  delete process.env.SUPPORT_PIX_KEY_MESSAGE;
+  try {
+    assert.equal(supportPixKeyMessage(), SUPPORT_PIX_KEY_MESSAGE);
+    const opened = decideSupportTurn({ text: "Oi!" });
+    assert.equal(opened.kind, "list");
+    if (opened.kind === "list") {
+      assert.deepEqual(opened.options.map((option) => option.id), ["meu-pedido", "comprar", "problema", "chave-pix", "atendente"]);
+      assert.equal(opened.options.every((option) => option.title.length <= 24 && option.description.length <= 72), true);
+      assert.equal(opened.options.length <= 10, true);
+    }
+
+    const picked = decideSupportTurn({ choiceId: "chave-pix", session: { step: "menu", problem: null } });
+    assert.equal(picked.kind, "text");
+    if (picked.kind === "text") assert.equal(picked.message, SUPPORT_PIX_KEY_MESSAGE);
+    assert.equal(picked.session.step, "menu");
+
+    const typed = decideSupportTurn({ text: "chave pix", session: { step: "menu", problem: null } });
+    assert.equal(typed.kind, "text");
+    if (typed.kind === "text") assert.equal(typed.message, SUPPORT_PIX_KEY_MESSAGE);
+    assert.equal(typed.session.step, "menu");
+
+    const word = decideSupportTurn({ text: "PIX", session: { step: "menu", problem: null } });
+    assert.equal(word.kind, "text");
+    if (word.kind === "text") assert.equal(word.message, SUPPORT_PIX_KEY_MESSAGE);
+
+    const order = decideSupportTurn({ choiceId: "meu-pedido" });
+    assert.equal(order.session.step, "await_lookup");
+    const buy = decideSupportTurn({ choiceId: "comprar" });
+    assert.equal(buy.kind, "text");
+    if (buy.kind === "text") assert.match(buy.message, /https:\/\/www\.compras-yu\.com/);
+    assert.equal(buy.session.step, "menu");
+    const human = decideSupportTurn({ choiceId: "atendente" });
+    assert.equal(human.session.step, "human");
+
+    process.env.SUPPORT_PIX_KEY_MESSAGE = "Chave de teste";
+    const overridden = decideSupportTurn({ choiceId: "chave-pix" });
+    assert.equal(overridden.kind, "text");
+    if (overridden.kind === "text") assert.equal(overridden.message, "Chave de teste");
+  } finally {
+    if (previous === undefined) delete process.env.SUPPORT_PIX_KEY_MESSAGE;
+    else process.env.SUPPORT_PIX_KEY_MESSAGE = previous;
+  }
+});
+
+test("pedido de CPF sai no máximo uma vez a cada 2 horas", () => {
+  const cooldownMs = 2 * 60 * 60 * 1000;
+  const now = 1_700_000_000_000;
+  const waiting = {
+    step: "await_cpf" as const,
+    problem: null,
+    orderNumber: 1782,
+    lastCpfPromptAt: now,
+  };
+  const again = decideSupportTurn({ text: "oi", session: waiting, now: now + 1000, cpfCooldownMs: cooldownMs });
+  assert.equal(again.kind, "silent");
+  assert.equal(again.session.step, "await_cpf");
+  const audio = decideSupportTurn({ text: "", media: true, session: waiting, now: now + 2000, cpfCooldownMs: cooldownMs });
+  assert.equal(audio.kind, "silent");
+
+  const later = decideSupportTurn({ text: "oi", session: waiting, now: now + cooldownMs, cpfCooldownMs: cooldownMs });
+  assert.equal(later.kind, "text");
+  if (later.kind === "text") assert.match(later.message, /CPF/);
+
+  const lookedUp = decideSupportTurn({
+    text: "123.456.789-09",
+    session: waiting,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(lookedUp.kind, "lookup");
+
+  const switched = decideSupportTurn({ text: "#2408", session: waiting, now: now + 1000, cpfCooldownMs: cooldownMs });
+  assert.equal(switched.kind, "silent");
+  assert.equal(switched.session.orderNumber, 2408);
+  assert.equal(switched.session.step, "await_cpf");
+
+  let claimedAt: number | null = null;
+  const raced = [0, 1].map(() => {
+    if (!cpfPromptIsDue(claimedAt, now, cooldownMs)) return "cooldown";
+    claimedAt = now;
+    return "claimed";
+  });
+  assert.deepEqual(raced, ["claimed", "cooldown"]);
+});
+
+test("envio do CPF que falha pede de novo na mensagem seguinte", async () => {
+  const cooldownMs = 2 * 60 * 60 * 1000;
+  const now = 1_700_000_000_000;
+  const waiting = {
+    step: "await_cpf" as const,
+    problem: null,
+    orderNumber: 1782,
+    lastCpfPromptAt: null as number | null,
+  };
+  let lock: number | null = null;
+  const failed = await sendClaimedCpfPrompt({
+    claim: async () => {
+      lock = now;
+      return "claimed";
+    },
+    send: async () => false,
+    release: async () => {
+      if (lock === now) lock = null;
+    },
+  });
+  assert.equal(failed, "failed");
+  assert.equal(lock, null);
+  const retry = decideSupportTurn({
+    text: "oi",
+    session: { ...waiting, lastCpfPromptAt: lock },
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(retry.kind, "text");
+  if (retry.kind === "text") assert.match(retry.message, /CPF/);
+
+  let released = false;
+  const thrown = await sendClaimedCpfPrompt({
+    claim: async () => "claimed",
+    send: async () => {
+      throw new Error("timeout");
+    },
+    release: async () => {
+      released = true;
+    },
+  });
+  assert.equal(thrown, "failed");
+  assert.equal(released, true);
+});
+
+test("frase de número ou CPF não trava o pedido de CPF", async () => {
+  const cooldownMs = 2 * 60 * 60 * 1000;
+  const now = 1_700_000_000_000;
+  const waiting: SupportSession = {
+    step: "await_lookup",
+    problem: null,
+    orderNumber: null,
+    lastCpfPromptAt: null,
+    lastUnknownPromptAt: null,
+  };
+  const loose = decideSupportTurn({ text: "cadê meu pedido", session: waiting, now, cpfCooldownMs: cooldownMs });
+  assert.equal(loose.kind, "text");
+  if (loose.kind === "text") assert.equal(loose.message, buildSupportUnknownMessage());
+  assert.equal(loose.session.step, "await_lookup");
+  assert.equal(loose.session.lastUnknownPromptAt, now);
+  assert.equal(loose.session.lastCpfPromptAt ?? null, null);
+
+  const again = decideSupportTurn({
+    text: "ainda não achei",
+    session: loose.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(again.kind, "silent");
+  assert.equal(again.session.step, "await_lookup");
+  assert.equal(again.session.lastUnknownPromptAt, now);
+
+  const numbered = decideSupportTurn({
+    text: "2408",
+    session: loose.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(numbered.kind, "text");
+  if (numbered.kind === "text") assert.match(numbered.message, /CPF/);
+  assert.equal(numbered.session.step, "await_cpf");
+  assert.equal(numbered.session.orderNumber, 2408);
+
+  const found = decideSupportTurn({
+    text: "12345678909",
+    session: numbered.session,
+    now: now + 2000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(found.kind, "lookup");
+
+  const direct = decideSupportTurn({
+    text: "123.456.789-09",
+    session: loose.session,
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(direct.kind, "lookup");
+
+  let unknownLock: number | null = now;
+  const cpfLock = now - cooldownMs;
+  const failed = await sendClaimedCpfPrompt({
+    claim: async () => "claimed",
+    send: async () => false,
+    release: async () => {
+      unknownLock = null;
+    },
+  });
+  assert.equal(failed, "failed");
+  assert.equal(unknownLock, null);
+  const retry = decideSupportTurn({
+    text: "cadê",
+    session: { ...waiting, lastUnknownPromptAt: unknownLock, lastCpfPromptAt: cpfLock },
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(retry.kind, "text");
+  if (retry.kind === "text") assert.equal(retry.message, buildSupportUnknownMessage());
+  const stillAsksCpf = decideSupportTurn({
+    text: "2408",
+    session: { ...loose.session, lastCpfPromptAt: cpfLock },
+    now: now + 1000,
+    cpfCooldownMs: cooldownMs,
+  });
+  assert.equal(stillAsksCpf.kind, "text");
+  if (stillAsksCpf.kind === "text") assert.match(stillAsksCpf.message, /CPF/);
 });
 
 test("frase sem toque não repete o menu", () => {

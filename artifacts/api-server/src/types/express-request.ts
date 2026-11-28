@@ -6,6 +6,7 @@ declare global {
         isPrimary?: boolean | number;
         hasGlobalAccess?: boolean;
         sellerCode?: string | null;
+        role?: string;
       };
     }
   }

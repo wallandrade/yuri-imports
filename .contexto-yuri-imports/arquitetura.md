@@ -1,6 +1,6 @@
 # Arquitetura — Yuri Import
 
-> **Última atualização:** 2026-11-11
+> **Última atualização:** 2026-11-27
 
 Stack, pastas e deploy **como existem no código**. Precedência: código > memória > tipagens.
 
@@ -8,6 +8,26 @@ Stack, pastas e deploy **como existem no código**. Precedência: código > mem�
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | O GET da fila aceita `includeProof=0` | O card não seleciona `proof_url`. A aba, sem o parâmetro, continua com o comprovante | Mesma rota. Sem coluna nova |
+| 2026-11-27 | O GET da fila de pré-confirmação devolve data e miniaturas | `orderCreatedAt` e até 4 produtos. A imagem só entra se for URL http(s) de até 400 caracteres | Mesma rota. Sem coluna nova. Status do pedido igual |
+| 2026-11-27 | Tabelas `admin_user_roles`, `order_payment_preconfirms` e `admin_audit_log` | SQL em `scripts/migrations/2026-11-27-vendedora-preconfirmacao-auditoria.sql`. Não roda sozinho. Sem as tabelas o login atual segue | `orders.status` não ganha coluna nem valor novo. Sem `tenant_id` e sem filial |
+| 2026-11-26 | Loja no domínio `www.compras-yu.com` | O apex `compras-yu.com` redireciona para `www`. Os hosts antigos continuam na allowlist de CORS | API continua em `yuri-imports-9483v.ondigitalocean.app`. O rewrite `/api` da Vercel igual |
+| 2026-11-24 | Colunas `whatsapp_group_custom_posts.active` e `target_chats` (+ runtime) | Aviso personalizado pode ficar desligado e guardar o público. O lembrete `seed-filmagem-abertura` entra uma vez na subida. Imagem e link vazios continuam nas colunas que já existiam | Sem tabela nova e sem `tenant_id`. PIX, estoque e senha de baixa iguais |
+| 2026-11-23 | Colunas da Rota Shopee | `orders`: `shopee_route_requested_at`, `shopee_order_id` varchar(32), `shopee_route_review_reason`, `shopee_wallet_credited_at`, com índice no ID e na hora. `order_shipments.shopee_route_sent_at`. O runtime só adiciona. Carteira: tipo `shopee_route_credit` | Sem tabela nova e sem `tenant_id`. PIX e estoque iguais |
+| 2026-11-21 | Loja no domínio `www.imports-py.com` | `yuri-imports-py.com` foi bloqueado. O apex e o `www` do domínio novo estão na Vercel | API continua em `yuri-imports-9483v.ondigitalocean.app` |
+| 2026-11-20 | Coluna `orders.filmagem_whatsapp_due_at` (+ runtime) e índice | Marca o prazo do texto 1 da filmagem. Pedido antigo fica nulo. A fila `whatsapp_outbound_queue` usa o `next_attempt_at` que já existia. `kind=gif` guarda o MP4 na coluna `image` | Sem tabela nova. Pedido, PIX e as outras colunas de WhatsApp iguais. Sem `tenant_id` |
+| 2026-11-19 | A fila do WhatsApp também esvazia `celltech` | O mesmo `whatsapp_outbound_queue` e o job de 30s. `instance` já é varchar(16). Sem coluna nova e sem token na tabela | Pedido, PIX e as sessões do atendimento iguais. Sem `tenant_id` |
+| 2026-11-19 | Loja no domínio `yuri-imports-py.com` | DNS na Hostinger aponta para a Vercel. `www` é o host da loja; o apex redireciona. `yury-imports.com` não resolve | API continua em `yuri-imports-9483v.ondigitalocean.app`. O rewrite `/api` da Vercel igual |
+| 2026-11-18 | Coluna `label_debit_waived` em `orders` e `order_shipments` | A fila Baixa de etiqueta marca quem saiu sem descontar saldo. Runtime adiciona a coluna na subida | `inventory_reserved` continua sendo a baixa de verdade |
+| 2026-11-17 | Tabela `whatsapp_outbound_queue` (+ runtime) | Fila do WhatsApp da Z-API. Job `whatsapp-outbound-job.ts` na subida. Sem token na tabela | Pedido, PIX e as tabelas de sessão do atendimento iguais. Sem `tenant_id` |
+| 2026-11-17 | Painel do admin acima do menu em todas as telas | Cards, filas de envio, Produtos mais vendidos e os portais de foto ficam fora da condição `inicio`/`orders`. O menu continua logo abaixo | Atalhos PIX, KYC, Tickets e Reenvios só no Início. Desenho do menu, grupos, rotas e o GET de pedidos (mesmo De/até) iguais |
+| 2026-11-17 | Menu do admin abaixo do painel em Início e Pedidos | Em `Admin.tsx`, os cards (incluindo Produtos mais vendidos) fecham antes do `<div>` com `AdminGroupedNav` | Desenho horizontal, grupos e rotas iguais. Nas outras telas o menu continua no topo do conteúdo |
+| 2026-11-17 | Menu do admin em cima do conteúdo | `AdminGroupedNav`: linha de grupos e, embaixo, as telas do grupo aberto. No celular a linha rola para o lado. Sem lateral e sem gaveta | Grupos, rotas `/admin/<grupo>/<tela>`, chaves de setting e admin primário iguais |
+| 2026-11-17 | Status da Cell Tech em `site_settings` | Chave `cell_tech_connection_status`. Sem tabela nova. A memória do processo vale junto com essa chave. O envio direto pela Z-API também grava o último envio ao grupo | `cell_tech_alerts`, `cell_tech_situation_state`, pedido e PIX iguais |
+| 2026-11-17 | Admin em grupos com URL `/admin/<grupo>/<item>` | Menu em `adminNav.ts` + `AdminGroupedNav`. `/admin` abre Pedidos. `/admin/fornecedores` redireciona | Chaves de setting, PIX, estoque e a senha de baixa iguais. `Admin.tsx` não foi fatiado |
+| 2026-11-16 | Tabelas `inventory_santa_catarina_balances` / `inventory_santa_catarina_movements` (+ runtime) | Quarto pool de estoque (Santa Catarina). Chave `santa_catarina` cabe em `inventory_pool` varchar(16) | Loja, Motoboy e Minas iguais |
+| 2026-11-13 | Front aponta `/api` para a DigitalOcean | Os dois `vercel.json` reescrevem para `https://yuri-imports-9483v.ondigitalocean.app/api/:path*`. O CSP troca o host Railway por esse e pelo R2 | Manutenção, PIX, esgotado e a moderação iguais |
+| 2026-11-12 | Tabela `whatsapp_group_moderation_log` (+ runtime) | Guarda a mensagem moderada no grupo para poder desfazer. Chave é o id da mensagem | Campanha dos grupos, atendimento e pedido iguais. Sem `tenant_id` |
 | 2026-11-11 | Tabela `order_delivery_corrections` e coluna `orders.client_data_corrected_at` (+ runtime) | Link público `/corrigir-entrega` para CPF, CEP e endereço. Vale 7 dias, só sem etiqueta. A loja ganha a página e o modal do admin | PIX, estoque e a senha de baixa iguais. Sem `tenant_id` |
 | 2026-11-10 | Tabela `customer_password_resets` (+ runtime) | Guarda o hash do link de senha, a expiração e o uso. A loja ganha `/redefinir-senha` | `customer_users` e a senha do admin iguais. Sem `tenant_id` |
 | 2026-11-10 | Tabela `cell_tech_situation_state` (+ runtime) | Guarda desde quando a OS está na situação atual, se o Gestão Click não manda a data | `cell_tech_alerts`, pedido, PIX e frete iguais. Sem `tenant_id` |
@@ -75,6 +95,7 @@ Workspace: `pnpm-workspace.yaml` (`artifacts/*`, `lib/*`, `scripts`).
 ## Stack (evidência)
 
 - **FE:** React 19.1, Vite 7, Tailwind 4, Wouter, Zustand, TanStack Query, Framer Motion — `artifacts/ka-imports/package.json`, catalog no `pnpm-workspace.yaml`.
+- **Admin:** rotas Wouter `/admin`, `/admin/:group` e `/admin/:group/:item` renderizam `pages/Admin.tsx`. O mapa (grupo, slug, aba, `primaryOnly`) está em `pages/admin/adminNav.ts`. O menu visual é `components/admin/AdminGroupedNav.tsx` (linha de grupos e linha das telas do grupo aberto; no celular as linhas rolam para o lado). Em qualquer tela ele fica abaixo dos cards do painel, depois de Produtos mais vendidos. Os atalhos PIX, KYC, Tickets e Reenvios continuam só no Início. Não voltar o menu lateral nem a gaveta. Não subir o menu para cima dos cards. Não esconder o painel fora de Início e Pedidos. `/admin` cai em Pedidos (`/admin/vendas/pedidos`). `/admin/fornecedores` vai para `/admin/catalogo/fornecedores`.
 - **BE:** Express `^5` — `artifacts/api-server/package.json`; entry `src/index.ts`, app `src/app.ts`, rotas `src/routes/`.
 - **DB:** **MySQL** — `drizzle.config.ts` (`dialect: "mysql"`), `lib/db/src/index.ts` (`drizzle-orm/mysql2`), schemas com `mysqlTable`.
 - **Validação:** Zod (incl. `zod/v4` em schemas DB); muita validação manual nas rotas.
@@ -89,7 +110,7 @@ Workspace: `pnpm-workspace.yaml` (`artifacts/*`, `lib/*`, `scripts`).
 
 Schemas em `lib/db/src/schema/*.ts` (export em `index.ts`):
 
-`orders`, `checkout_drafts`, `order_shipments`, `order_activity`, `carrier_loss_incidents`, `custom_charges`, `admin_users`, `admin_sessions`, `customer_users`, `customer_subscriptions`, `customer_store_credits`, `customer_store_credit_ledger`, `coupons`, `products`, `product_cost_history`, `site_settings`, `sellers`, `shipping_options`, `order_bumps`, `kyc_documents`, `social_proof_settings`, `social_proof_fake_entries`, `affiliates`, `affiliate_referrals`, `affiliate_commissions`, `affiliate_credit_uses`, `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`, `support_tickets`, `reshipments`, `manual_reshipments`, `inventory_balances`, `inventory_movements`, `inventory_motoboy_balances`, `inventory_motoboy_movements`, `inventory_minas_balances`, `inventory_minas_movements`, `manual_return_items`, `marketing_expenses`, `suppliers`, `supplier_purchases`, `supplier_purchase_items`, `seller_commission_batches`, `motoboy_neighborhoods`, `motoboy_bookings`, `motoboy_cep_ranges`, `shipping_queue`, `admin_images`.
+`orders`, `checkout_drafts`, `order_shipments`, `order_activity`, `carrier_loss_incidents`, `custom_charges`, `admin_users`, `admin_sessions`, `customer_users`, `customer_subscriptions`, `customer_store_credits`, `customer_store_credit_ledger`, `coupons`, `products`, `product_cost_history`, `site_settings`, `sellers`, `shipping_options`, `order_bumps`, `kyc_documents`, `social_proof_settings`, `social_proof_fake_entries`, `affiliates`, `affiliate_referrals`, `affiliate_commissions`, `affiliate_credit_uses`, `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`, `support_tickets`, `reshipments`, `manual_reshipments`, `inventory_balances`, `inventory_movements`, `inventory_motoboy_balances`, `inventory_motoboy_movements`, `inventory_minas_balances`, `inventory_minas_movements`, `inventory_santa_catarina_balances`, `inventory_santa_catarina_movements`, `manual_return_items`, `marketing_expenses`, `suppliers`, `supplier_purchases`, `supplier_purchase_items`, `seller_commission_batches`, `motoboy_neighborhoods`, `motoboy_bookings`, `motoboy_cep_ranges`, `shipping_queue`, `admin_images`.
 
 ## Auth (resumo)
 
@@ -104,7 +125,7 @@ APPCNPay, DentPeg, webhooks, Cloudflare R2, Brevo, WhatsApp (links), SSE admin, 
 ## Deploy
 
 - **API:** Railway + Nixpacks — serviço `@workspace/api-server` ligado a GitHub **`wallandrade/barbearia`** / branch **`main`** (auto-deploy on push). Start: `railway.json` + `nixpacks.toml`.
-- **FE:** Vercel — `vercel.json` / `artifacts/ka-imports/vercel.json` reescreve `/api/*` → `https://api.yury-imports.com/api/:path*`.
+- **FE:** Vercel — `vercel.json` / `artifacts/ka-imports/vercel.json` reescreve `/api/*` → `https://yuri-imports-9483v.ondigitalocean.app/api/:path*`.
 - Remote **`oficialkaimports`** existe em paralelo (histórico divergente); **não** é o source do Railway deste serviço.
 - Anti-padrão: no Railway, **Redeploy** do deployment antigo (ex. frete grátis) sem puxar a `main` nova — a API fica sem settings novas (ex. `motoboy_eligible_product_ids` → 400 `INVALID_KEY`). Preferir deploy da `main` atual (push novo ou Deploy latest).
 
@@ -120,6 +141,6 @@ APPCNPay, DentPeg, webhooks, Cloudflare R2, Brevo, WhatsApp (links), SSE admin, 
 
 ## Incertezas
 
-- TODO confirmar com humano: domínio canônico futuro vs `yury-imports.com`.
+- Domínio público da loja: `www.compras-yu.com` (Vercel). O apex redireciona para `www`. `imports-py.com`, `yuri-imports-py.com` e `yury-imports.com` ficam só como hosts antigos.
 - TODO confirmar: DentPeg em produção vs fallback experimental.
 - TODO confirmar: Google Sheets removido de vez (parece sim).

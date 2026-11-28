@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import type { Product } from "@workspace/api-client-react";
 import { formatCurrency } from "@/lib/utils";
-import { isProductUnavailable, useCart } from "@/store/use-cart";
+import { isCatalogSoldOut } from "@/lib/product-availability";
+import { useCart } from "@/store/use-cart";
 import { claimPendingFlashIfAny } from "@/lib/flash-offer";
 import { usePharmaAddedNotice } from "@/components/pharma/PharmaAddedNotice";
 import { catalogUnitPrice } from "@/lib/catalog-unit-price";
 import { pharmaOffPercent, pharmaSalePrice } from "@/lib/pharma-catalog-query";
 import { ShoppingCart } from "lucide-react";
+import { TrustMarks } from "@/components/pharma/TrustMarks";
 import { toast } from "sonner";
 
 type SelectedVariant = { groupName?: string; option?: string };
@@ -33,7 +35,7 @@ export function PharmaProductPurchase({
   const showNotice = usePharmaAddedNotice((state) => state.show);
   const [, setLocation] = useLocation();
   const [quantity, setQuantity] = useState(1);
-  const isSoldOut = isProductUnavailable(product);
+  const isSoldOut = isCatalogSoldOut(product);
   const bulkEnabled = Boolean((product as { bulkDiscountEnabled?: boolean }).bulkDiscountEnabled);
   const tiers = (product as { bulkDiscountTiers?: unknown }).bulkDiscountTiers;
   const hasTiers = bulkEnabled && Array.isArray(tiers) && tiers.length > 0;
@@ -57,10 +59,6 @@ export function PharmaProductPurchase({
   }, [hasTiers, quantity, product, oneBox]);
 
   function guard(): boolean {
-    if (isSoldOut) {
-      toast.error("Este produto está esgotado e não pode ser adicionado.");
-      return false;
-    }
     if (!hasRequiredVariants) {
       toast.error(variantError || "Selecione as variantes para continuar.");
       return false;
@@ -178,7 +176,6 @@ export function PharmaProductPurchase({
       {hasTiers ? (
         <button
           type="button"
-          disabled={isSoldOut}
           onClick={() => add(false)}
           className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[var(--pharma-green)] text-base font-semibold text-white disabled:opacity-50"
         >
@@ -189,7 +186,6 @@ export function PharmaProductPurchase({
         <div className="grid gap-2">
           <button
             type="button"
-            disabled={isSoldOut}
             onClick={() => add(true)}
             className="h-12 w-full rounded-xl border border-neutral-300 bg-white text-sm font-semibold disabled:opacity-50"
           >
@@ -197,7 +193,6 @@ export function PharmaProductPurchase({
           </button>
           <button
             type="button"
-            disabled={isSoldOut}
             onClick={buyNow}
             className="h-12 w-full rounded-xl bg-[var(--pharma-green)] text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -205,6 +200,8 @@ export function PharmaProductPurchase({
           </button>
         </div>
       )}
+
+      <TrustMarks className="justify-center pt-0.5" />
     </div>
   );
 }

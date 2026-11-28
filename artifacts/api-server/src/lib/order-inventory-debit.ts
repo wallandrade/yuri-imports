@@ -4,12 +4,13 @@ import {
   inventoryBalancesTable,
   inventoryMinasBalancesTable,
   inventoryMotoboyBalancesTable,
+  inventorySantaCatarinaBalancesTable,
   ordersTable,
 } from "@workspace/db";
 import {
   buildNamedStockMap,
   mapInventoryBalanceRows,
-  pickDebitWithOrphanSameName,
+  pickNamedInventoryDebit,
   remapInventoryItem,
   resolveCatalogByOptionName,
   type CatalogIndex,
@@ -21,9 +22,10 @@ import {
   registerInventoryEntry,
   registerMinasInventoryEntry,
   registerMotoboyInventoryEntry,
+  registerSantaCatarinaInventoryEntry,
 } from "./reshipments";
 
-export type InventoryPoolKind = "loja" | "motoboy" | "minas";
+export type InventoryPoolKind = "loja" | "motoboy" | "minas" | "santa_catarina";
 
 export type ResolvedOrderInventoryItem = {
   productId: string;
@@ -34,18 +36,19 @@ export type ResolvedOrderInventoryItem = {
 
 export function parseInventoryPool(raw: unknown): InventoryPoolKind | null {
   const value = String(raw || "").toLowerCase().trim();
-  if (value === "loja" || value === "motoboy" || value === "minas") return value;
+  if (value === "loja" || value === "motoboy" || value === "minas" || value === "santa_catarina") return value;
   return null;
 }
 
 export function inventoryPoolLabel(pool: InventoryPoolKind): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
+  if (pool === "santa_catarina") return "Santa Catarina";
   return "Foz Guaçu";
 }
 
 export function isDeferredDebitPool(pool: InventoryPoolKind): boolean {
-  return pool === "motoboy" || pool === "minas";
+  return pool === "motoboy" || pool === "minas" || pool === "santa_catarina";
 }
 
 /**
@@ -151,7 +154,11 @@ async function listNamedBalancesForPool(pool: InventoryPoolKind): Promise<{
       ? await db
         .select({ productId: inventoryMinasBalancesTable.productId, quantity: inventoryMinasBalancesTable.quantity })
         .from(inventoryMinasBalancesTable)
-      : await db
+      : pool === "santa_catarina"
+        ? await db
+          .select({ productId: inventorySantaCatarinaBalancesTable.productId, quantity: inventorySantaCatarinaBalancesTable.quantity })
+          .from(inventorySantaCatarinaBalancesTable)
+        : await db
         .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
         .from(inventoryBalancesTable);
   const catalog = await loadCatalogContext();
@@ -182,14 +189,14 @@ export async function pickOrderInventoryDebit(
   const debitItems: Array<{ productId: string; productName: string; quantity: number }> = [];
   const insufficient: string[] = [];
   for (const item of items) {
-    const picked = pickDebitWithOrphanSameName({
-      primaryId: item.productId,
-      fallbackId: item.fallbackProductId,
-      quantity: item.quantity,
-      productName: item.productName,
-      stock: stockByProduct,
+    const picked = pickNamedInventoryDebit({
       catalog: named.catalog,
+      stock: stockByProduct,
       namedBalances: named.balances,
+      productId: item.productId,
+      productName: item.productName,
+      quantity: item.quantity,
+      fallbackProductId: item.fallbackProductId,
     });
     if (picked.available < item.quantity) {
       insufficient.push(`${item.productName} (precisa ${item.quantity}, disponível ${picked.available})`);
@@ -197,7 +204,7 @@ export async function pickOrderInventoryDebit(
     }
     debitItems.push({
       productId: picked.productId,
-      productName: item.productName,
+      productName: picked.productName,
       quantity: item.quantity,
     });
   }
@@ -240,6 +247,8 @@ export async function applyOrderInventoryDelta(params: {
       await registerMotoboyInventoryEntry(entry);
     } else if (params.pool === "minas") {
       await registerMinasInventoryEntry(entry);
+    } else if (params.pool === "santa_catarina") {
+      await registerSantaCatarinaInventoryEntry(entry);
     } else {
       await registerInventoryEntry(entry);
     }

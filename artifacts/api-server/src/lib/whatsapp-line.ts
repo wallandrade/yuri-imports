@@ -20,19 +20,36 @@ export const POLY_N8N_SETTING_KEYS = [
 
 export type WhatsappLine = "poly" | "main";
 
-const STORE_ORIGIN = "https://www.yury-imports.com";
+export const STORE_ORIGIN = "https://www.compras-yu.com";
+const PREVIOUS_STORE_ORIGINS = [
+  "https://www.imports-py.com",
+  "https://imports-py.com",
+  "https://www.yuri-imports-py.com",
+  "https://yuri-imports-py.com",
+  "https://www.yury-imports.com",
+  "https://yury-imports.com",
+];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 /** Link da loja do vendedor que atendeu. A comissão segue esse caminho. */
 export function whatsappSellerStoreUrl(line: WhatsappLine): string {
   return line === "poly" ? `${STORE_ORIGIN}/poly` : `${STORE_ORIGIN}/yuri`;
 }
 
-/** Troca o site solto pelo link do vendedor. Página de produto e link que já tem caminho ficam iguais. */
+/** Troca o site solto pelo link do vendedor. O domínio antigo vira o atual e o caminho fica. */
 export function withWhatsappSellerStoreLink(message: string, line: WhatsappLine): string {
-  return message.replace(
-    /https:\/\/www\.yury-imports\.com(?!\/[A-Za-z0-9])/g,
-    whatsappSellerStoreUrl(line),
-  );
+  const target = whatsappSellerStoreUrl(line);
+  let text = message;
+  for (const origin of [STORE_ORIGIN, ...PREVIOUS_STORE_ORIGINS]) {
+    text = text.replace(new RegExp(`${escapeRegExp(origin)}(?!\\/[A-Za-z0-9])`, "g"), target);
+  }
+  for (const origin of PREVIOUS_STORE_ORIGINS) {
+    text = text.split(origin).join(STORE_ORIGIN);
+  }
+  return text;
 }
 
 export function isPolyWhatsappSeller(sellerCode: string | null | undefined): boolean {
@@ -57,10 +74,21 @@ export function whatsappLineForInstance(
   instanceId: string | null | undefined,
   polyInstanceId: string | null | undefined,
 ): WhatsappLine {
+  return whatsappLineForInstances(instanceId, [polyInstanceId]);
+}
+
+/** Qualquer ID conhecido da Poly (n8n ou Z-API) marca a conversa como Poly. */
+export function whatsappLineForInstances(
+  instanceId: string | null | undefined,
+  polyInstanceIds: Array<string | null | undefined>,
+): WhatsappLine {
   const got = String(instanceId || "").trim().toLowerCase();
-  const expected = String(polyInstanceId || "").trim().toLowerCase();
-  if (!got || !expected || got !== expected) return "main";
-  return "poly";
+  if (!got) return "main";
+  for (const raw of polyInstanceIds) {
+    const expected = String(raw || "").trim().toLowerCase();
+    if (expected && got === expected) return "poly";
+  }
+  return "main";
 }
 
 /** Pedido da Poly ou da Bruna usa a URL da Poly. Sem essa URL, segue a URL de hoje. Os outros vendedores nunca usam a URL da Poly. */
@@ -123,7 +151,8 @@ export async function resolveSupportWebhookUrl(input: {
 }
 
 export async function resolveWhatsappLine(instanceId: string | null | undefined): Promise<WhatsappLine> {
-  const fromEnv = String(process.env.N8N_POLY_INSTANCE_ID || "").trim();
-  const configured = fromEnv || await readSetting(N8N_POLY_INSTANCE_SETTING);
-  return whatsappLineForInstance(instanceId, configured);
+  const fromN8n = String(process.env.N8N_POLY_INSTANCE_ID || "").trim();
+  const fromZapi = String(process.env.ZAPI_POLY_INSTANCE_ID || "").trim();
+  const configured = fromN8n || await readSetting(N8N_POLY_INSTANCE_SETTING);
+  return whatsappLineForInstances(instanceId, [fromN8n, fromZapi, configured]);
 }

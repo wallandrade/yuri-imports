@@ -3,6 +3,7 @@ import { db, shippingQueueTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { getQueuePreview } from "../lib/shipping-queue-allocator";
 import { requireAdminAuth } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 
 const router: IRouter = Router();
 
@@ -91,7 +92,7 @@ router.get("/admin/shipping-queue/:orderId", requireAdminAuth, async (req, res) 
 // POST /api/admin/shipping-queue/bootstrap  (admin)
 // Manually triggers the bootstrap to allocate queue slots for existing orders.
 // ---------------------------------------------------------------------------
-router.post("/admin/shipping-queue/bootstrap", requireAdminAuth, async (_req, res) => {
+router.post("/admin/shipping-queue/bootstrap", requireAdminAuth, forbidSellerStaff, async (_req, res) => {
   try {
     const { bootstrapShippingQueue } = await import("../lib/shipping-queue-allocator");
     void bootstrapShippingQueue();

@@ -12,6 +12,8 @@ export const orderShipmentsTable = mysqlTable("order_shipments", {
   shippingForecastDate: varchar("shipping_forecast_date", { length: 10 }),
   enviadoAt: timestamp("enviado_at"),
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
+  /** Saiu da fila Baixa de etiqueta sem descontar o saldo deste pacote. */
+  labelDebitWaived: boolean("label_debit_waived").notNull().default(false),
   envioecomShipmentId: varchar("envioecom_shipment_id", { length: 64 }),
   envioecomBarcode: varchar("envioecom_barcode", { length: 64 }),
   envioecomTrackingKey: varchar("envioecom_tracking_key", { length: 128 }),
@@ -32,6 +34,8 @@ export const orderShipmentsTable = mysqlTable("order_shipments", {
   superfreteAccountId: varchar("superfrete_account_id", { length: 64 }),
   /** Código colado no Admin, pago no balcão (Correios). Não é envio EnvioEcom. */
   manualTrackingCode: varchar("manual_tracking_code", { length: 64 }),
+  /** WhatsApp da Rota Shopee deste pacote já foi aceito. */
+  shopeeRouteSentAt: timestamp("shopee_route_sent_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

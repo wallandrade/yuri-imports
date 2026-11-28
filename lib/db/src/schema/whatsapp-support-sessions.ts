@@ -10,5 +10,9 @@ export const whatsappSupportSessionsTable = mysqlTable("whatsapp_support_session
   nudgeCount: int("nudge_count").notNull().default(0),
   /** Quando o último aviso saiu. O próximo só depois do intervalo. */
   lastNudgeAt: timestamp("last_nudge_at"),
+  /** Quando o pedido de CPF saiu. O próximo só depois do intervalo. */
+  lastCpfPromptAt: timestamp("last_cpf_prompt_at"),
+  /** Quando a frase "número ou CPF" saiu. Não trava o pedido de CPF. */
+  lastUnknownPromptAt: timestamp("last_unknown_prompt_at"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

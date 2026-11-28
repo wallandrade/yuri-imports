@@ -60,6 +60,8 @@ export type AdminOrder = {
   transactionId?: string | null;
   sellerCode?: string | null;
   sellerCommissionRateSnapshot?: number | null;
+  sellerCommissionBatchId?: string | null;
+  sellerCommissionPaidAt?: string | null;
   purchaseIp?: string | null;
   couponCode?: string | null;
   discountAmount?: number | null;
@@ -72,6 +74,11 @@ export type AdminOrder = {
   inventoryPool?: string | null;
   inventoryReserved?: boolean | null;
   shippingForecastDate?: string | null;
+  shippingVia?: string | null;
+  shopeeRouteRequestedAt?: string | null;
+  shopeeOrderId?: string | null;
+  shopeeRouteReviewReason?: string | null;
+  shopeeWalletCreditedAt?: string | null;
   trackingCode?: string | null;
   trackingLabelUrl?: string | null;
   envioecomBarcode?: string | null;
@@ -158,6 +165,8 @@ export type AdminUser = {
   id: string;
   username: string;
   isPrimary?: boolean | null;
+  role?: "admin" | "vendedora" | null;
+  active?: boolean | null;
   createdAt?: string | Date | null;
 };
 

@@ -20,7 +20,7 @@ function getStorefrontOrigin(req: Request): string {
     process.env.STOREFRONT_URL ||
     process.env.FRONTEND_URL ||
     process.env.PUBLIC_SITE_URL ||
-    "https://www.yury-imports.com";
+    "https://www.compras-yu.com";
 
   if (explicitOrigin) {
     return normalizeOrigin(String(explicitOrigin));

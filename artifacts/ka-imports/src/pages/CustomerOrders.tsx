@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
-import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, formatDateBR, getActiveWhatsApp, whatsAppSendUrl } from "@/lib/utils";
 import { parseInsurancePlan } from "@/lib/checkout-insurance";
 import {
   customerForecastLines,
@@ -33,6 +33,7 @@ import {
 } from "@/lib/customer-order-view";
 import { superfreteServiceName } from "@/lib/superfrete-status";
 import { Copy, Gift, Loader2, LogOut, Package, Save, Ticket, Users, CheckCircle2, Clock, MessageCircle, Truck, X, Bell, FlaskConical } from "lucide-react";
+import { BrandLoader } from "@/components/pharma/BrandLoader";
 import PeptideToolsMenu from "@/components/PeptideToolsMenu";
 import PeptideIndividualsGrid from "@/components/PeptideIndividualsGrid";
 import PeptideFinderQuiz from "@/components/PeptideFinderQuiz";
@@ -74,7 +75,10 @@ function resolveStoreReferralLink(link: string, code: string): string {
     const isLocalApiOrigin =
       (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") && parsed.port === "5000";
     const isLegacyStoreHost =
-      parsed.hostname === "ka-imports.com" || parsed.hostname === "www.ka-imports.com";
+      parsed.hostname === "ka-imports.com" || parsed.hostname === "www.ka-imports.com"
+      || parsed.hostname === "yury-imports.com" || parsed.hostname === "www.yury-imports.com"
+      || parsed.hostname === "yuri-imports-py.com" || parsed.hostname === "www.yuri-imports-py.com"
+      || parsed.hostname === "imports-py.com" || parsed.hostname === "www.imports-py.com";
 
     if (isLegacyStoreHost) {
       return `${window.location.origin}${parsed.pathname}${parsed.search}`;
@@ -727,7 +731,7 @@ export default function CustomerOrders() {
                   )}
                   {loading ? (
                     <div className="py-14 flex items-center justify-center text-muted-foreground border border-border rounded-2xl">
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      <BrandLoader size="sm" className="mr-2" />
                       Carregando pedidos...
                     </div>
                   ) : orders.length === 0 ? (
@@ -992,7 +996,7 @@ export default function CustomerOrders() {
                               onClick={() => {
                                 const phone = getActiveWhatsApp();
                                 window.open(
-                                  `https://wa.me/${phone}?text=${encodeURIComponent(`Olá! Gostaria de informações sobre o pedido #${orderRef}`)}`,
+                                  whatsAppSendUrl(phone, `Olá! Gostaria de informações sobre o pedido #${orderRef}`),
                                   "_blank",
                                   "noopener,noreferrer"
                                 );
@@ -1295,7 +1299,7 @@ export default function CustomerOrders() {
 
                   {affiliateLoading ? (
                     <div className="py-12 flex items-center justify-center text-muted-foreground border border-border rounded-2xl bg-white">
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                      <BrandLoader size="sm" className="mr-2" />
                       Carregando dados da afiliação...
                     </div>
                   ) : (

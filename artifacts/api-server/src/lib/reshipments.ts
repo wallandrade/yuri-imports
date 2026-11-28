@@ -26,6 +26,8 @@ import {
   inventoryMotoboyMovementsTable,
   inventoryMinasBalancesTable,
   inventoryMinasMovementsTable,
+  inventorySantaCatarinaBalancesTable,
+  inventorySantaCatarinaMovementsTable,
   manualReshipmentsTable,
   ordersTable,
   productsTable,
@@ -1270,6 +1272,124 @@ export async function getMinasInventoryOverview(dates?: InventoryOverviewDates):
     db
       .select({ productId: inventoryMinasBalancesTable.productId, quantity: inventoryMinasBalancesTable.quantity })
       .from(inventoryMinasBalancesTable),
+    movementsQuery,
+  ]);
+  const nameMap = await loadEnrichedInventoryNameMap([
+    ...balancesRows.map((row) => row.productId),
+    ...movementsRows.map((row) => row.productId),
+  ]);
+
+  return {
+    balances: mapInventoryBalanceRows(balancesRows, nameMap),
+    movements: await attachHumanOrderReasons(
+      mapInventoryMovementOverview(movementsRows, nameMap, { newestFirst: !!range }),
+    ),
+  };
+}
+
+async function changeSantaCatarinaBalance(productId: string, delta: number): Promise<void> {
+  const currentRows = await db
+    .select({ quantity: inventorySantaCatarinaBalancesTable.quantity })
+    .from(inventorySantaCatarinaBalancesTable)
+    .where(eq(inventorySantaCatarinaBalancesTable.productId, productId))
+    .limit(1);
+
+  const current = Number(currentRows[0]?.quantity || 0);
+  const next = Math.max(0, current + delta);
+
+  if (!currentRows[0]) {
+    await db.insert(inventorySantaCatarinaBalancesTable).values({
+      productId,
+      quantity: next,
+      updatedAt: new Date(),
+    });
+    return;
+  }
+
+  await db
+    .update(inventorySantaCatarinaBalancesTable)
+    .set({ quantity: next, updatedAt: new Date() })
+    .where(eq(inventorySantaCatarinaBalancesTable.productId, productId));
+}
+
+export async function getSantaCatarinaStockMap(productIds: string[]): Promise<Map<string, number>> {
+  if (productIds.length === 0) return new Map();
+  const rows = await db
+    .select({ productId: inventorySantaCatarinaBalancesTable.productId, quantity: inventorySantaCatarinaBalancesTable.quantity })
+    .from(inventorySantaCatarinaBalancesTable)
+    .where(inArray(inventorySantaCatarinaBalancesTable.productId, productIds));
+
+  return new Map(rows.map((row) => [row.productId, Number(row.quantity) || 0]));
+}
+
+export async function registerSantaCatarinaInventoryEntry(params: {
+  productId: string;
+  quantity: number;
+  reason?: string;
+  referenceId?: string;
+  entrySource?: "purchase" | "customer_return";
+  clientName?: string | null;
+  clientPhone?: string | null;
+  trackingCode?: string | null;
+  affectBalance?: boolean;
+}): Promise<void> {
+  if (params.affectBalance !== false) {
+    await changeSantaCatarinaBalance(params.productId, params.quantity);
+  }
+
+  const isExit = Number(params.quantity) < 0;
+  const movementId = crypto.randomBytes(8).toString("hex");
+  const reason = params.reason || (isExit ? "Saida manual estoque Santa Catarina" : "Entrada manual estoque Santa Catarina");
+
+  await db.insert(inventorySantaCatarinaMovementsTable).values({
+    id: movementId,
+    productId: params.productId,
+    type: isExit ? "exit" : "entry",
+    entrySource: params.entrySource || null,
+    clientName: params.clientName || null,
+    clientPhone: params.clientPhone || null,
+    trackingCode: params.trackingCode || null,
+    quantity: params.quantity,
+    reason,
+    referenceId: params.referenceId || null,
+    createdAt: new Date(),
+  });
+
+  if (params.affectBalance !== false) {
+    scheduleInventoryChangedNotify({
+      pool: "santa_catarina",
+      productId: params.productId,
+      movementId,
+      quantityDelta: params.quantity,
+      reason,
+      referenceId: params.referenceId || null,
+    });
+  }
+}
+
+export async function getSantaCatarinaInventoryOverview(dates?: InventoryOverviewDates): Promise<{
+  balances: Array<{ productId: string; productName: string; quantity: number }>;
+  movements: InventoryMovementOverview[];
+}> {
+  const range = inventoryBrtRange(dates?.dateFrom, dates?.dateTo);
+  const movementsQuery = range
+    ? db
+        .select()
+        .from(inventorySantaCatarinaMovementsTable)
+        .where(and(
+          gte(inventorySantaCatarinaMovementsTable.createdAt, range.start),
+          lte(inventorySantaCatarinaMovementsTable.createdAt, range.end),
+        ))
+        .orderBy(desc(inventorySantaCatarinaMovementsTable.createdAt))
+        .limit(MOVEMENT_OVERVIEW_DATE_CAP)
+    : db
+        .select()
+        .from(inventorySantaCatarinaMovementsTable)
+        .orderBy(asc(inventorySantaCatarinaMovementsTable.createdAt));
+  const [balancesRows, movementsRows] = await Promise.all([
+    db
+      .select({ productId: inventorySantaCatarinaBalancesTable.productId, quantity: inventorySantaCatarinaBalancesTable.quantity })
+      .from(inventorySantaCatarinaBalancesTable),
     movementsQuery,
   ]);
   const nameMap = await loadEnrichedInventoryNameMap([

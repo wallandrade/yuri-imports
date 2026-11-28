@@ -6,6 +6,7 @@ import {
   pickWhatsappWebhookUrl,
   polyInstanceIdSaveError,
   whatsappLineForInstance,
+  whatsappLineForInstances,
   withWhatsappSellerStoreLink,
 } from "./whatsapp-line";
 
@@ -25,18 +26,34 @@ test("pedido da Poly usa o webhook dela e os outros não", () => {
 });
 
 test("quero comprar abre o link de quem atendeu", () => {
-  const text = "Pode comprar em https://www.yury-imports.com";
+  const text = "Pode comprar em https://www.compras-yu.com";
   assert.equal(
     withWhatsappSellerStoreLink(text, "poly"),
-    "Pode comprar em https://www.yury-imports.com/poly",
+    "Pode comprar em https://www.compras-yu.com/poly",
   );
   assert.equal(
     withWhatsappSellerStoreLink(text, "main"),
-    "Pode comprar em https://www.yury-imports.com/yuri",
+    "Pode comprar em https://www.compras-yu.com/yuri",
   );
   assert.equal(
-    withWhatsappSellerStoreLink("Veja https://www.yury-imports.com/produto/abc", "poly"),
-    "Veja https://www.yury-imports.com/produto/abc",
+    withWhatsappSellerStoreLink("Pode comprar em https://www.imports-py.com", "poly"),
+    "Pode comprar em https://www.compras-yu.com/poly",
+  );
+  assert.equal(
+    withWhatsappSellerStoreLink("Pode comprar em https://www.yuri-imports-py.com", "poly"),
+    "Pode comprar em https://www.compras-yu.com/poly",
+  );
+  assert.equal(
+    withWhatsappSellerStoreLink("Veja https://www.yuri-imports-py.com/produto/abc", "poly"),
+    "Veja https://www.compras-yu.com/produto/abc",
+  );
+  assert.equal(
+    withWhatsappSellerStoreLink("Veja https://www.imports-py.com/produto/abc", "poly"),
+    "Veja https://www.compras-yu.com/produto/abc",
+  );
+  assert.equal(
+    withWhatsappSellerStoreLink("Veja https://www.compras-yu.com/produto/abc", "poly"),
+    "Veja https://www.compras-yu.com/produto/abc",
   );
 });
 
@@ -44,6 +61,12 @@ test("menu da Poly não volta pelo número de hoje", () => {
   assert.equal(pickSupportWebhookUrl("poly", main, poly), poly);
   assert.equal(pickSupportWebhookUrl("poly", main, ""), "");
   assert.equal(pickSupportWebhookUrl("main", main, poly), main);
+});
+
+test("a entrada da Poly também reconhece o ID da Z-API", () => {
+  assert.equal(whatsappLineForInstances("polyZapiId1", ["", "polyzapiid1"]), "poly");
+  assert.equal(whatsappLineForInstances("n8nPolyId1", ["n8npolyid1", "outra"]), "poly");
+  assert.equal(whatsappLineForInstances("instanciaMain1", ["polyZapiId1"]), "main");
 });
 
 test("instância da Poly é o ID, sem token", () => {

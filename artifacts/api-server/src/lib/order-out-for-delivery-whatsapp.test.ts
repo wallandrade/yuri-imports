@@ -32,21 +32,33 @@ test("saiu para entrega avisa uma vez", () => {
   }), false);
 });
 
-test("mensagem leva o pedido e omite código EC", () => {
+test("Fique de olho fica igual ao texto da main", () => {
   const withCode = buildOutForDeliveryWhatsappMessage({
-    clientName: "Ivan Gomes",
-    orderNumber: 1782,
-    trackingCode: "8880111",
+    clientName: "Cliente",
+    orderNumber: 10,
+    trackingCode: "AB123456789BR",
   });
-  assert.match(withCode, /Ivan, seu pedido saiu para entrega/);
-  assert.match(withCode, /Pedido #1782/);
-  assert.match(withCode, /8880111/);
+  assert.equal(withCode, [
+    "🛵 *Cliente, seu pedido saiu para entrega!*",
+    "",
+    "Pedido #10",
+    "Código: *AB123456789BR*",
+    "",
+    "Fique de olho para receber. 📦",
+  ].join("\n"));
   assert.equal(withCode.includes("**"), false);
 
   const withEc = buildOutForDeliveryWhatsappMessage({
-    clientName: "Ivan Gomes",
-    orderNumber: 1782,
+    clientName: "Cliente",
+    orderNumber: 10,
     trackingCode: "EC123",
   });
+  assert.equal(withEc, [
+    "🛵 *Cliente, seu pedido saiu para entrega!*",
+    "",
+    "Pedido #10",
+    "",
+    "Fique de olho para receber. 📦",
+  ].join("\n"));
   assert.equal(withEc.includes("EC123"), false);
 });

@@ -6,12 +6,14 @@ import {
   inventoryBalancesTable,
   inventoryMinasBalancesTable,
   inventoryMotoboyBalancesTable,
+  inventorySantaCatarinaBalancesTable,
   manualReshipmentsTable,
   manualReturnItemsTable,
   ordersTable,
   reshipmentsTable,
 } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { resolveManualInventoryExit } from "../lib/inventory-resolve";
 import { normalizeProductId } from "../lib/inventory-catalog";
 import {
@@ -22,10 +24,12 @@ import {
   getInventoryOverview,
   getMotoboyInventoryOverview,
   getMinasInventoryOverview,
+  getSantaCatarinaInventoryOverview,
   listReshipments,
   registerInventoryEntry,
   registerMotoboyInventoryEntry,
   registerMinasInventoryEntry,
+  registerSantaCatarinaInventoryEntry,
   releasePendingReshipments,
   setManualReshipmentStatus,
   setReshipmentStatus,
@@ -108,7 +112,7 @@ async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean
   return !!rows[0];
 }
 
-router.get("/admin/inventory/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await repairCompletedPurchaseExpenses();
     const overviewDates = readInventoryOverviewDates(req.query as Record<string, unknown>);
@@ -149,7 +153,7 @@ router.get("/admin/inventory/overview", requirePrimaryAdmin, async (req, res) =>
   }
 });
 
-router.post("/admin/manual-return-items", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/manual-return-items", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const clientName = String(req.body?.clientName ?? "").trim();
     const returningOrder = String(req.body?.returningOrder ?? "").trim();
@@ -182,7 +186,7 @@ router.post("/admin/manual-return-items", requirePrimaryAdmin, async (req, res) 
   }
 });
 
-router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const id = String(req.params.id ?? "").trim();
     const status = String(req.body?.status ?? "").trim().toLowerCase();
@@ -215,7 +219,7 @@ router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, async
   }
 });
 
-router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -329,7 +333,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
   }
 });
 
-router.get("/admin/inventory/motoboy/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/motoboy/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await repairCompletedPurchaseExpenses();
     const inventory = await getMotoboyInventoryOverview(
@@ -345,7 +349,7 @@ router.get("/admin/inventory/motoboy/overview", requirePrimaryAdmin, async (req,
   }
 });
 
-router.post("/admin/inventory/motoboy/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/motoboy/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -396,7 +400,7 @@ router.post("/admin/inventory/motoboy/entries", requirePrimaryAdmin, async (req,
   }
 });
 
-router.get("/admin/inventory/minas/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/minas/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     await repairCompletedPurchaseExpenses();
     const inventory = await getMinasInventoryOverview(
@@ -412,7 +416,7 @@ router.get("/admin/inventory/minas/overview", requirePrimaryAdmin, async (req, r
   }
 });
 
-router.post("/admin/inventory/minas/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/minas/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -463,7 +467,74 @@ router.post("/admin/inventory/minas/entries", requirePrimaryAdmin, async (req, r
   }
 });
 
-router.post("/admin/inventory/:pool/movements/:id/undo", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/santa_catarina/overview", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
+  try {
+    await repairCompletedPurchaseExpenses();
+    const inventory = await getSantaCatarinaInventoryOverview(
+      readInventoryOverviewDates(req.query as Record<string, unknown>),
+    );
+    res.json({
+      balances: inventory.balances,
+      movements: await attachInventoryUndoFlags("santa_catarina", inventory.movements),
+    });
+  } catch (err) {
+    console.error("Santa Catarina inventory overview error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar estoque Santa Catarina." });
+  }
+});
+
+router.post("/admin/inventory/santa_catarina/entries", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
+  try {
+    let productId = String(req.body?.productId ?? "").trim();
+    const quantity = Number(req.body?.quantity || 0);
+    const movementType = String(req.body?.movementType ?? "entry").trim().toLowerCase();
+    const reason = String(req.body?.reason ?? "").trim();
+
+    if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Produto e quantidade devem ser válidos." });
+      return;
+    }
+
+    if (movementType !== "entry" && movementType !== "exit") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Tipo de movimentação inválido." });
+      return;
+    }
+
+    const signedQuantity = movementType === "exit" ? -quantity : quantity;
+
+    if (signedQuantity < 0) {
+      const balancesRows = await db
+        .select({ productId: inventorySantaCatarinaBalancesTable.productId, quantity: inventorySantaCatarinaBalancesTable.quantity })
+        .from(inventorySantaCatarinaBalancesTable);
+      const picked = await resolveManualInventoryExit(productId, quantity, balancesRows);
+      if (picked.available < quantity) {
+        res.status(400).json({
+          error: "INSUFFICIENT_STOCK",
+          message: `Saldo Santa Catarina insuficiente. Disponível: ${picked.available}.`,
+        });
+        return;
+      }
+      productId = picked.productId;
+    }
+
+    const resolvedReason = reason
+      || (movementType === "exit" ? "Saida manual estoque Santa Catarina" : "Entrada manual estoque Santa Catarina");
+
+    await registerSantaCatarinaInventoryEntry({
+      productId,
+      quantity: signedQuantity,
+      reason: resolvedReason,
+      entrySource: movementType === "entry" ? "purchase" : undefined,
+    });
+
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("Santa Catarina inventory entry error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao registrar movimento estoque Santa Catarina." });
+  }
+});
+
+router.post("/admin/inventory/:pool/movements/:id/undo", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const pool = parseInventoryPool(req.params.pool);
     if (!pool) {
@@ -485,10 +556,10 @@ router.post("/admin/inventory/:pool/movements/:id/undo", requirePrimaryAdmin, as
   }
 });
 
-router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const pool = String(req.body?.pool ?? "loja").trim().toLowerCase();
-    if (pool !== "loja" && pool !== "motoboy" && pool !== "minas") {
+    if (pool !== "loja" && pool !== "motoboy" && pool !== "minas" && pool !== "santa_catarina") {
       res.status(400).json({ error: "INVALID_POOL", message: "Pool inválido." });
       return;
     }
@@ -501,15 +572,21 @@ router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, async (req, r
         ? await db
           .select({ productId: inventoryMinasBalancesTable.productId, quantity: inventoryMinasBalancesTable.quantity })
           .from(inventoryMinasBalancesTable)
-        : await db
-          .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
-          .from(inventoryBalancesTable);
+        : pool === "santa_catarina"
+          ? await db
+            .select({ productId: inventorySantaCatarinaBalancesTable.productId, quantity: inventorySantaCatarinaBalancesTable.quantity })
+            .from(inventorySantaCatarinaBalancesTable)
+          : await db
+            .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
+            .from(inventoryBalancesTable);
 
     const reason = pool === "motoboy"
       ? "Zerar saldo manual Motoboy"
       : pool === "minas"
         ? "Zerar saldo manual Minas"
-        : "Zerar saldo manual Foz Guaçu";
+        : pool === "santa_catarina"
+          ? "Zerar saldo manual Santa Catarina"
+          : "Zerar saldo manual Foz Guaçu";
 
     let zeroed = 0;
     for (const row of balancesRows) {
@@ -520,6 +597,8 @@ router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, async (req, r
         await registerMotoboyInventoryEntry({ productId, quantity: -quantity, reason });
       } else if (pool === "minas") {
         await registerMinasInventoryEntry({ productId, quantity: -quantity, reason });
+      } else if (pool === "santa_catarina") {
+        await registerSantaCatarinaInventoryEntry({ productId, quantity: -quantity, reason });
       } else {
         await registerInventoryEntry({ productId, quantity: -quantity, reason });
       }
@@ -533,7 +612,7 @@ router.post("/admin/inventory/zero-balances", requirePrimaryAdmin, async (req, r
   }
 });
 
-router.post("/admin/reshipments/manual", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/reshipments/manual", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const clientName = String(req.body?.clientName ?? "").trim();
     const clientPhone = String(req.body?.clientPhone ?? "").trim();

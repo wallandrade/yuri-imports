@@ -1,4 +1,4 @@
-export type InventorySyncPool = "motoboy" | "minas";
+export type InventorySyncPool = "motoboy" | "minas" | "santa_catarina";
 
 export type InventoryExitItem = {
   productId: string;
@@ -18,8 +18,8 @@ export function parseInventoryExitBody(
 ): { ok: true; value: ParsedInventoryExit } | { ok: false; code: string; error: string } {
   const body = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const poolRaw = String(body.pool || "").toLowerCase().trim();
-  if (poolRaw !== "motoboy" && poolRaw !== "minas") {
-    return { ok: false, code: "INVALID_INPUT", error: "Campo 'pool' deve ser 'motoboy' ou 'minas'." };
+  if (poolRaw !== "motoboy" && poolRaw !== "minas" && poolRaw !== "santa_catarina") {
+    return { ok: false, code: "INVALID_INPUT", error: "Campo 'pool' deve ser 'motoboy', 'minas' ou 'santa_catarina'." };
   }
 
   const orderId = String(body.orderId || body.order_id || "").trim() || null;

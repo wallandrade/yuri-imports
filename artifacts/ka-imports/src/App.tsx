@@ -4,15 +4,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { BrandLoader } from "@/components/pharma/BrandLoader";
 import { SitePasswordGate } from "@/components/SitePasswordGate";
 import SocialProofWidget from "@/components/SocialProofWidget";
 import { FlashOfferHost } from "@/components/FlashOfferHost";
 import PeptideChatWidget from "@/components/PeptideChatWidget";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
+import { shouldShowMaintenancePage } from "@/lib/maintenance";
 import { applyStoreThemeAttribute, useStoreTheme } from "@/lib/store-theme";
 import { reportClientError } from "@/lib/client-error-reporting";
 import Home from "@/pages/Home";
+import { MaintenancePage } from "@/pages/MaintenancePage";
 import CategoryPage from "@/pages/CategoryPage";
 import OffersPage from "@/pages/OffersPage";
 import SellerPage from "@/pages/SellerPage";
@@ -145,7 +148,7 @@ const queryClient = new QueryClient({
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-screen">
-      <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <BrandLoader size="lg" />
     </div>
   );
 }
@@ -194,6 +197,9 @@ function Router() {
         <Route path="/pix/:id"          component={PixPayment} />
         <Route path="/success"          component={Success} />
         <Route path="/admin/login"      component={AdminLogin} />
+        <Route path="/admin/fornecedores" component={Admin} />
+        <Route path="/admin/:group/:item" component={Admin} />
+        <Route path="/admin/:group"     component={Admin} />
         <Route path="/admin"            component={Admin} />
         <Route path="/motoboy"          component={MotoboyPortal} />
         <Route path="/login"            component={CustomerLogin} />
@@ -250,16 +256,26 @@ function AppInner() {
   );
 }
 
-function App() {
+function AppOrMaintenance() {
+  const [location] = useLocation();
+  if (shouldShowMaintenancePage(location)) {
+    return <MaintenancePage />;
+  }
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppInner />
-        </WouterRouter>
+        <AppInner />
         <Toaster position="top-center" richColors theme="light" />
       </TooltipProvider>
     </QueryClientProvider>
+  );
+}
+
+function App() {
+  return (
+    <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+      <AppOrMaintenance />
+    </WouterRouter>
   );
 }
 

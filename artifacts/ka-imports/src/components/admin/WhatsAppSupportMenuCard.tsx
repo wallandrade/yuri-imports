@@ -68,7 +68,7 @@ function defaultMenu(): MenuConfig {
         title: "Quero comprar",
         description: "Abrir o site",
         action: "text",
-        message: "Pode comprar em https://www.yury-imports.com",
+        message: "Pode comprar em https://www.compras-yu.com",
       },
       {
         id: "problema",
@@ -86,6 +86,13 @@ function defaultMenu(): MenuConfig {
           problemItem("voltou", "Voltou ao vendedor", "O correio devolveu", "voltou ao vendedor"),
           problemItem("outro", "Outro problema", "Outro caso", "outro problema"),
         ],
+      },
+      {
+        id: "chave-pix",
+        title: "Chave PIX",
+        description: "Pagar por PIX",
+        action: "text",
+        message: "Chave pix e-mail:\njonathanbarros2306@gmail.com\n\nNome: Jonathan Machado Barros\nBanco: Inter",
       },
       {
         id: "atendente",

@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable, motoboyBookingsTable, customerUsersTable, orderShipmentsTable, type OrderShipment } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable, motoboyBookingsTable, customerUsersTable, orderShipmentsTable, sellersTable, sellerCommissionBatchesTable, type OrderShipment } from "@workspace/db";
 import { allocateShippingSlot, releaseShippingSlot, reallocateShippingSlot, isStandardShipping } from "../lib/shipping-queue-allocator";
-import { desc, and, gte, lte, eq, inArray, ne, sql, not, type SQL } from "drizzle-orm";
+import { desc, and, gte, lte, eq, inArray, isNull, ne, sql, not, type SQL } from "drizzle-orm";
 import crypto from "crypto";
-import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
+import { getAdminScope, requireAdminAuth, requirePrimaryAdmin, verifyCurrentAdminPassword } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 import { broadcastNotification } from "./notifications";
 import { evaluateCouponForProducts, incrementCouponUse } from "./coupons";
 import {
@@ -68,10 +69,20 @@ import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { queueReportanaDraftComplete, queueReportanaOrderSync } from "../lib/reportana";
 import { queueOrderPaidWhatsapp } from "../lib/order-paid-whatsapp";
+import { scheduleFilmagemPaidNotice } from "../lib/order-filmagem-whatsapp";
 import { announceTrackingCode } from "../lib/order-tracking-whatsapp";
 import { customerVisibleObservation, isObservationVisibleToCustomer } from "../lib/order-observation-visibility";
 import { formatShippingForecastDateBR, normalizeShippingForecastDate } from "../lib/shipping-forecast";
 import { listOrderActivity, recordAdminActivity, recordOrderActivity } from "../lib/order-activity";
+import { parseShippingVia } from "../lib/shipping-via";
+import { mysqlAffectedRows } from "../lib/mysql-affected-rows";
+import {
+  commissionAlreadyPaid,
+  commissionRateSnapshotForSeller,
+  normalizeReassignSellerCode,
+  openBatchAfterRemovingOrder,
+  parseBatchOrderIds,
+} from "../lib/reassign-order-seller";
 import { diffEditedOrderProducts, snapshotProductImage, type OrderEditProductLine } from "../lib/order-activity-format";
 import { clampLineDiscount, lineNetAmount } from "../lib/line-discount";
 import { isMotoboyShippingType, parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold, shippingTypeAfterMotoboyToNormal } from "../lib/free-shipping";
@@ -80,6 +91,7 @@ import { getChannelPixGateway, isChannelPaymentMethodEnabled } from "../lib/chec
 import { resolveCheckoutSeller } from "../lib/assign-checkout-seller";
 import { claimGuestOrdersForCustomer } from "../lib/claim-guest-orders";
 import { consumePromoStockForPaidOrder, promoPriceStillApplies } from "../lib/promo-stock";
+import { isOrderProductBlocked } from "../lib/product-purchase";
 import {
   FlashCheckoutError,
   FlashOfferExpiredError,
@@ -809,13 +821,6 @@ function parseBulkDiscountTiers(raw: unknown): BulkDiscountTierInput[] {
   }
 }
 
-function isProductUnavailable(product: {
-  isActive: boolean;
-}): boolean {
-  if (product.isActive === false) return true;
-  return false;
-}
-
 function resolveBaseUnitPrice(product: {
   price: string;
   promoPrice: string | null;
@@ -1159,7 +1164,7 @@ router.post("/orders", async (req, res) => {
         if (!productId || quantity <= 0) return null;
 
         const current = productRows.get(productId);
-        if (!current || isProductUnavailable(current)) {
+        if (!current || isOrderProductBlocked(current)) {
           unavailableProducts.push(productId);
           return null;
         }
@@ -1856,7 +1861,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/:id/apply-store-credit  (protected)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/:id/apply-store-credit", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/:id/apply-store-credit", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -1947,7 +1952,7 @@ router.post("/admin/orders/:id/apply-store-credit", requireAdminAuth, async (req
         source: "admin_store_credit",
         coveredByStoreCredit: true,
       });
-      queueOrderPaidWhatsapp(id);
+      await queueOrderPaidWhatsapp(id, true);
     }
     queueReportanaOrderSync(id);
 
@@ -2015,7 +2020,7 @@ router.get("/admin/orders/:id/activity", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/status  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/status", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2133,7 +2138,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
         total: existing[0]?.total,
         source: "admin_manual",
       });
-      queueOrderPaidWhatsapp(id);
+      await queueOrderPaidWhatsapp(id, true);
     }
     if (isBeingCancelled && !wasAlreadyCancelled) {
       void sendOutboundWebhook("order_cancelled", {
@@ -2165,7 +2170,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/observation  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/observation", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2203,7 +2208,7 @@ router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res)
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/whatsapp-group  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/whatsapp-group", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/whatsapp-group", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2255,9 +2260,161 @@ router.patch("/admin/orders/:id/whatsapp-group", requireAdminAuth, async (req, r
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/seller  (admin principal)
+// A comissão pendente passa para o vendedor novo, na taxa dele.
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/seller", requirePrimaryAdmin, async (req, res) => {
+  try {
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const nextSellerCode = normalizeReassignSellerCode((req.body as { sellerCode?: unknown } | undefined)?.sellerCode);
+    if (!nextSellerCode) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Escolha o vendedor." });
+      return;
+    }
+
+    const sellerRows = await db
+      .select({
+        slug: sellersTable.slug,
+        hasCommission: sellersTable.hasCommission,
+        commissionRate: sellersTable.commissionRate,
+      })
+      .from(sellersTable)
+      .where(eq(sellersTable.slug, nextSellerCode))
+      .limit(1);
+    const seller = sellerRows[0];
+    if (!seller) {
+      res.status(404).json({ error: "SELLER_NOT_FOUND", message: "Vendedor não encontrado." });
+      return;
+    }
+    const nextRate = commissionRateSnapshotForSeller(seller);
+
+    const result = await db.transaction(async (tx) => {
+      const rows = await tx.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+      const order = rows[0];
+      if (!order) {
+        throw Object.assign(new Error("Pedido não encontrado."), { status: 404, code: "NOT_FOUND" });
+      }
+
+      const currentSeller = normalizeReassignSellerCode(order.sellerCode);
+      if (currentSeller === nextSellerCode) {
+        return { order, changed: false as const, previousSeller: currentSeller, nextRate };
+      }
+
+      const batchId = String(order.sellerCommissionBatchId || "").trim();
+      let batchStatus: string | null = null;
+      if (batchId) {
+        const batchRows = await tx
+          .select()
+          .from(sellerCommissionBatchesTable)
+          .where(eq(sellerCommissionBatchesTable.id, batchId))
+          .limit(1);
+        batchStatus = batchRows[0] ? String(batchRows[0].status || "") : null;
+        if (commissionAlreadyPaid({ paidAt: order.sellerCommissionPaidAt, batchStatus })) {
+          throw Object.assign(
+            new Error("A comissão deste pedido já foi paga. Não dá para trocar o vendedor."),
+            { status: 409, code: "COMMISSION_ALREADY_PAID" },
+          );
+        }
+        const batch = batchRows[0];
+        if (batch) {
+          const leftoverIds = parseBatchOrderIds(batch.orderIds).filter((entry) => entry !== id);
+          const remaining = leftoverIds.length === 0
+            ? []
+            : await tx
+              .select({
+                id: ordersTable.id,
+                total: ordersTable.total,
+                rate: ordersTable.sellerCommissionRateSnapshot,
+              })
+              .from(ordersTable)
+              .where(inArray(ordersTable.id, leftoverIds));
+          const nextBatch = openBatchAfterRemovingOrder({
+            batchOrderIds: batch.orderIds,
+            removedOrderId: id,
+            remainingOrders: remaining.map((row) => ({
+              id: row.id,
+              total: row.total,
+              rate: row.rate,
+            })),
+          });
+          if (!nextBatch) {
+            await tx.delete(sellerCommissionBatchesTable).where(eq(sellerCommissionBatchesTable.id, batchId));
+          } else {
+            await tx
+              .update(sellerCommissionBatchesTable)
+              .set({
+                orderIds: nextBatch.orderIds,
+                orderCount: nextBatch.orderCount,
+                totalAmount: nextBatch.totalAmount.toFixed(2),
+                updatedAt: new Date(),
+              })
+              .where(eq(sellerCommissionBatchesTable.id, batchId));
+          }
+        }
+      } else if (commissionAlreadyPaid({ paidAt: order.sellerCommissionPaidAt, batchStatus: null })) {
+        throw Object.assign(
+          new Error("A comissão deste pedido já foi paga. Não dá para trocar o vendedor."),
+          { status: 409, code: "COMMISSION_ALREADY_PAID" },
+        );
+      }
+
+      const now = new Date();
+      const updated = await tx
+        .update(ordersTable)
+        .set({
+          sellerCode: nextSellerCode,
+          sellerCommissionRateSnapshot: nextRate.toFixed(2),
+          sellerCommissionBatchId: null,
+          updatedAt: now,
+        })
+        .where(and(eq(ordersTable.id, id), isNull(ordersTable.sellerCommissionPaidAt)));
+      if (mysqlAffectedRows(updated) === 0) {
+        throw Object.assign(
+          new Error("A comissão deste pedido já foi paga. Não dá para trocar o vendedor."),
+          { status: 409, code: "COMMISSION_ALREADY_PAID" },
+        );
+      }
+
+      await tx
+        .update(customChargesTable)
+        .set({ sellerCode: nextSellerCode, updatedAt: now })
+        .where(eq(customChargesTable.orderId, id));
+
+      const fresh = await tx.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+      return { order: fresh[0] ?? order, changed: true as const, previousSeller: currentSeller, nextRate };
+    });
+
+    if (result.changed) {
+      recordAdminActivity(
+        req,
+        id,
+        "seller",
+        `Vendedor: ${result.previousSeller || "nenhum"} → ${nextSellerCode}`,
+        `Comissão ${result.nextRate}%`,
+      );
+    }
+
+    res.json({ ok: true, order: mapOrder(result.order) });
+  } catch (err) {
+    const status = Number((err as { status?: number })?.status || 0);
+    if (status >= 400 && status < 500) {
+      res.status(status).json({
+        error: (err as { code?: string })?.code || "INVALID_STATE",
+        message: (err as Error)?.message || "Não foi possível trocar o vendedor.",
+      });
+      return;
+    }
+    console.error("Reassign seller error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao trocar o vendedor." });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/proof  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/proof", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2320,7 +2477,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
         total: existing[0]?.total,
         source: "admin_proof",
       });
-      queueOrderPaidWhatsapp(id);
+      await queueOrderPaidWhatsapp(id, true);
     }
     recordAdminActivity(req, id, "proof", "Enviou comprovante");
     queueReportanaOrderSync(id);
@@ -2334,7 +2491,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/edit  (protected, full-access only)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/edit", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2591,6 +2748,10 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       .set(updates)
       .where(buildAdminOrderWhere(id, adminScope));
 
+    if (!isPaid && (newStatus === "paid" || newStatus === "completed")) {
+      await scheduleFilmagemPaidNotice(id);
+    }
+
     try {
       await syncOrderShipmentItems(id, resolvedProducts);
     } catch (err) {
@@ -2684,7 +2845,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/:id/difference-charge  (protected, full-access only)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/:id/difference-charge", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -2765,7 +2926,7 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
 // ---------------------------------------------------------------------------
 // GET /api/admin/export  (protected)
 // ---------------------------------------------------------------------------
-router.get("/admin/export", requireAdminAuth, async (req, res) => {
+router.get("/admin/export", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3008,6 +3169,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     isPrioridade:           !!(o as any).isPrioridade,
     clientDataCorrectedAt:  o.clientDataCorrectedAt?.toISOString?.() ?? null,
     enviado:                !!o.enviado,
+    shippingVia:            String((o as { shippingVia?: string | null }).shippingVia || "").trim().toLowerCase() === "shopee" ? "shopee" : null,
     shippingForecastDate:   String((o as { shippingForecastDate?: string | null }).shippingForecastDate || "").trim().slice(0, 10) || null,
     aguardandoEstoque:      !!(o as { aguardandoEstoque?: boolean }).aguardandoEstoque,
     enviadoAt:              (o as { enviadoAt?: Date | null }).enviadoAt?.toISOString?.()
@@ -3046,12 +3208,25 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     bankDepositPayerName:   (o as any).bankDepositPayerName ?? null,
     bankDepositPostedAt:    (o as any).bankDepositPostedAt ?? null,
     bankDepositMatchedAt:   (o as any).bankDepositMatchedAt?.toISOString?.() ?? null,
+    shopeeRouteRequestedAt: o.shopeeRouteRequestedAt?.toISOString?.() ?? null,
+    shopeeOrderId:          String(o.shopeeOrderId || "").trim() || null,
+    shopeeRouteReviewReason: String(o.shopeeRouteReviewReason || "").trim() || null,
+    shopeeWalletCreditedAt: o.shopeeWalletCreditedAt?.toISOString?.() ?? null,
   };
 }
 
 function mapOrderForCustomer(o: typeof ordersTable.$inferSelect) {
   const mapped = mapOrder(o);
-  const { observationVisibleToCustomer: _flag, aguardandoEstoque: _park, ...rest } = mapped;
+  const {
+    observationVisibleToCustomer: _flag,
+    aguardandoEstoque: _park,
+    shippingVia: _via,
+    shopeeRouteRequestedAt: _shopeeAt,
+    shopeeOrderId: _shopeeId,
+    shopeeRouteReviewReason: _shopeeReview,
+    shopeeWalletCreditedAt: _shopeeCredit,
+    ...rest
+  } = mapped;
   return {
     ...rest,
     observation: customerVisibleObservation({
@@ -3219,7 +3394,7 @@ async function presentCustomerOrders(rows: Array<typeof ordersTable.$inferSelect
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/prioridade  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/prioridade", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/prioridade", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3288,7 +3463,7 @@ router.patch("/admin/orders/:id/prioridade", requireAdminAuth, async (req, res) 
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/aguardando-estoque  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3357,7 +3532,7 @@ router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, async (re
 // PATCH /api/admin/orders/:id/shipping-forecast
 // Data de calendário visível na conta do cliente. Não marca enviado nem baixa estoque.
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/shipping-forecast", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/shipping-forecast", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3442,9 +3617,60 @@ router.patch("/admin/orders/:id/shipping-forecast", requireAdminAuth, async (req
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/shipping-channel
+// Marca o pedido na coluna Envio Shopee. Não muda status, PIX nem estoque.
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/shipping-channel", requireAdminAuth, forbidSellerStaff, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const body = req.body as { shippingVia?: unknown };
+    if (!body || !Object.prototype.hasOwnProperty.call(body, "shippingVia")) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe shippingVia." });
+      return;
+    }
+    const shippingVia = parseShippingVia(body.shippingVia);
+    if (shippingVia === undefined) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Canal de envio inválido." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    await db.update(ordersTable).set({
+      shippingVia,
+      updatedAt: new Date(),
+    }).where(buildAdminOrderWhere(id, adminScope));
+
+    recordAdminActivity(
+      req,
+      id,
+      "shipping_channel",
+      shippingVia === "shopee" ? "Moveu o pedido para Envio Shopee" : "Devolveu o pedido para envio normal",
+    );
+    res.json({ ok: true, id, shippingVia });
+  } catch (err) {
+    console.error("Update shipping channel error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar o canal de envio." });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/admin/orders/:id/related-shipments — histórico do CPF antes de cotar
 // ---------------------------------------------------------------------------
-router.get("/admin/orders/:id/related-shipments", requireAdminAuth, async (req, res) => {
+router.get("/admin/orders/:id/related-shipments", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3540,7 +3766,7 @@ router.get("/admin/orders/:id/related-shipments", requireAdminAuth, async (req, 
 // ---------------------------------------------------------------------------
 // GET/PUT /api/admin/orders/:id/shipments — divisão EnvioEcom por estoque
 // ---------------------------------------------------------------------------
-router.get("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => {
+router.get("/admin/orders/:id/shipments", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3559,7 +3785,7 @@ router.get("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => 
   }
 });
 
-router.put("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => {
+router.put("/admin/orders/:id/shipments", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3603,7 +3829,7 @@ router.put("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => 
 // (botão "Dar baixa agora"). Enviado ainda permite baixa atrasada se
 // inventory_reserved ainda for falso; troca de pool após baixa exige Pendente.
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3614,7 +3840,7 @@ router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, r
     const body = req.body as { inventoryPool?: string; reserveNow?: boolean; password?: string; senha?: string };
     const nextPool = parseInventoryPool(body?.inventoryPool);
     if (!nextPool) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy' ou 'minas'." });
+      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy', 'minas' ou 'santa_catarina'." });
       return;
     }
     const reserveNow = body?.reserveNow === true;
@@ -3760,7 +3986,7 @@ router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, r
       type: "order_inventory_pool_updated",
       data: { id, inventoryPool: nextPool, inventoryReserved },
     });
-    const poolLabel = nextPool === "loja" ? "Foz Guaçu" : nextPool === "motoboy" ? "Motoboy" : nextPool === "minas" ? "Minas" : nextPool;
+    const poolLabel = inventoryPoolLabel(nextPool);
     recordAdminActivity(
       req,
       id,
@@ -3785,7 +4011,7 @@ router.patch("/admin/orders/:id/inventory-pool", requireAdminAuth, async (req, r
 // PATCH /api/admin/orders/:id/shipments/:shipmentId/inventory  (protected)
 // Baixa manual de um pacote do envio dividido (Dar baixa agora).
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/shipments/:shipmentId/inventory", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/shipments/:shipmentId/inventory", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3869,7 +4095,7 @@ router.patch("/admin/orders/:id/shipments/:shipmentId/inventory", requireAdminAu
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/enviado  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/enviado", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -3879,7 +4105,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     const { enviado, adminPassword, inventoryPool: inventoryPoolRaw } = req.body as {
       enviado: boolean;
       adminPassword?: string;
-      inventoryPool?: "loja" | "motoboy" | "minas" | string;
+      inventoryPool?: "loja" | "motoboy" | "minas" | "santa_catarina" | string;
     };
     if (typeof enviado !== "boolean") {
       res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'enviado' obrigatório e deve ser boolean." });
@@ -3887,7 +4113,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     }
     const requestedPool = parseInventoryPool(inventoryPoolRaw);
     if (inventoryPoolRaw && !requestedPool) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy' ou 'minas'." });
+      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'inventoryPool' deve ser 'loja', 'motoboy', 'minas' ou 'santa_catarina'." });
       return;
     }
     const rows = await db
@@ -4028,7 +4254,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
 // PATCH /api/admin/orders/:id/manual-tracking
 // Código pago no balcão (Correios). Fica no pacote, marca enviado e não baixa estoque.
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/manual-tracking", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/manual-tracking", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4104,7 +4330,7 @@ router.patch("/admin/orders/:id/manual-tracking", requireAdminAuth, async (req, 
 
 // PATCH /api/admin/orders/:id/tracking-code  (protected)
 // ---------------------------------------------------------------------------
-router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, res) => {
+router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4169,7 +4395,7 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/tracking-label/match  (protected)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/tracking-label/match", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/tracking-label/match", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
@@ -4271,7 +4497,7 @@ router.post("/admin/orders/tracking-label/match", requireAdminAuth, async (req, 
 // ---------------------------------------------------------------------------
 // POST /api/admin/orders/tracking-label/parse  (protected)
 // ---------------------------------------------------------------------------
-router.post("/admin/orders/tracking-label/parse", requireAdminAuth, async (req, res) => {
+router.post("/admin/orders/tracking-label/parse", requireAdminAuth, forbidSellerStaff, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;

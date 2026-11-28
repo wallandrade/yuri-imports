@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { checkOrderItemsHaveStock } from "./order-stock-check";
+import { checkOrderItemsHaveStock, measureOrderItemStock, poolsCoveringOrderStock } from "./order-stock-check";
 
 test("selo OK só se o ID do pedido tem saldo — nome parecido não conta", () => {
   const result = checkOrderItemsHaveStock({
@@ -123,4 +123,50 @@ test("ID com caixa diferente ainda encontra o saldo", () => {
     catalogNames: { ABC123: "Peptídeo" },
   });
   assert.equal(result.hasStock, true);
+});
+
+test("selo lista o depósito que cobre o pedido, mesmo se o escolhido está vazio", () => {
+  const pools = poolsCoveringOrderStock({
+    items: [{ id: "sku-1", name: "Tirzepatida 10mg", quantity: 1 }],
+    balancesByPool: {
+      loja: [],
+      motoboy: [{ productId: "outro", productName: "Outro", quantity: 4 }],
+      minas: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 0 }],
+      santa_catarina: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 2 }],
+    },
+    catalogNames: { "sku-1": "Tirzepatida 10mg", outro: "Outro" },
+  });
+  assert.deepEqual(pools, ["santa_catarina"]);
+});
+
+test("selo lista os dois depósitos quando os dois cobrem a quantidade", () => {
+  const pools = poolsCoveringOrderStock({
+    items: [{ id: "sku-1", name: "Tirzepatida 10mg", quantity: 1 }],
+    balancesByPool: {
+      minas: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 1 }],
+      santa_catarina: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 3 }],
+    },
+    catalogNames: { "sku-1": "Tirzepatida 10mg" },
+  });
+  assert.deepEqual(pools, ["minas", "santa_catarina"]);
+});
+
+test("medida mostra quantas unidades o depósito tem, mesmo acima do pedido", () => {
+  const lines = measureOrderItemStock({
+    items: [{ id: "sku-1", name: "Tirzepatida 10mg", quantity: 1 }],
+    balances: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 4 }],
+    catalogNames: { "sku-1": "Tirzepatida 10mg" },
+  });
+  assert.deepEqual(lines, [{ label: "Tirzepatida 10mg", productId: "sku-1", needed: 1, available: 4 }]);
+});
+
+test("quantidade insuficiente em todos os depósitos não lista nenhum", () => {
+  const pools = poolsCoveringOrderStock({
+    items: [{ id: "sku-1", name: "Tirzepatida 10mg", quantity: 2 }],
+    balancesByPool: {
+      santa_catarina: [{ productId: "sku-1", productName: "Tirzepatida 10mg", quantity: 1 }],
+    },
+    catalogNames: { "sku-1": "Tirzepatida 10mg" },
+  });
+  assert.deepEqual(pools, []);
 });

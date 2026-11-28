@@ -130,6 +130,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       sql: "ALTER TABLE orders ADD COLUMN enviado TINYINT(1) NOT NULL DEFAULT 0",
     },
     {
+      name: "shipping_via",
+      sql: "ALTER TABLE orders ADD COLUMN shipping_via VARCHAR(16) NULL",
+    },
+    {
       name: "enviado_at",
       sql: "ALTER TABLE orders ADD COLUMN enviado_at TIMESTAMP NULL",
     },
@@ -142,6 +146,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       sql: "ALTER TABLE orders ADD COLUMN inventory_reserved TINYINT(1) NOT NULL DEFAULT 0",
     },
     {
+      name: "label_debit_waived",
+      sql: "ALTER TABLE orders ADD COLUMN label_debit_waived TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
       name: "promo_stock_consumed",
       sql: "ALTER TABLE orders ADD COLUMN promo_stock_consumed TINYINT(1) NOT NULL DEFAULT 0",
     },
@@ -152,6 +160,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     {
       name: "filmagem_whatsapp_sent_at",
       sql: "ALTER TABLE orders ADD COLUMN filmagem_whatsapp_sent_at TIMESTAMP NULL",
+    },
+    {
+      name: "filmagem_whatsapp_due_at",
+      sql: "ALTER TABLE orders ADD COLUMN filmagem_whatsapp_due_at TIMESTAMP NULL",
     },
     {
       name: "filmagem_delivery_whatsapp_sent_at",
@@ -240,6 +252,22 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       name: "shipping_forecast_date",
       sql: "ALTER TABLE orders ADD COLUMN shipping_forecast_date VARCHAR(10) NULL",
     },
+    {
+      name: "shopee_route_requested_at",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_route_requested_at TIMESTAMP NULL",
+    },
+    {
+      name: "shopee_order_id",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_order_id VARCHAR(32) NULL",
+    },
+    {
+      name: "shopee_route_review_reason",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_route_review_reason VARCHAR(32) NULL",
+    },
+    {
+      name: "shopee_wallet_credited_at",
+      sql: "ALTER TABLE orders ADD COLUMN shopee_wallet_credited_at TIMESTAMP NULL",
+    },
   ];
 
   for (const definition of definitions) {
@@ -283,6 +311,18 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     {
       name: "orders_parent_order_id_idx",
       sql: "ALTER TABLE orders ADD KEY orders_parent_order_id_idx (parent_order_id)",
+    },
+    {
+      name: "orders_filmagem_whatsapp_due_idx",
+      sql: "ALTER TABLE orders ADD KEY orders_filmagem_whatsapp_due_idx (filmagem_whatsapp_due_at, filmagem_whatsapp_sent_at)",
+    },
+    {
+      name: "orders_shopee_order_id_idx",
+      sql: "ALTER TABLE orders ADD KEY orders_shopee_order_id_idx (shopee_order_id)",
+    },
+    {
+      name: "orders_shopee_route_requested_at_idx",
+      sql: "ALTER TABLE orders ADD KEY orders_shopee_route_requested_at_idx (shopee_route_requested_at)",
     },
   ];
 
@@ -941,6 +981,37 @@ async function ensureInventoryTables(databaseName: string): Promise<void> {
       )
     `);
   }
+
+  if (!(await tableExists("inventory_santa_catarina_balances", databaseName))) {
+    await pool.query(`
+      CREATE TABLE inventory_santa_catarina_balances (
+        product_id VARCHAR(255) NOT NULL PRIMARY KEY,
+        quantity INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
+  if (!(await tableExists("inventory_santa_catarina_movements", databaseName))) {
+    await pool.query(`
+      CREATE TABLE inventory_santa_catarina_movements (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        product_id VARCHAR(255) NOT NULL,
+        type VARCHAR(32) NOT NULL DEFAULT 'entry',
+        entry_source VARCHAR(32) NULL,
+        client_name VARCHAR(255) NULL,
+        client_phone VARCHAR(255) NULL,
+        tracking_code VARCHAR(255) NULL,
+        quantity INT NOT NULL,
+        reason VARCHAR(255) NULL,
+        reference_id VARCHAR(255) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY inventory_santa_catarina_movements_product_id_idx (product_id),
+        KEY inventory_santa_catarina_movements_type_idx (type),
+        KEY inventory_santa_catarina_movements_created_at_idx (created_at)
+      )
+    `);
+  }
 }
 
 async function ensureManualReshipmentsTable(databaseName: string): Promise<void> {
@@ -1085,6 +1156,7 @@ async function ensureOrderShipmentsTable(databaseName: string): Promise<void> {
       shipping_forecast_date VARCHAR(10) NULL,
       enviado_at TIMESTAMP NULL,
       inventory_reserved TINYINT(1) NOT NULL DEFAULT 0,
+      label_debit_waived TINYINT(1) NOT NULL DEFAULT 0,
       envioecom_shipment_id VARCHAR(64) NULL,
       envioecom_barcode VARCHAR(64) NULL,
       envioecom_tracking_key VARCHAR(128) NULL,
@@ -1126,6 +1198,8 @@ async function ensureOrderShipmentSuperfreteColumns(databaseName: string): Promi
     { name: "superfrete_account_id", sql: "ALTER TABLE order_shipments ADD COLUMN superfrete_account_id VARCHAR(64) NULL" },
     { name: "shipping_forecast_date", sql: "ALTER TABLE order_shipments ADD COLUMN shipping_forecast_date VARCHAR(10) NULL" },
     { name: "manual_tracking_code", sql: "ALTER TABLE order_shipments ADD COLUMN manual_tracking_code VARCHAR(64) NULL" },
+    { name: "label_debit_waived", sql: "ALTER TABLE order_shipments ADD COLUMN label_debit_waived TINYINT(1) NOT NULL DEFAULT 0" },
+    { name: "shopee_route_sent_at", sql: "ALTER TABLE order_shipments ADD COLUMN shopee_route_sent_at TIMESTAMP NULL" },
   ];
   for (const definition of definitions) {
     if (!(await columnExists("order_shipments", definition.name, databaseName))) {
@@ -1379,6 +1453,8 @@ async function ensureWhatsappSupportSessionsTable(databaseName: string): Promise
         pending_order INT NULL,
         nudge_count INT NOT NULL DEFAULT 0,
         last_nudge_at TIMESTAMP NULL,
+        last_cpf_prompt_at TIMESTAMP NULL,
+        last_unknown_prompt_at TIMESTAMP NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -1392,6 +1468,12 @@ async function ensureWhatsappSupportSessionsTable(databaseName: string): Promise
   if (!(await columnExists("whatsapp_support_sessions", "last_nudge_at", databaseName))) {
     await pool.query(`ALTER TABLE whatsapp_support_sessions ADD COLUMN last_nudge_at TIMESTAMP NULL`);
   }
+  if (!(await columnExists("whatsapp_support_sessions", "last_cpf_prompt_at", databaseName))) {
+    await pool.query(`ALTER TABLE whatsapp_support_sessions ADD COLUMN last_cpf_prompt_at TIMESTAMP NULL`);
+  }
+  if (!(await columnExists("whatsapp_support_sessions", "last_unknown_prompt_at", databaseName))) {
+    await pool.query(`ALTER TABLE whatsapp_support_sessions ADD COLUMN last_unknown_prompt_at TIMESTAMP NULL`);
+  }
 }
 
 async function ensureWhatsappSupportExamplesTable(databaseName: string): Promise<void> {
@@ -1401,6 +1483,22 @@ async function ensureWhatsappSupportExamplesTable(databaseName: string): Promise
       source_message_id VARCHAR(128) NOT NULL PRIMARY KEY,
       question TEXT NOT NULL,
       answer TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+async function ensureWhatsappGroupModerationTable(databaseName: string): Promise<void> {
+  if (await tableExists("whatsapp_group_moderation_log", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE whatsapp_group_moderation_log (
+      message_id VARCHAR(160) NOT NULL PRIMARY KEY,
+      group_id VARCHAR(64) NOT NULL,
+      group_name VARCHAR(128) NULL,
+      participant_phone VARCHAR(32) NOT NULL,
+      reason VARCHAR(32) NOT NULL,
+      snippet VARCHAR(280) NOT NULL,
+      action VARCHAR(64) NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
@@ -1419,6 +1517,8 @@ async function ensureWhatsappGroupCampaignTables(databaseName: string): Promise<
         schedule_times TEXT NULL,
         interval_hours INT NULL,
         duration_days INT NULL,
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        target_chats TEXT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -1438,6 +1538,14 @@ async function ensureWhatsappGroupCampaignTables(databaseName: string): Promise<
   if (await tableExists("whatsapp_group_custom_posts", databaseName) && !(await columnExists("whatsapp_group_custom_posts", "duration_days", databaseName))) {
     await pool.query("ALTER TABLE whatsapp_group_custom_posts ADD COLUMN duration_days INT NULL");
   }
+  if (await tableExists("whatsapp_group_custom_posts", databaseName) && !(await columnExists("whatsapp_group_custom_posts", "active", databaseName))) {
+    await pool.query("ALTER TABLE whatsapp_group_custom_posts ADD COLUMN active TINYINT(1) NOT NULL DEFAULT 1");
+  }
+  if (await tableExists("whatsapp_group_custom_posts", databaseName) && !(await columnExists("whatsapp_group_custom_posts", "target_chats", databaseName))) {
+    await pool.query("ALTER TABLE whatsapp_group_custom_posts ADD COLUMN target_chats TEXT NULL");
+  }
+  const { ensureCustomGroupReminder } = await import("./lib/custom-group-reminder");
+  await ensureCustomGroupReminder();
   if (!(await tableExists("whatsapp_group_send_log", databaseName))) {
     await pool.query(`
       CREATE TABLE whatsapp_group_send_log (
@@ -1546,6 +1654,33 @@ async function ensureAdminImagesTable(databaseName: string): Promise<void> {
   `);
 }
 
+async function ensureWhatsappOutboundQueueTable(databaseName: string): Promise<void> {
+  if (await tableExists("whatsapp_outbound_queue", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE whatsapp_outbound_queue (
+      id VARCHAR(64) NOT NULL PRIMARY KEY,
+      instance VARCHAR(16) NOT NULL,
+      phone VARCHAR(64) NOT NULL,
+      kind VARCHAR(16) NOT NULL,
+      message TEXT NULL,
+      caption TEXT NULL,
+      image TEXT NULL,
+      option_list TEXT NULL,
+      origin VARCHAR(40) NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(400) NULL,
+      next_attempt_at TIMESTAMP NULL DEFAULT NULL,
+      sent_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY whatsapp_outbound_queue_instance_status (instance, status, created_at),
+      KEY whatsapp_outbound_queue_instance_sent (instance, sent_at)
+    )
+  `);
+  console.log("[RuntimeSchema] Created table whatsapp_outbound_queue");
+}
+
 async function ensureCellTechAlertsTable(databaseName: string): Promise<void> {
   if (await tableExists("cell_tech_alerts", databaseName)) return;
   await pool.query(`
@@ -1599,6 +1734,107 @@ async function ensureCheckoutDraftsTable(databaseName: string): Promise<void> {
       KEY checkout_drafts_completed_idx (completed_order_id)
     )
   `);
+}
+
+async function ensureSupplierPriceTables(databaseName: string): Promise<void> {
+  if (!(await tableExists("supplier_sites", databaseName))) {
+    await pool.query(`
+      CREATE TABLE supplier_sites (
+        id VARCHAR(64) NOT NULL PRIMARY KEY,
+        name VARCHAR(120) NOT NULL,
+        base_url VARCHAR(255) NOT NULL,
+        parser_type VARCHAR(40) NOT NULL,
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+  if (!(await tableExists("supplier_product_maps", databaseName))) {
+    await pool.query(`
+      CREATE TABLE supplier_product_maps (
+        id VARCHAR(64) NOT NULL PRIMARY KEY,
+        product_id VARCHAR(255) NULL,
+        display_name VARCHAR(255) NOT NULL,
+        image_url VARCHAR(512) NULL,
+        supplier_site_id VARCHAR(64) NOT NULL,
+        external_url VARCHAR(512) NULL,
+        external_sku VARCHAR(120) NULL,
+        units_per_pack INT NOT NULL DEFAULT 1,
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY supplier_product_maps_site_idx (supplier_site_id)
+      )
+    `);
+  }
+  if (!(await tableExists("supplier_price_snapshots", databaseName))) {
+    await pool.query(`
+      CREATE TABLE supplier_price_snapshots (
+        id VARCHAR(64) NOT NULL PRIMARY KEY,
+        map_id VARCHAR(64) NOT NULL,
+        price_usd DECIMAL(12,2) NULL,
+        local_price DECIMAL(12,2) NULL,
+        local_currency VARCHAR(8) NULL,
+        quantity_tiers JSON NULL,
+        stock_qty INT NULL,
+        availability VARCHAR(32) NULL,
+        read_name VARCHAR(255) NULL,
+        read_image VARCHAR(512) NULL,
+        ok TINYINT(1) NOT NULL DEFAULT 0,
+        error_message VARCHAR(255) NULL,
+        collected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY supplier_price_snapshots_map_idx (map_id)
+      )
+    `);
+  }
+  if (!(await tableExists("supplier_catalog_items", databaseName))) {
+    await pool.query(`
+      CREATE TABLE supplier_catalog_items (
+        id VARCHAR(64) NOT NULL PRIMARY KEY,
+        site_id VARCHAR(64) NOT NULL,
+        external_url VARCHAR(512) NULL,
+        sku VARCHAR(120) NULL,
+        raw_name VARCHAR(255) NOT NULL,
+        image_url VARCHAR(512) NULL,
+        price_usd DECIMAL(12,2) NULL,
+        local_price DECIMAL(12,2) NULL,
+        local_currency VARCHAR(8) NULL,
+        stock_qty INT NULL,
+        in_stock TINYINT(1) NOT NULL DEFAULT 0,
+        fingerprint VARCHAR(80) NULL,
+        exclusion_reason VARCHAR(255) NULL,
+        query_name VARCHAR(255) NULL,
+        reject_reason VARCHAR(255) NULL,
+        collected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY supplier_catalog_items_site_idx (site_id),
+        KEY supplier_catalog_items_fp_idx (fingerprint)
+      )
+    `);
+  }
+  if (!(await tableExists("supplier_equivalence_groups", databaseName))) {
+    await pool.query(`
+      CREATE TABLE supplier_equivalence_groups (
+        fingerprint VARCHAR(80) NOT NULL PRIMARY KEY,
+        display_name VARCHAR(255) NOT NULL,
+        confidence DECIMAL(4,2) NOT NULL,
+        status VARCHAR(16) NOT NULL DEFAULT 'auto',
+        pinned TINYINT(1) NOT NULL DEFAULT 0,
+        merged_into VARCHAR(80) NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+  if (await tableExists("supplier_catalog_items", databaseName)) {
+    if (!(await columnExists("supplier_catalog_items", "query_name", databaseName))) {
+      await pool.query("ALTER TABLE supplier_catalog_items ADD COLUMN query_name VARCHAR(255) NULL");
+    }
+    if (!(await columnExists("supplier_catalog_items", "reject_reason", databaseName))) {
+      await pool.query("ALTER TABLE supplier_catalog_items ADD COLUMN reject_reason VARCHAR(255) NULL");
+    }
+  }
+  const { seedSupplierPrices } = await import("./lib/supplier-price-seed");
+  await seedSupplierPrices();
 }
 
 async function ensurePixSecretBinding(databaseName: string): Promise<void> {
@@ -1663,11 +1899,14 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureWhatsappSupportSessionsTable(databaseName);
     await ensureWhatsappSupportExamplesTable(databaseName);
     await ensureWhatsappGroupCampaignTables(databaseName);
+    await ensureWhatsappGroupModerationTable(databaseName);
     await ensureAdminImagesTable(databaseName);
     await ensureFlashOfferTables(databaseName);
     await ensureCellTechAlertsTable(databaseName);
+    await ensureWhatsappOutboundQueueTable(databaseName);
     await ensureCellTechSituationStateTable(databaseName);
     await ensurePixSecretBinding(databaseName);
+    await ensureSupplierPriceTables(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

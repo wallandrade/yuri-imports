@@ -24,7 +24,7 @@ export function customerStockTotals(rows: CustomerStockRow[]): Map<string, numbe
   return totals;
 }
 
-/** Quantidade que o cliente pode ver: Motoboy + Minas. Negativo vira 0. */
+/** Quantidade que o cliente pode ver: Motoboy + Minas + Santa Catarina. Negativo vira 0. */
 export function customerStockQtyForProduct(totals: Map<string, number>, productId: unknown): number {
   const key = stockKey(productId);
   if (!key) return 0;

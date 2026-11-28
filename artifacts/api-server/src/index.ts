@@ -6,8 +6,10 @@ import { startFlashExpiryJob } from "./flash-expiry";
 import { startEnvioEcomStatusSyncJob } from "./envioecom-status-job";
 import { startSuperfreteStatusSyncJob } from "./superfrete-status-job";
 import { startWhatsappGroupJob } from "./whatsapp-group-job";
+import { startWhatsappOutboundJob } from "./whatsapp-outbound-job";
 import { startMetaAdsSyncJob } from "./meta-ads-job";
 import { startCellTechJob } from "./cell-tech-job";
+import { startSupplierPriceJob } from "./supplier-price-job";
 import { closeTrackedOpenReshipments } from "./lib/reshipment-label-tracked-apply";
 import { bootstrapShippingQueue } from "./lib/shipping-queue-allocator";
 
@@ -45,8 +47,10 @@ async function bootstrap(): Promise<void> {
     startEnvioEcomStatusSyncJob();
     startSuperfreteStatusSyncJob();
     startWhatsappGroupJob();
+    startWhatsappOutboundJob();
     startMetaAdsSyncJob();
     startCellTechJob();
+    startSupplierPriceJob();
     void bootstrapShippingQueue();
     void closeTrackedOpenReshipments()
       .then((closed) => {

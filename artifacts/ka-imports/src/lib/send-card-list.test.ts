@@ -5,6 +5,8 @@ import {
   isCheckoutMotoboyOrder,
   isOnMotoboySendCard,
   isOnSendCard,
+  isShopeeRouteCustomerNotified,
+  sendCardOrderMarkedSent,
   isSendCardLabelReady,
   isSendCardLabelReadyStatus,
   sendCardBadgeCount,
@@ -13,6 +15,7 @@ import {
   sendCardProductImage,
   sendCardThumbProducts,
   sortSendCardOrders,
+  splitSendCardOrders,
 } from "./send-card-list";
 
 test("Aguardando ser coletado sai; Aguardando postagem fica", () => {
@@ -256,4 +259,56 @@ test("SuperFrete released sai do card igual etiqueta emitida; pending fica", () 
       { superfreteStatus: "released" },
     ],
   }), false);
+});
+
+test("Envio Shopee fica na coluna da direita e sai junto quando o pedido já saiu da fila", () => {
+  const normal = { id: "a", status: "paid", enviado: false, shippingVia: null };
+  const shopee = { id: "b", status: "paid", enviado: false, shippingVia: "shopee" };
+  const shipped = { id: "c", status: "paid", enviado: true, shippingVia: "shopee" };
+  const onCard = [normal, shopee, shipped].filter(isOnSendCard);
+  const split = splitSendCardOrders(onCard);
+  assert.deepEqual(split.postal.map((order) => order.id), ["a"]);
+  assert.deepEqual(split.shopee.map((order) => order.id), ["b"]);
+  assert.equal(split.postal.some((order) => order.id === "b"), false);
+  assert.equal(split.shopee.some((order) => order.id === "c"), false);
+});
+
+test("Rota Shopee enviada entra no quadro verde e sai quando o pedido é marcado enviado", () => {
+  const waiting = { id: "a", status: "paid", enviado: false, shippingVia: null, shopeeRouteRequestedAt: null };
+  const notified = {
+    id: "b",
+    status: "paid",
+    enviado: false,
+    shippingVia: "shopee",
+    shopeeRouteRequestedAt: "2026-11-23T18:00:00.000Z",
+  };
+  const done = { ...notified, id: "c", enviado: true };
+  const onCard = [waiting, notified, done].filter(isOnSendCard);
+  const split = splitSendCardOrders(onCard);
+  assert.deepEqual(split.postal.map((order) => order.id), ["a"]);
+  assert.deepEqual(split.shopee.map((order) => order.id), ["b"]);
+  assert.equal(isShopeeRouteCustomerNotified(waiting), false);
+  assert.equal(isShopeeRouteCustomerNotified(notified), true);
+  assert.equal(isShopeeRouteCustomerNotified(done), true);
+  assert.equal(onCard.some((order) => order.id === "c"), false);
+});
+
+test("Pedido enviado no dividido marca os pacotes e tira o pedido do quadro", () => {
+  const split = {
+    id: "split",
+    status: "paid",
+    enviado: false,
+    shippingVia: "shopee",
+    shopeeRouteRequestedAt: "2026-11-23T18:00:00.000Z",
+    envioecomPackages: [
+      { enviado: false, envioecomStatus: "Envio criado" },
+      { enviado: false },
+    ],
+  };
+  assert.equal(isOnSendCard({ ...split, enviado: true }), true);
+  const marked = sendCardOrderMarkedSent(split);
+  assert.equal(marked.enviado, true);
+  assert.equal(marked.envioecomPackages?.every((pkg) => pkg?.enviado), true);
+  assert.equal(isOnSendCard(marked), false);
+  assert.equal(splitSendCardOrders([marked].filter(isOnSendCard)).shopee.length, 0);
 });

@@ -3,6 +3,7 @@ import { db, shippingOptionsTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
+import { forbidSellerStaff } from "../lib/seller-staff-access";
 
 const router: IRouter = Router();
 
@@ -47,7 +48,7 @@ router.get("/admin/shipping-options", requirePrimaryAdmin, async (_req, res) => 
 // POST /api/admin/shipping-options  (admin)
 // Create a new shipping option.
 // ---------------------------------------------------------------------------
-router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/shipping-options", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     const { name, description, price, sortOrder } = req.body as {
       name?: string;
@@ -94,7 +95,7 @@ router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => 
 // PATCH /api/admin/shipping-options/:id  (admin)
 // Update an existing shipping option.
 // ---------------------------------------------------------------------------
-router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
@@ -142,7 +143,7 @@ router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res
 // ---------------------------------------------------------------------------
 // DELETE /api/admin/shipping-options/:id  (admin)
 // ---------------------------------------------------------------------------
-router.delete("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/shipping-options/:id", requirePrimaryAdmin, forbidSellerStaff, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];

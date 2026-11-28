@@ -4,6 +4,7 @@ import {
   inventoryBalancesTable,
   inventoryMinasMovementsTable,
   inventoryMotoboyMovementsTable,
+  inventorySantaCatarinaMovementsTable,
   inventoryMovementsTable,
   orderShipmentsTable,
   ordersTable,
@@ -18,9 +19,11 @@ import {
 import {
   getMinasStockMap,
   getMotoboyStockMap,
+  getSantaCatarinaStockMap,
   registerInventoryEntry,
   registerMinasInventoryEntry,
   registerMotoboyInventoryEntry,
+  registerSantaCatarinaInventoryEntry,
 } from "./reshipments";
 import {
   parseInventoryPool,
@@ -56,6 +59,7 @@ type MovementRow = {
 function movementTableForPool(pool: InventoryPoolKind) {
   if (pool === "motoboy") return inventoryMotoboyMovementsTable;
   if (pool === "minas") return inventoryMinasMovementsTable;
+  if (pool === "santa_catarina") return inventorySantaCatarinaMovementsTable;
   return inventoryMovementsTable;
 }
 
@@ -78,7 +82,9 @@ async function getStockAvailable(pool: InventoryPoolKind, productId: string): Pr
     ? await getMotoboyStockMap(ids)
     : pool === "minas"
       ? await getMinasStockMap(ids)
-      : await getLojaStockMap(ids);
+      : pool === "santa_catarina"
+        ? await getSantaCatarinaStockMap(ids)
+        : await getLojaStockMap(ids);
   return Number(stockMap.get(productId) || 0);
 }
 
@@ -281,6 +287,10 @@ async function registerReverseEntry(params: {
   }
   if (params.pool === "minas") {
     await registerMinasInventoryEntry(entry);
+    return;
+  }
+  if (params.pool === "santa_catarina") {
+    await registerSantaCatarinaInventoryEntry(entry);
     return;
   }
   await registerInventoryEntry(entry);

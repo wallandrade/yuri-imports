@@ -24,6 +24,7 @@ const ROUTES_WITH_INTERNAL_SCOPE = new Set([
   "reshipments.ts",
   "customer-auth.ts",
   "financial-summary.ts",
+  "payment-preconfirm.ts",
 ]);
 
 // Pre-auth endpoints (login/logout) and self-check endpoints that don't need scope guards

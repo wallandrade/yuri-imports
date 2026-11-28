@@ -5,7 +5,8 @@ import React from "react";
 const validIcons = new Set(Object.keys(Icons));
 
 function isLucideIcon(value: unknown): value is LucideIcon {
-  return typeof value === "function";
+  // Os ícones do lucide-react são componentes forwardRef (objetos), não funções.
+  return typeof value === "function" || (typeof value === "object" && value !== null && "$$typeof" in value);
 }
 
 export function IconLucide({ name, ...props }: { name?: string } & LucideProps) {

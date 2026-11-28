@@ -72,6 +72,8 @@ export const ordersTable = mysqlTable("orders", {
   pixCode: mediumtext("pix_code"),
   pixBase64: mediumtext("pix_base64"),
   enviado: boolean("enviado").notNull().default(false),
+  /** null = envio normal do card. "shopee" = coluna Envio Shopee. Não muda status nem estoque. */
+  shippingVia: varchar("shipping_via", { length: 16 }),
   /** Data (YYYY-MM-DD) que o admin informa ao cliente como previsão de envio. Não marca enviado nem baixa estoque. */
   shippingForecastDate: varchar("shipping_forecast_date", { length: 10 }),
   /** Momento em que `enviado` passou a true (manual ou EE). Usado p/ “Entregue” após 25 dias no envio manual. */
@@ -80,14 +82,18 @@ export const ordersTable = mysqlTable("orders", {
   aguardandoEstoque: boolean("aguardando_estoque").notNull().default(false),
   inventoryPool: varchar("inventory_pool", { length: 16 }),
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
+  /** Saiu da fila Baixa de etiqueta sem descontar saldo. O card ainda pode dar baixa. */
+  labelDebitWaived: boolean("label_debit_waived").notNull().default(false),
   /** Saldo da promoção já foi descontado neste pedido. Evita descontar de novo no webhook. */
   promoStockConsumed: boolean("promo_stock_consumed").notNull().default(false),
   /** Cliente corrigiu CPF/CEP/endereço pelo link da etiqueta. */
   clientDataCorrectedAt: timestamp("client_data_corrected_at"),
   /** WhatsApp do pedido pago já foi entregue ao n8n. Um retry de PIX não manda de novo. */
   paidWhatsappSentAt: timestamp("paid_whatsapp_sent_at"),
-  /** WhatsApp da filmagem já foi entregue ao n8n. Separado do pedido pago. */
+  /** Texto da filmagem já entrou na fila. Uma vez por pedido. Null em pedido pago antes deste aviso. */
   filmagemWhatsappSentAt: timestamp("filmagem_whatsapp_sent_at"),
+  /** Prazo do texto 1, gravado só quando o pedido vira pago. Null = não enviar. */
+  filmagemWhatsappDueAt: timestamp("filmagem_whatsapp_due_at"),
   /** Lembrete da filmagem quando a EnvioEcom marca saiu para entrega. Uma vez por pedido. */
   filmagemDeliveryWhatsappSentAt: timestamp("filmagem_delivery_whatsapp_sent_at"),
   /** Códigos de rastreio que já saíram no WhatsApp. JSON. EC não entra. */
@@ -98,6 +104,11 @@ export const ordersTable = mysqlTable("orders", {
   deliveredWhatsappKeys: text("delivered_whatsapp_keys"),
   /** Pacotes que já receberam o WhatsApp de saiu para entrega. JSON. */
   outForDeliveryWhatsappKeys: text("out_for_delivery_whatsapp_keys"),
+  /** Cliente avisado para comprar o produto da Shopee. Sem estoque. */
+  shopeeRouteRequestedAt: timestamp("shopee_route_requested_at"),
+  shopeeOrderId: varchar("shopee_order_id", { length: 32 }),
+  shopeeRouteReviewReason: varchar("shopee_route_review_reason", { length: 32 }),
+  shopeeWalletCreditedAt: timestamp("shopee_wallet_credited_at"),
   trackingCode: varchar("tracking_code", { length: 255 }),
   trackingLabelUrl: mediumtext("tracking_label_url"),
   trackingLabelText: mediumtext("tracking_label_text"),

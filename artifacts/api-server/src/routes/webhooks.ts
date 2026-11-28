@@ -148,7 +148,7 @@ async function handleCallback(body: GatewayCallback) {
                 clientName: row.clientName,
                 total: row.total,
               });
-              queueOrderPaidWhatsapp(row.id);
+              await queueOrderPaidWhatsapp(row.id, true);
               recordPixPaid(row.id);
             }
             queueReportanaOrderSync(row.id);
@@ -240,7 +240,10 @@ async function handleCallback(body: GatewayCallback) {
                   total: parentOrder[0].total,
                   source: "difference_charge",
                 });
-                queueOrderPaidWhatsapp(row.orderId);
+                await queueOrderPaidWhatsapp(
+                  row.orderId,
+                  parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
+                );
                 recordPixPaid(row.orderId, "Cobrança de diferença");
               }
               queueReportanaOrderSync(row.orderId);
@@ -486,7 +489,7 @@ router.post("/webhook", async (req, res) => {
                 total: row.total,
                 source: "universal_webhook",
               });
-              queueOrderPaidWhatsapp(rawOrderId);
+              await queueOrderPaidWhatsapp(rawOrderId, true);
               recordPixPaid(rawOrderId);
             }
             queueReportanaOrderSync(rawOrderId);
@@ -556,7 +559,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
             total: row.total,
             source: "direct_order_webhook",
           });
-          queueOrderPaidWhatsapp(orderId);
+          await queueOrderPaidWhatsapp(orderId, true);
           recordPixPaid(orderId);
           queueReportanaOrderSync(orderId);
           console.log(`[WEBHOOK] Order ${orderId} paid via direct URL`);
@@ -652,7 +655,10 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
                 total: parentOrder[0].total,
                 source: "direct_charge_webhook",
               });
-              queueOrderPaidWhatsapp(rows[0]!.orderId);
+              await queueOrderPaidWhatsapp(
+                rows[0]!.orderId,
+                parentOrder[0].status !== "paid" && parentOrder[0].status !== "completed",
+              );
               recordPixPaid(rows[0]!.orderId, "Cobrança de diferença");
             }
             queueReportanaOrderSync(rows[0]!.orderId);

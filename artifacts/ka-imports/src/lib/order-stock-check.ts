@@ -156,12 +156,19 @@ function remapLine(
   return { productId, productName, fallbackProductId: null };
 }
 
-export function checkOrderItemsHaveStock(params: {
+export type OrderItemStockLine = {
+  label: string;
+  productId: string;
+  needed: number;
+  available: number;
+};
+
+/** Quantidade que a baixa acharia em um depósito, por produto do pedido. */
+export function measureOrderItemStock(params: {
   items: OrderStockCheckItem[];
   balances: OrderStockBalanceRow[];
   catalogNames?: Record<string, string>;
-  poolLabel?: string;
-}): OrderStockCheckResult {
+}): OrderItemStockLine[] {
   const stock = buildStockById(params.balances);
   const catalog = buildCatalogIndex(params.catalogNames);
   const grouped = new Map<string, {
@@ -189,8 +196,7 @@ export function checkOrderItemsHaveStock(params: {
     });
   }
 
-  const missingItems: string[] = [];
-  for (const item of grouped.values()) {
+  return [...grouped.values()].map((item) => {
     const picked = pickOrphanSameName(
       pickDebitProductId(
         item.productId,
@@ -204,9 +210,27 @@ export function checkOrderItemsHaveStock(params: {
       catalog,
       params.balances,
     );
-    if (picked.available < item.qty) {
+    return {
+      label: item.label,
+      productId: picked.productId || item.productId,
+      needed: item.qty,
+      available: picked.available,
+    };
+  });
+}
+
+export function checkOrderItemsHaveStock(params: {
+  items: OrderStockCheckItem[];
+  balances: OrderStockBalanceRow[];
+  catalogNames?: Record<string, string>;
+  poolLabel?: string;
+}): OrderStockCheckResult {
+  const lines = measureOrderItemStock(params);
+  const missingItems: string[] = [];
+  for (const line of lines) {
+    if (line.available < line.needed) {
       missingItems.push(
-        `${item.label}: faltam ${item.qty - picked.available} un. (tem ${picked.available}, precisa ${item.qty})`,
+        `${line.label}: faltam ${line.needed - line.available} un. (tem ${line.available}, precisa ${line.needed})`,
       );
     }
   }
@@ -221,4 +245,33 @@ export function checkOrderItemsHaveStock(params: {
   }
 
   return { hasStock: true, message: "", missingItems: [] };
+}
+
+export const ORDER_INVENTORY_POOLS = ["loja", "motoboy", "minas", "santa_catarina"] as const;
+export type OrderInventoryPool = (typeof ORDER_INVENTORY_POOLS)[number];
+
+/** Depósitos em que o pedido inteiro cabe. Lista vazia de saldo não entra (ainda carregando ou depósito sem linhas). */
+export function poolsCoveringOrderStock(params: {
+  items: OrderStockCheckItem[];
+  balancesByPool: Partial<Record<OrderInventoryPool, OrderStockBalanceRow[] | null | undefined>>;
+  catalogNames?: Record<string, string>;
+}): OrderInventoryPool[] {
+  const hasQty = params.items.some((item) => {
+    const qty = Number(item.quantity || 0);
+    return Number.isFinite(qty) && qty > 0;
+  });
+  if (!hasQty) return [];
+
+  const found: OrderInventoryPool[] = [];
+  for (const pool of ORDER_INVENTORY_POOLS) {
+    const balances = params.balancesByPool[pool];
+    if (!balances || balances.length === 0) continue;
+    const result = checkOrderItemsHaveStock({
+      items: params.items,
+      balances,
+      catalogNames: params.catalogNames,
+    });
+    if (result.hasStock) found.push(pool);
+  }
+  return found;
 }

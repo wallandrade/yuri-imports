@@ -1,7 +1,8 @@
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getActiveWhatsApp } from "@/lib/utils";
+import { getActiveWhatsApp, whatsAppSendUrl } from "@/lib/utils";
 import { PHARMA_COMPACT_THEME, useStoreTheme } from "@/lib/store-theme";
+import { TrustMarksFooterStrip } from "@/components/pharma/TrustMarks";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -51,7 +52,7 @@ async function resolveSupportWhatsApp(): Promise<string> {
 
 async function openWhatsApp(text: string) {
   const number = await resolveSupportWhatsApp();
-  const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+  const url = whatsAppSendUrl(number, text);
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
@@ -103,7 +104,8 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
+        <div className="mt-12 pt-6 border-t border-border text-center text-sm text-muted-foreground">
+          <TrustMarksFooterStrip className="mb-4" />
           <p>© {new Date().getFullYear()} Yury - Todos os direitos reservados</p>
         </div>
       </div>

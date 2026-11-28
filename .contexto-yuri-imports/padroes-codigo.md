@@ -1,6 +1,6 @@
 # Padrões de código — Yuri Import
 
-> **Última atualização:** 2026-11-08
+> **Última atualização:** 2026-11-27
 
 Convenções **observadas no repo** + anti-padrões + **manutenção da memória viva**.
 
@@ -8,6 +8,14 @@ Convenções **observadas no repo** + anti-padrões + **manutenção da memória
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-27 | Card Pré-confirmados fora do `Admin.tsx` | `AdminPreconfirmQueueCard` reusa o desenho da fila de envio (miniatura, linha, selo, caixa de 320 px). O recarregar do card e da aba passa por `preconfirmReload` | `SendQueueCard` e a cópia 48h iguais |
+| 2026-11-26 | Apex `compras-yu.com` na Rota Shopee | O POST desse botão no apex vai direto para `https://yuri-imports-9483v.ondigitalocean.app`. `www.compras-yu.com` continua no rewrite `/api` do mesmo host. Os apex antigos continuam na lista | `connect-src` igual. `PUBLIC_API_URL` igual |
+| 2026-11-24 | `isProductUnavailable` ignora `isSoldOut` | O selo usa `isCatalogSoldOut`. A compra usa `isOrderProductBlocked` | Produto inativo continua fora. Baixa de estoque igual |
+| 2026-11-23 | Apex não segue o 307 da Rota Shopee | Só o POST desse botão, em `yury-imports.com`, `imports-py.com` e `yuri-imports-py.com`, vai direto para `https://yuri-imports-9483v.ondigitalocean.app`. O resto do `/api` continua no mesmo host, com o cookie | `connect-src` igual. O link da Shopee não foi preenchido |
+| 2026-11-17 | Painel do admin acima do menu em todas as telas | O bloco dos cards não depende mais de `tab === "inicio" \|\| tab === "orders"`. `AdminGroupedNav` continua depois de Produtos mais vendidos | Atalhos do Início, desenho horizontal, grupos e rotas iguais. Sem segundo GET de pedidos |
+| 2026-11-17 | Menu do admin abaixo do painel em Início e Pedidos | `AdminGroupedNav` entra depois do bloco `inicio`/`orders`. Não subir o menu para cima dos cards | Desenho horizontal, grupos e rotas iguais. Outras telas: menu no topo do conteúdo |
+| 2026-11-17 | Menu do admin em cima do conteúdo | `AdminGroupedNav` desenha grupos e telas em duas linhas horizontais, com rolagem no celular. Não voltar o lateral nem a gaveta. Não voltar a barra única de abas soltas | Grupos, rotas, chaves de setting e `primaryOnly` iguais |
+| 2026-11-17 | Menu do admin sai de `adminNav.ts` | Nova tela entra no mapa (grupo, slug, ícone, `primaryOnly`). O visual fica em `AdminGroupedNav` | Conteúdo de cada painel e as chaves de setting iguais |
 | 2026-11-08 | `pnpm run typecheck` emite as declarações com `tsc --build --force` e não versiona `*.tsbuildinfo` | Checkout limpo, sem `dist`, passa no typecheck e no build da raiz | Compra de produto esgotado igual. A API só recusa produto inativo |
 | 2026-10-16 | Aba Imagem no admin principal | Painel separado `AdminImagesPanel`. Lista, copiar URL e tirar da lista | Biblioteca de peptídeos e o upload de produto iguais |
 | 2026-10-03 | Página do produto em duas colunas a partir de `md` (768px) | Foto inteira (`object-contain`) à esquerda; compra à direita; descrição embaixo | Preço, variantes e carrinho iguais. Celular continua uma coluna |
@@ -44,7 +52,8 @@ Se memória ≠ código → seguir o código e **atualizar a memória na mesma t
 - UI: Tailwind 4 + componentes estilo Radix/shadcn em `src/components`.
 - Páginas em `src/pages`; store em `src/store`; hooks/lib em `src/hooks`, `src/lib`.
 - Detalhe do produto (`ProductDetail.tsx`): duas colunas a partir de `md` (768px), no tema padrão e na Farmácia Compacta. Foto com `object-contain` na esquerda; título, preço, variantes e botão na direita; descrição abaixo da grade. No tema compacto, não voltar a `max-w-lg` numa coluna só no computador. Não voltar o corte para `lg` (1024px).
-- Busca Admin pedidos/cobranças: estado no filho (`AdminOrdersChargesSearchShell` + `AdminDebouncedSearchInput`); pai só manda `seedSearch` (`goToOrder`). Sub-abas + barra de copiar (`copyActions` / `AdminOrdersCopyBar`) no shell. Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5 s fora do pai). Clientes/recorrentes: busca interna do painel. Aba **Imagem** (admin principal) é o painel `AdminImagesPanel`: envia a foto, lista e copia a URL. Não misturar com a aba Biblioteca.
+- Busca Admin pedidos/cobranças: estado no filho (`AdminOrdersChargesSearchShell` + `AdminDebouncedSearchInput`); pai só manda `seedSearch` (`goToOrder`). Sub-abas + barra de copiar (`copyActions` / `AdminOrdersCopyBar`) no shell. Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5 s fora do pai). Clientes/recorrentes: busca interna do painel. Aba **Imagem** (admin principal) é o painel `AdminImagesPanel`: envia a foto, lista e copia a URL. Não misturar com a aba Biblioteca. O menu do admin: grupos e URLs em `src/pages/admin/adminNav.ts`; o desenho (linha de grupos e linha das telas do grupo aberto, com rolagem horizontal no celular) fica em `AdminGroupedNav`. Em qualquer tela o menu fica abaixo dos cards e de Produtos mais vendidos. Os atalhos PIX, KYC, Tickets e Reenvios ficam só no Início. Não voltar o menu lateral, a gaveta, nem a barra única de abas soltas. Não subir o menu para cima do painel. Não esconder o painel fora de Início e Pedidos. O card **Pré-confirmados** fica em `AdminPreconfirmQueueCard` e só entra no painel com `isPrimary` e papel diferente de vendedora. Ícone do Lucide passa por `IconLucide`, que aceita o componente `forwardRef`.
+
 - Card da aba Pedidos: `OrdersPanel` é componente **separado** — state/handlers do pai (`storeCreditApplying`, `applyCustomerStoreCredit`, etc.) entram por **props**. Referência solta no filho vira `ReferenceError` e tela `Algo deu errado`. Helpers extraídos para `shipping-copy-list.ts` precisam **continuar exportados** se o card split ainda os chama (`findOrderProductForShipmentItem`). Menus do card (`Gerenciar EE`, `Copiar`) ficam em `AdminOrderCardActionMenus.tsx` — não reespalhar Etiqueta EE / Sync / Desvincular / Cancelar EE nem os três Copiar no wrap. **Copiar** no celular abre folha branca embaixo (`Sheet`); no desktop é dropdown opaco. Pedido **cancelado** esconde EnvioEcom, Vincular, etiqueta OCR, baixa e abater saldo; **Marcar Pago** e comprovante ficam. WhatsApp / copiar / detalhes / PDF já vinculado continuam.
 - Lazy routes / chunks manuais no Vite quando já existirem — preservar o padrão local.
 - Nome do package e tags SW (`ka-imports-admin`) são legado; UI fala **Yury**.
@@ -83,6 +92,8 @@ Se memória ≠ código → seguir o código e **atualizar a memória na mesma t
 - Cópia 48h: **não** escrever que “Aguardando coleta não conta” — conta como etiqueta pronta (`isLabelReadyStatus`). Não meter aguardando coleta em `isInTransitStatus`. Ver invariante em `regras-negocio.md`.
 - Ao extrair lógica do `Admin.tsx` para `lib/`, **exportar** o que o `OrdersPanel` ainda usa. Função privada no módulo extraído = `ReferenceError` na lista de pedidos.
 - Selo **Estoque OK** no card Admin: **não** casar saldo por overlap de tokens / “nome inclui”. Usar `checkOrderItemsHaveStock` (ID + recadastro nome único), igual à baixa.
+- Rota Shopee: **não** baixar estoque ao marcar `enviado`. **Não** gravar a hora se o WhatsApp recusar. **Não** tratar "oi", "meu pedido" ou comprovante como ID. **Não** trocar todo `fetch("/api")` do domínio sem www: o cookie da sessão fica no host da loja. Só o POST desse botão vai para `https://yuri-imports-9483v.ondigitalocean.app`.
+- No card de pedido, `setOrders` e `deleteSetting` **não** existem dentro de `OrdersPanel` nem de `ConfiguracoesPanel`. Usar `onSetOrderPatched` e `onDelete`.
 
 ## Manutenção da memória viva (obrigatória)
 

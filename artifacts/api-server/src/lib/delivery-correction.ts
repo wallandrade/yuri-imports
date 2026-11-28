@@ -10,6 +10,8 @@ import {
 import { recordOrderActivity } from "./order-activity";
 import { resolvePasswordResetBaseUrl } from "./password-reset";
 import { resolveWhatsappWebhookUrl } from "./whatsapp-line";
+import { dispatchWhatsappNotice } from "./whatsapp-dispatch";
+import { whatsappInstanceForSeller } from "./whatsapp-outbound-policy";
 import {
   classifyFreightDataError,
   deliveryCorrectionMessage,
@@ -18,7 +20,6 @@ import {
   isValidCnpj,
   isValidCpf,
   maskCpf,
-  postDeliveryCorrectionWhatsapp,
   shouldAutoSendDeliveryCorrection,
   type DeliveryCorrectionWhatsappPayload,
   type FreightDataField,
@@ -112,9 +113,24 @@ async function sendOnce(input: {
   }
 
   const url = await webhookUrl(input.sellerCode);
-  const result = input.payload
-    ? await postDeliveryCorrectionWhatsapp({ url, payload: input.payload, fetchImpl: input.fetchImpl })
-    : { ok: false, error: "Pedido sem telefone para o WhatsApp." };
+  const delivered = input.payload
+    ? await dispatchWhatsappNotice({
+      origin: "corrigir_dados",
+      instance: whatsappInstanceForSeller(input.sellerCode),
+      phone: input.payload.phone,
+      kind: "text",
+      message: input.payload.message,
+      n8nUrl: url,
+      n8nBody: input.payload,
+      fetchImpl: input.fetchImpl,
+    })
+    : { ok: false as const, error: "Pedido sem telefone para o WhatsApp." };
+  const result = delivered.ok
+    ? { ok: true as const }
+    : {
+      ok: false as const,
+      error: delivered.error === "not_configured" ? "WhatsApp não configurado." : (delivered.error || "Falha no WhatsApp."),
+    };
   if (result.ok) {
     await db.update(orderDeliveryCorrectionsTable).set({ whatsappSentAt: new Date(), whatsappError: null }).where(eq(orderDeliveryCorrectionsTable.id, input.rowId));
     await recordOrderActivity({

@@ -40,6 +40,7 @@ import shippingDeliveryEstimateRouter from "./shipping-delivery-estimate";
 
 import brevoRouter from "./brevo";
 import passwordResetRouter from "./password-reset";
+import supplierPricesRouter from "./supplier-prices";
 import deliveryCorrectionRouter from "./delivery-correction";
 import reportanaRouter from "./reportana";
 import envioecomRouter from "./envioecom";
@@ -54,6 +55,10 @@ import whatsappGroupsRouter from "./whatsapp-groups";
 import adminImagesRouter from "./admin-images";
 import flashOffersRouter from "./flash-offers";
 import cellTechRouter from "./cell-tech";
+import labelDebitQueueRouter from "./label-debit-queue";
+import shopeeRouteRouter from "./shopee-route";
+import paymentPreconfirmRouter from "./payment-preconfirm";
+import adminAuditRouter from "./admin-audit";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -78,6 +83,7 @@ router.use(marketingExpensesRouter);
 router.use(trackingRouter);
 router.use(customerAuthRouter);
 router.use(passwordResetRouter);
+router.use(supplierPricesRouter);
 router.use(deliveryCorrectionRouter);
 router.use(affiliateRouter);
 router.use(rafflesRouter);
@@ -110,5 +116,9 @@ router.use(whatsappGroupsRouter);
 router.use(adminImagesRouter);
 router.use(flashOffersRouter);
 router.use(cellTechRouter);
+router.use(labelDebitQueueRouter);
+router.use(shopeeRouteRouter);
+router.use(paymentPreconfirmRouter);
+router.use(adminAuditRouter);
 
 export default router;

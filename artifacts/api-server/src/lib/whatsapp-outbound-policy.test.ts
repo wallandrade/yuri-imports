@@ -1,0 +1,105 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  CELL_TECH_ZAPI_GROUP_ID,
+  WHATSAPP_HOURLY_CAP,
+  cellTechZapiGroupId,
+  maskWhatsappPhone,
+  parseSupportDelivery,
+  parseWhatsappChannel,
+  supportLineCanReply,
+  whatsappAttemptCountsForPace,
+  WHATSAPP_PAID_MAX_WAIT_MS,
+  WHATSAPP_TICK_MS,
+  whatsappBackoffMs,
+  whatsappInstanceCanSend,
+  whatsappInstanceForSeller,
+  whatsappTickChoice,
+  WHATSAPP_ZAPI_INSTANCES,
+} from "./whatsapp-outbound-policy";
+
+test("canal vazio é direto e a resposta vazia fica na fila", () => {
+  assert.equal(parseWhatsappChannel(""), "direto");
+  assert.equal(parseWhatsappChannel("n8n"), "n8n");
+  assert.equal(parseSupportDelivery(""), "fila");
+  assert.equal(parseSupportDelivery("na_hora"), "na_hora");
+});
+
+test("Poly sai pela instância dela e o menu dela não responde", () => {
+  assert.equal(whatsappInstanceForSeller("poly"), "poly");
+  assert.equal(whatsappInstanceForSeller("123"), "poly");
+  assert.equal(whatsappInstanceForSeller("bruna"), "poly");
+  assert.equal(whatsappInstanceForSeller("yuri"), "main");
+  assert.equal(supportLineCanReply("poly"), false);
+  assert.equal(supportLineCanReply("main"), true);
+  assert.deepEqual([...WHATSAPP_ZAPI_INSTANCES], ["main", "poly", "celltech"]);
+});
+
+test("fila segura 6 minutos e 10 por hora", () => {
+  assert.deepEqual(whatsappInstanceCanSend({ sentInLastHour: 0, sentInLastGap: false }), { ok: true });
+  assert.deepEqual(whatsappInstanceCanSend({ sentInLastHour: 3, sentInLastGap: true }), { ok: false, reason: "gap" });
+  assert.deepEqual(
+    whatsappInstanceCanSend({ sentInLastHour: WHATSAPP_HOURLY_CAP, sentInLastGap: false }),
+    { ok: false, reason: "hourly" },
+  );
+  const now = Date.parse("2026-11-17T18:00:00.000Z");
+  assert.deepEqual(whatsappAttemptCountsForPace({
+    status: "pending",
+    attempts: 1,
+    sentAt: null,
+    updatedAt: now - 60 * 1000,
+  }, now), { hour: true, gap: true });
+  assert.deepEqual(whatsappAttemptCountsForPace({
+    status: "pending",
+    attempts: 0,
+    sentAt: null,
+    updatedAt: now,
+  }, now), { hour: false, gap: false });
+  assert.equal(whatsappBackoffMs(1), 6 * 60 * 1000);
+  assert.equal(whatsappBackoffMs(2), 12 * 60 * 1000);
+  assert.equal(whatsappBackoffMs(8), 60 * 60 * 1000);
+  assert.equal(whatsappBackoffMs(1, "pedido_pago"), WHATSAPP_PAID_MAX_WAIT_MS);
+});
+
+test("pedido pago fura a espera de 6 minutos e sai em até 2 minutos", () => {
+  const jumpAt = WHATSAPP_PAID_MAX_WAIT_MS - WHATSAPP_TICK_MS;
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: true,
+    paidAgeMs: jumpAt - 1,
+    hasOther: true,
+  }), "none");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: true,
+    paidAgeMs: jumpAt,
+    hasOther: true,
+  }), "paid");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: false,
+    paidAgeMs: 1_000,
+    hasOther: true,
+  }), "paid");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: 0,
+    gapBlocked: false,
+    paidAgeMs: null,
+    hasOther: true,
+  }), "other");
+  assert.equal(whatsappTickChoice({
+    sentInLastHour: WHATSAPP_HOURLY_CAP,
+    gapBlocked: false,
+    paidAgeMs: jumpAt,
+    hasOther: true,
+  }), "none");
+});
+
+test("Cell Tech fala com o grupo do fluxo", () => {
+  assert.equal(CELL_TECH_ZAPI_GROUP_ID, "553591710559-1525960254");
+  assert.equal(cellTechZapiGroupId(""), CELL_TECH_ZAPI_GROUP_ID);
+  assert.equal(cellTechZapiGroupId("553591710559-1525960254"), CELL_TECH_ZAPI_GROUP_ID);
+  assert.equal(cellTechZapiGroupId("120363012345678901@g.us"), "120363012345678901@g.us");
+  assert.throws(() => cellTechZapiGroupId("123"), /inválido/);
+  assert.equal(maskWhatsappPhone("5500000000000"), "••••0000");
+});

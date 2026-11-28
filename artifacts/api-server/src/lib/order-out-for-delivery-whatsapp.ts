@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
 import { toWhatsappMarkup, toWhatsappPhone } from "./order-paid-whatsapp";
 import { isCustomerTrackingCode } from "./reportana-payload";
+import { dispatchWhatsappNotice, whatsappNoticeConfigured } from "./whatsapp-dispatch";
+import { whatsappInstanceForSeller } from "./whatsapp-outbound-policy";
 
 export const N8N_OUT_FOR_DELIVERY_WEBHOOK_SETTING = "n8n_out_for_delivery_webhook_url";
-const TIMEOUT_MS = 8000;
 
 async function database() {
   const { db, ordersTable } = await import("@workspace/db");
@@ -77,36 +78,6 @@ async function webhookUrl(sellerCode?: string | null): Promise<string> {
   });
 }
 
-function logHost(url: string): string {
-  try {
-    return new URL(url).host;
-  } catch {
-    return "invalid";
-  }
-}
-
-async function postWebhook(url: string, body: { phone: string; message: string }): Promise<{ ok: boolean; error?: string }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      return { ok: false, error: text.slice(0, 180) || `http_${response.status}` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "request_failed" };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 /** Avisa uma vez por pacote quando ele sai para entrega. Falha não segura etiqueta nem sync. */
 export async function sendOutForDeliveryWhatsapp(
   orderId: string,
@@ -123,7 +94,7 @@ export async function sendOutForDeliveryWhatsapp(
     if (!order) return { sent: false, error: "not_found" };
 
     const url = await webhookUrl(order.sellerCode);
-    if (!url) return { sent: false, error: "not_configured" };
+    if (!(await whatsappNoticeConfigured("saiu", url))) return { sent: false, error: "not_configured" };
     const phone = toWhatsappPhone(order.clientPhone);
     if (!phone) return { sent: false, error: "missing_phone" };
 
@@ -141,19 +112,23 @@ export async function sendOutForDeliveryWhatsapp(
       orderId: order.id,
       trackingCode,
     });
-    let lastError = "request_failed";
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const result = await postWebhook(url, { phone, message });
-      if (result.ok) return { sent: true };
-      lastError = result.error || lastError;
-    }
+    const result = await dispatchWhatsappNotice({
+      origin: "saiu",
+      instance: whatsappInstanceForSeller(order.sellerCode),
+      phone,
+      kind: "text",
+      message,
+      n8nUrl: url,
+      n8nBody: { phone, message },
+    });
+    if (result.ok) return { sent: true };
 
     await db
       .update(ordersTable)
       .set({ outForDeliveryWhatsappKeys: JSON.stringify(already) })
       .where(eq(ordersTable.id, id));
-    console.warn("[WhatsApp saiu para entrega] falha", id, logHost(url), lastError);
-    return { sent: false, error: lastError };
+    console.warn("[WhatsApp saiu para entrega] falha", id, result.error || "request_failed");
+    return { sent: false, error: result.error || "request_failed" };
   } catch (err) {
     console.error("[WhatsApp saiu para entrega] sync", id, err instanceof Error ? err.message : err);
     return { sent: false, error: "exception" };
@@ -167,6 +142,17 @@ export function queueOutForDeliveryWhatsapp(orderId: string | null | undefined, 
   void sendOutForDeliveryWhatsapp(id, key, trackingCode);
 }
 
+async function sendOutForDeliveryThenFilmagem(
+  orderId: string | null | undefined,
+  packageKey: string,
+  trackingCode?: string | null,
+): Promise<void> {
+  await sendOutForDeliveryWhatsapp(String(orderId || ""), packageKey, trackingCode);
+  const { queueOrderFilmagemDeliveryWhatsapp } = await import("./order-filmagem-whatsapp");
+  queueOrderFilmagemDeliveryWhatsapp(orderId);
+}
+
+/** Primeiro o aviso da main. Depois o texto 2 e o vídeo, que entram na fila com horário um pouco depois. */
 export function announceOutForDelivery(input: {
   orderId: string | null | undefined;
   packageKey: string | null | undefined;
@@ -180,8 +166,5 @@ export function announceOutForDelivery(input: {
     nextStatus: input.nextStatus,
     packageKey: key,
   })) return;
-  queueOutForDeliveryWhatsapp(input.orderId, key, input.trackingCode);
-  void import("./order-filmagem-whatsapp").then(({ queueOrderFilmagemDeliveryWhatsapp }) => {
-    queueOrderFilmagemDeliveryWhatsapp(input.orderId);
-  });
+  void sendOutForDeliveryThenFilmagem(input.orderId, key, input.trackingCode);
 }

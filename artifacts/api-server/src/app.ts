@@ -15,6 +15,12 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "https://yury-imports.com",
   "https://www.yury-imports.com",
   "https://motoboy.yury-imports.com",
+  "https://yuri-imports-py.com",
+  "https://www.yuri-imports-py.com",
+  "https://imports-py.com",
+  "https://www.imports-py.com",
+  "https://compras-yu.com",
+  "https://www.compras-yu.com",
   "https://barbearia-ka-imports.vercel.app",
 ];
 
@@ -356,7 +362,7 @@ const corsAllowedHeaders = ["Content-Type", "Authorization"];
 
 app.use(cors((req, callback) => {
   // A Z-API chama este webhook de servidor e manda Origin. A senha da rota valida a chamada.
-  if (req.path === "/api/whatsapp/support/inbound") {
+  if (req.path === "/api/whatsapp/support/inbound" || req.path === "/api/whatsapp/groups/inbound") {
     callback(null, {
       origin: true,
       credentials: true,

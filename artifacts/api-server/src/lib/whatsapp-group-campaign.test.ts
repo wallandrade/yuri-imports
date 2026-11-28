@@ -5,14 +5,27 @@ import { peptideAppeal, peptideBriefs } from "./peptide-group-daily";
 import {
   customCaption,
   customCaptionError,
+  customFirstDue,
+  customGroupSend,
+  customImageError,
   customLink,
+  customLinkFieldError,
+  customPostActive,
   customSlotKey,
+  parseStoredGroupChats,
   parseScheduleTimes,
   scheduleLocal,
   scheduleTimeError,
+  dailyScheduledAt,
+  schedulePlanError,
   customGroupDue,
   groupChatsSaveError,
   groupSlotDue,
+  groupImageSendAllowed,
+  GROUP_IMAGE_HOURLY_LIMIT,
+  GROUP_STAGGER_MINUTES,
+  sendsInRollingHour,
+  RECENT_GROUP_IMAGE_SENDS_SQL,
   peptideDailyCaption,
   peptideDailyDue,
   peptideDailyQueue,
@@ -41,13 +54,16 @@ test("a rodada escolhe foto https e pula esgotado", () => {
   const later = pickGroupProduct(products, ["d", "e"], "2026-10-11", 13);
   assert.equal(first?.image?.startsWith("https://"), true);
   assert.notEqual(later?.id, first?.id);
-  assert.equal(productCaption("Lipoless", "d").includes("https://www.yury-imports.com/produto/d"), true);
+  assert.equal(productCaption("Lipoless", "d").includes("https://www.compras-yu.com/produto/d"), true);
 });
 
-test("cada grupo sai 3 minutos depois do anterior", () => {
+test("cada grupo sai 10 minutos depois do anterior", () => {
+  assert.equal(GROUP_STAGGER_MINUTES, 10);
   assert.equal(groupSlotDue(9, 0, 0), 9);
-  assert.equal(groupSlotDue(9, 3, 1), 9);
-  assert.equal(groupSlotDue(9, 2, 1), null);
+  assert.equal(groupSlotDue(9, 10, 1), 9);
+  assert.equal(groupSlotDue(9, 3, 1), null);
+  assert.equal(groupSlotDue(9, 50, 5), 9);
+  assert.equal(groupSlotDue(9, 52, 5), null);
   assert.equal(groupSlotDue(10, 0, 0), null);
   assert.equal("error" in groupChatsSaveError([{ name: "1", phone: "abc" }]), true);
   assert.equal("error" in groupChatsSaveError(Array.from({ length: 7 }, (_, index) => ({ name: String(index), phone: `551199999999${index}` }))), true);
@@ -106,7 +122,7 @@ test("a explicação diária só sai se tiver ficha e produto à venda", () => {
   assert.deepEqual(peptideSendHours("21"), [21]);
   assert.deepEqual(peptideSendHours("[21,10,10,25,13]"), [10, 13, 21]);
   const plain = peptideDailyCaption(briefs[0], "buy");
-  assert.equal(plain.includes("https://www.yury-imports.com/produto/buy"), true);
+  assert.equal(plain.includes("https://www.compras-yu.com/produto/buy"), true);
   assert.equal(plain.includes("Vale a pena ler até o final"), true);
   assert.equal(plain.includes("🧠✨"), true);
   assert.equal(plain.includes("Mas atenção"), false);
@@ -127,7 +143,8 @@ test("a explicação diária só sai se tiver ficha e produto à venda", () => {
   assert.equal(warm.includes("Regeneração de tecidos"), false);
   assert.equal(warm.includes("Conhecimento e ciência"), false);
   assert.equal(peptideDailyDue(10, 0, 0, 10), true);
-  assert.equal(peptideDailyDue(10, 3, 1, 10), true);
+  assert.equal(peptideDailyDue(10, 10, 1, 10), true);
+  assert.equal(peptideDailyDue(10, 3, 1, 10), false);
   assert.equal(peptideDailyDue(9, 0, 0, 10), false);
   const same = [
     { id: "a", name: "BPC-157 5mg", image: "https://cdn.example/a.jpg", soldOut: false },
@@ -178,5 +195,122 @@ test("o aviso avulso respeita o intervalo do grupo", () => {
   const now = new Date("2026-10-12T12:00:30.000Z");
   assert.equal(customGroupDue("2026-10-12T09:00", now, 0), true);
   assert.equal(customGroupDue("2026-10-12T09:00", now, 1), false);
-  assert.equal(customGroupDue("2026-10-12T08:57", new Date("2026-10-12T12:00:30.000Z"), 1), true);
+  assert.equal(customGroupDue("2026-10-12T08:50", new Date("2026-10-12T12:00:30.000Z"), 1), true);
+});
+
+test("no máximo 6 imagens por hora, somando as campanhas", () => {
+  assert.equal(GROUP_IMAGE_HOURLY_LIMIT, 6);
+  assert.equal(groupImageSendAllowed(0), true);
+  assert.equal(groupImageSendAllowed(5), true);
+  assert.equal(groupImageSendAllowed(6), false);
+  assert.equal(groupImageSendAllowed(7), false);
+
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const round = (startHour: number) => Array.from({ length: 6 }, (_, group) => (startHour * 60 + group * GROUP_STAGGER_MINUTES) * minute);
+  const product = round(9);
+  const peptide = round(10);
+  const planned = [...product, ...peptide];
+  for (const at of planned) {
+    assert.ok(sendsInRollingHour(planned, at) <= 6, `janela em ${at} passou de 6`);
+  }
+  assert.equal(sendsInRollingHour(planned, peptide[0]), 6);
+  assert.equal(sendsInRollingHour(planned, peptide[0] - minute), 6);
+
+  const sameHour = [...round(9), ...round(9).map((time) => time + 1)];
+  let sent = 0;
+  let blocked = 0;
+  for (const at of sameHour) {
+    if (groupImageSendAllowed(sent)) sent += 1;
+    else blocked += 1;
+    assert.ok(sendsInRollingHour(sameHour.slice(0, sent), at) <= 6);
+  }
+  assert.equal(sent, 6);
+  assert.equal(blocked, 6);
+  assert.equal(sendsInRollingHour(product, product[0] + hour), 5);
+  assert.match(RECENT_GROUP_IMAGE_SENDS_SQL, /sent_at > DATE_SUB\(CURRENT_TIMESTAMP\(\), INTERVAL 60 MINUTE\)/);
+  assert.match(RECENT_GROUP_IMAGE_SENDS_SQL, /id NOT LIKE 't:%'/);
+  assert.equal(RECENT_GROUP_IMAGE_SENDS_SQL.includes("?"), false);
+});
+
+test("mensagem personalizada fica entre 08:00 e 19:00 e mantém o intervalo", () => {
+  const at = (iso: string) => new Date(iso);
+  assert.equal(customGroupDue("2026-10-12T07:30", at("2026-10-12T10:30:30.000Z"), 0), false);
+  assert.equal(customGroupDue("2026-10-12T07:30", at("2026-10-12T11:00:30.000Z"), 0), true);
+  assert.equal(customGroupDue("2026-10-12T07:30", at("2026-10-12T11:10:30.000Z"), 1), true);
+  assert.equal(customGroupDue("2026-10-12T08:00", at("2026-10-12T11:00:30.000Z"), 0), true);
+  assert.equal(customGroupDue("2026-10-12T18:59", at("2026-10-12T21:59:30.000Z"), 0), true);
+  assert.equal(customGroupDue("2026-10-12T19:00", at("2026-10-12T22:00:30.000Z"), 0), false);
+  assert.equal(customGroupDue("2026-10-12T19:00", at("2026-10-13T11:00:30.000Z"), 0), true);
+  assert.equal(customGroupDue("2026-10-12T20:00", at("2026-10-13T11:00:30.000Z"), 0), true);
+  assert.equal(customGroupDue("2026-10-12T20:00", at("2026-10-13T11:10:30.000Z"), 1), true);
+  assert.equal(customGroupDue("2026-10-12T18:50", at("2026-10-12T21:50:30.000Z"), 0), true);
+  assert.equal(customGroupDue("2026-10-12T18:50", at("2026-10-12T22:00:30.000Z"), 1), false);
+  assert.equal(customGroupDue("2026-10-12T18:50", at("2026-10-13T11:00:30.000Z"), 1), true);
+  assert.equal(customGroupDue("2026-10-12T18:50", at("2026-10-13T11:10:30.000Z"), 2), true);
+});
+
+test("o modo daily repete o horário sem data de fim", () => {
+  const plan = { mode: "daily" as const, scheduledAt: "2026-10-12T10:00", times: ["10:00"], intervalHours: 0, durationDays: 1 };
+  assert.equal(customSlotKey(plan, new Date("2026-10-12T13:00:30.000Z"), 0), "daily:2026-10-12T10:00");
+  assert.equal(customSlotKey(plan, new Date("2026-10-12T13:00:30.000Z"), 1), null);
+  assert.equal(customSlotKey(plan, new Date("2026-10-12T13:10:30.000Z"), 1), "daily:2026-10-12T10:00");
+  assert.equal(customSlotKey(plan, new Date("2026-10-12T14:00:30.000Z"), 6), "daily:2026-10-12T10:00");
+  assert.equal(customSlotKey(plan, new Date("2026-12-01T13:00:30.000Z"), 0), "daily:2026-12-01T10:00");
+  assert.equal(customSlotKey({ ...plan, active: false }, new Date("2026-12-01T13:00:30.000Z"), 0), null);
+  assert.equal(customSlotKey({ ...plan, scheduledAt: "2026-10-13T10:00" }, new Date("2026-10-12T13:00:30.000Z"), 0), null);
+  assert.equal(schedulePlanError(plan, new Date("2026-12-01T00:00:00.000Z"), false), null);
+  assert.equal(dailyScheduledAt({ time: "10:00", startDay: "2026-10-12", previousAt: "2026-10-12T15:03", previousTime: "10:00" }), "2026-10-12T15:03");
+  assert.equal(dailyScheduledAt({ time: "11:00", startDay: "2026-10-12", previousAt: "2026-10-12T15:03", previousTime: "10:00" }), "2026-10-12T11:00");
+  assert.equal(schedulePlanError({ ...plan, times: [] }, new Date("2026-10-12T13:00:30.000Z"), false), "Escolha o horário.");
+  const catchup = { ...plan, scheduledAt: "2026-10-12T15:03" };
+  assert.equal(customSlotKey(catchup, new Date("2026-10-12T18:03:30.000Z"), 0), "daily-first:2026-10-12T15:03");
+  assert.equal(customSlotKey(catchup, new Date("2026-10-12T18:11:30.000Z"), 0), "daily-first:2026-10-12T15:03");
+  assert.equal(customSlotKey(catchup, new Date("2026-10-12T18:03:30.000Z"), 1), null);
+  assert.equal(customSlotKey(catchup, new Date("2026-10-12T18:13:30.000Z"), 1), "daily-first:2026-10-12T15:03");
+  assert.equal(customFirstDue("2026-10-12T15:03", new Date("2026-10-12T18:14:30.000Z"), 0), false);
+  assert.equal(customPostActive(undefined), true);
+  assert.equal(customPostActive(false), false);
+  assert.equal(customPostActive(0), false);
+});
+
+test("mensagem só texto usa send-text e imagem https continua send-image", () => {
+  const original = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (() => {
+    called = true;
+    throw new Error("não chamar a rede");
+  }) as typeof fetch;
+  try {
+    assert.equal(customCaption("só texto", ""), "só texto");
+    assert.equal(customImageError(""), null);
+    assert.equal(customImageError("http://cdn.example/a.jpg"), "A imagem precisa ser um link https.");
+    assert.equal(customLinkFieldError(""), null);
+    assert.equal(customLinkFieldError("https://www.yury-imports.com/yuri"), null);
+    assert.equal(customLinkFieldError("http://www.yury-imports.com/yuri"), "O link precisa ser um link https.");
+    const text = customGroupSend({ phone: "5511900000000", imageUrl: "  ", caption: "só texto" });
+    assert.equal("error" in text, false);
+    if (!("error" in text)) {
+      assert.equal(text.suffix, "/send-text");
+      assert.equal(text.body.message, "só texto");
+      assert.equal(Object.hasOwn(text.body, "image"), false);
+    }
+    const image = customGroupSend({ phone: "5511900000000", imageUrl: "https://cdn.example/a.jpg", caption: "com foto" });
+    assert.equal("error" in image, false);
+    if (!("error" in image)) {
+      assert.equal(image.suffix, "/send-image");
+      assert.equal(image.body.image, "https://cdn.example/a.jpg");
+      assert.equal(image.body.caption, "com foto");
+    }
+    assert.equal("error" in customGroupSend({ phone: "5511900000000", imageUrl: "http://cdn.example/a.jpg", caption: "não" }), true);
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = original;
+  }
+  const stored = JSON.stringify([
+    { name: "Yuri imports 1", phone: "558187853083-1608664005" },
+    { name: "extra", phone: "5511900000007-group" },
+  ]);
+  assert.equal(parseStoredGroupChats(stored).length, 2);
+  assert.equal(parseStoredGroupChats("[]").length, 0);
 });

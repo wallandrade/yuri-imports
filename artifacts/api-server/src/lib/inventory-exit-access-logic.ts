@@ -29,7 +29,7 @@ export function readPasswordFromBody(body: unknown): string {
 }
 
 export function inventoryExitPasswordApplies(pool: string | null | undefined): boolean {
-  return pool === "motoboy" || pool === "minas";
+  return pool === "motoboy" || pool === "minas" || pool === "santa_catarina";
 }
 
 export function inventoryExitBootstrapPassword(raw: string | undefined | null): string | null {

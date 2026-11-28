@@ -145,13 +145,21 @@ export async function fetchAndCacheSellerWhatsApp(slug: string): Promise<void> {
 }
 
 /**
+ * Link com texto. `wa.me` troca emoji de 4 bytes por '?' no redirecionamento.
+ * `api.whatsapp.com/send` entrega o texto inteiro.
+ */
+export function whatsAppSendUrl(phone: string, text: string): string {
+  return `https://api.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(text)}`;
+}
+
+/**
  * Returns a WhatsApp link for the given message.
  * Always computed at call time (never cached in JSX) so the correct seller
  * number is used even if session data was populated after first render.
  */
 export function makeWhatsAppLink(text: string): string {
   const number = getActiveWhatsApp();
-  return `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+  return whatsAppSendUrl(number, text);
 }
 
 /**

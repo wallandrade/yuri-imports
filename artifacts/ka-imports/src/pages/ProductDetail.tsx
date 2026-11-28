@@ -7,10 +7,12 @@ import { PromoCountdown } from "@/components/product/PromoCountdown";
 import { catalogUnitPrice, promoPriceStillApplies } from "@/lib/catalog-unit-price";
 import { isPromoStillActive } from "@/lib/promo-ends-at";
 import { normalizeSelectedVariants, parseVariantGroups, variantGalleryImages, variantImageFromSelection, variantSelectionError } from "@/lib/product-variants";
-import { isProductUnavailable, useCart } from "@/store/use-cart";
+import { isCatalogSoldOut } from "@/lib/product-availability";
+import { useCart } from "@/store/use-cart";
 import { claimPendingFlashIfAny } from "@/lib/flash-offer";
 import { fetchAndCacheSellerWhatsApp, formatCurrency, setSellerContext } from "@/lib/utils";
-import { ArrowLeft, Loader2, ShoppingCart } from "lucide-react";
+import { ArrowLeft, ShoppingCart } from "lucide-react";
+import { BrandLoader } from "@/components/pharma/BrandLoader";
 import { toast } from "sonner";
 import { PHARMA_COMPACT_THEME, useStoreTheme } from "@/lib/store-theme";
 import { PharmaProductPurchase } from "@/components/pharma/PharmaProductPurchase";
@@ -150,7 +152,7 @@ export default function ProductDetail() {
   const galleryImages = variantGalleryImages(variantGroups, selectedVariants);
 
   const hasRequiredVariants = variantError == null;
-  const isSoldOut = product ? isProductUnavailable(product) : false;
+  const isSoldOut = product ? isCatalogSoldOut(product) : false;
   const backHref = sellerSlug ? `/${sellerSlug}` : "/";
   const pharma = useStoreTheme() === PHARMA_COMPACT_THEME;
 
@@ -166,7 +168,7 @@ export default function ProductDetail() {
 
         {isLoading ? (
           <div className="flex justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <BrandLoader size="lg" />
           </div>
         ) : isError ? (
           <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-6 text-center">
@@ -324,12 +326,8 @@ export default function ProductDetail() {
                       <Button
                         size="lg"
                         className="w-full text-base"
-                        disabled={isSoldOut || !hasRequiredVariants}
+                        disabled={!hasRequiredVariants}
                         onClick={async () => {
-                          if (isSoldOut) {
-                            toast.error("Este produto está esgotado e não pode ser adicionado.");
-                            return;
-                          }
                           if (!hasRequiredVariants) {
                             toast.error(variantError || "Selecione as variantes para continuar.");
                             return;
@@ -355,7 +353,7 @@ export default function ProductDetail() {
                         }}
                       >
                         <ShoppingCart className="w-5 h-5 mr-2" />
-                        {isSoldOut ? "Produto esgotado" : `Adicionar ${option.quantityLabel}`}
+                        Adicionar {option.quantityLabel}
                       </Button>
                     </div>
                   ))}
@@ -364,12 +362,8 @@ export default function ProductDetail() {
                 <Button
                   size="lg"
                   className="w-full text-base"
-                  disabled={isSoldOut || !hasRequiredVariants}
+                  disabled={!hasRequiredVariants}
                   onClick={async () => {
-                    if (isSoldOut) {
-                      toast.error("Este produto está esgotado e não pode ser adicionado.");
-                      return;
-                    }
                     if (!hasRequiredVariants) {
                       toast.error(variantError || "Selecione as variantes para continuar.");
                       return;
@@ -397,7 +391,7 @@ export default function ProductDetail() {
                   }}
                 >
                   <ShoppingCart className="w-5 h-5 mr-2" />
-                  {isSoldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
+                  Adicionar ao carrinho
                 </Button>
               )}
 
