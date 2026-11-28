@@ -7,17 +7,15 @@
 import { redactAlertDetail } from "./backup-alert.mjs";
 import { notifyOwnerOnce } from "./alert-once.mjs";
 import {
-  applyPlanToManifest,
+  applyStoredJournal,
   calendarDay,
   datedKeysToDelete,
-  emptyManifest,
   historyObjectKey,
   journalObjectKey,
+  manifestDelta,
   manifestObjectKey,
-  mergeManifest,
   mirrorObjectKey,
   normalizeEtag,
-  parseManifest,
   planMediaBackup,
   readMediaBackupConfig,
   runMarkerObjectKey,
@@ -143,7 +141,7 @@ async function main(): Promise<void> {
   for (const journal of journals) {
     const text = await readBackupText(destClient, cfg.destBucket, journal.key);
     try {
-      manifest = mergeManifest(manifest, parseManifest(text));
+      manifest = applyStoredJournal(manifest, text);
     } catch (err) {
       log(`diário ignorado ${journal.key}: ${err instanceof Error ? err.message : err}`);
     }
@@ -161,8 +159,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const locked = await acquireBackupLock(destClient, layout);
-  if (!locked) {
+  const runId = await acquireBackupLock(destClient, layout);
+  if (!runId) {
     throw new Error("lock de media-backup-r2 ainda preso; a cópia desta execução não rodou");
   }
 
@@ -177,11 +175,11 @@ async function main(): Promise<void> {
     for (let offset = 0, part = 0; offset < work.length; offset += CHUNK, part += 1) {
       const chunk = work.slice(offset, offset + CHUNK);
       await mapPool(chunk, COPIES_AT_ONCE, (action) => perform(sourceClient, destClient, layout, cfg.destPrefix, day, minute, mirrorByKey, action));
-      const delta = applyPlanToManifest(emptyManifest(), sourceByKey, chunk);
+      const delta = manifestDelta(current, sourceByKey, chunk);
       const key = journalObjectKey(cfg.destPrefix, stamp, part);
       await putBackupJson(destClient, layout, key, delta);
       journalKeys.push(key);
-      current = mergeManifest(current, delta);
+      current = applyStoredJournal(current, JSON.stringify(delta));
       log(`  lote ${part + 1}: ${Math.min(offset + chunk.length, work.length)}/${work.length}`);
     }
     await putBackupJson(destClient, layout, manifestObjectKey(cfg.destPrefix), current);
@@ -209,7 +207,7 @@ async function main(): Promise<void> {
     await putBackupJson(destClient, layout, runMarkerObjectKey(cfg.destPrefix, stamp), marker);
     log(`OK ${cfg.destBucket}/${cfg.destPrefix}runs/${stamp}.json em ${((Date.now() - started) / 1000).toFixed(1)}s`);
   } finally {
-    await releaseBackupLock(destClient, layout).catch((err: unknown) => {
+    await releaseBackupLock(destClient, layout, runId).catch((err: unknown) => {
       log(`não soltei o lock: ${err instanceof Error ? err.message : err}`);
     });
   }

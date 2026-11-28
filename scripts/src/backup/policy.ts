@@ -394,6 +394,72 @@ export function mergeManifest(base: MediaManifest, extra: MediaManifest): MediaM
   return { version: 1, objects: { ...base.objects, ...extra.objects } };
 }
 
+export type ManifestDelta = {
+  version: 1;
+  upserts: Record<string, MediaManifestEntry>;
+  deletes: string[];
+};
+
+/** Delta against the current manifest so a journal keeps etag/size and records deletes. */
+export function manifestDelta(
+  base: MediaManifest,
+  sourceByKey: ReadonlyMap<string, MediaObject>,
+  actions: readonly MediaAction[],
+): ManifestDelta {
+  const next = applyPlanToManifest(base, sourceByKey, actions);
+  const upserts: ManifestDelta["upserts"] = {};
+  const deletes: string[] = [];
+  for (const action of actions) {
+    if (action.type === "skip") continue;
+    if (action.type === "forget") {
+      deletes.push(action.key);
+      continue;
+    }
+    const entry = next.objects[action.key];
+    if (entry) upserts[action.key] = entry;
+  }
+  return { version: 1, upserts, deletes };
+}
+
+export function applyManifestDelta(base: MediaManifest, delta: ManifestDelta): MediaManifest {
+  const objects = { ...base.objects, ...delta.upserts };
+  for (const key of delta.deletes) delete objects[key];
+  return { version: 1, objects };
+}
+
+export function applyStoredJournal(base: MediaManifest, text: string): MediaManifest {
+  const parsed = JSON.parse(text) as { upserts?: unknown; deletes?: unknown; objects?: unknown };
+  if (parsed && parsed.upserts && typeof parsed.upserts === "object") {
+    const deletes = Array.isArray(parsed.deletes) ? parsed.deletes.filter((key): key is string => typeof key === "string") : [];
+    return applyManifestDelta(base, { version: 1, upserts: parsed.upserts as ManifestDelta["upserts"], deletes });
+  }
+  return mergeManifest(base, parseManifest(text));
+}
+
+/** Original key stored after history/DAY/HHMM/etag/. Suffix-only matches do not count. */
+export function historyOriginalKey(listedKey: string, historyDayPrefix: string): string | null {
+  if (!listedKey.startsWith(historyDayPrefix)) return null;
+  const rest = listedKey.slice(historyDayPrefix.length);
+  const match = /^(\d{4})\/([^/]+)\/(.+)$/.exec(rest);
+  return match ? match[3] : null;
+}
+
+export function historyKeysForOriginal(keys: readonly string[], historyDayPrefix: string, originalKey: string): string[] {
+  return keys.filter((key) => historyOriginalKey(key, historyDayPrefix) === originalKey).sort();
+}
+
+export const LOCK_TTL_MS = 6 * 60 * 60 * 1000;
+
+export function lockCanBeTaken(input: { startedAt: number | null; released: boolean; now: number; ttlMs: number }): boolean {
+  if (input.released) return true;
+  if (input.startedAt === null || !Number.isFinite(input.startedAt)) return false;
+  return input.now - input.startedAt >= input.ttlMs;
+}
+
+export function sameLockOwner(storedRunId: string | undefined, ourRunId: string): boolean {
+  return Boolean(storedRunId) && storedRunId === ourRunId;
+}
+
 export function summarizeActions(actions: readonly MediaAction[]): {
   skip: number;
   adopt: number;

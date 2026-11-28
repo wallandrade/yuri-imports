@@ -15,18 +15,21 @@ import {
   UploadPartCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { randomUUID } from "node:crypto";
 import {
+  LOCK_TTL_MS,
   assertDeletableBackupKey,
   assertDestWrite,
   encodeCopySource,
+  lockCanBeTaken,
   lockObjectKey,
   manifestObjectKey,
   parseManifest,
+  sameLockOwner,
   type MediaManifest,
 } from "./policy";
 
 const PART_BYTES = 8 * 1024 * 1024;
-const LOCK_TTL_MS = 6 * 60 * 60 * 1000;
 
 export type ObjectLayout = {
   sourceBucket: string;
@@ -252,7 +255,17 @@ export async function copyFromSource(
   }
 }
 
-/** Copies inside the backup bucket. If-None-Match avoids overwriting history. */
+async function objectIsPresent(client: S3Client, bucket: string, key: string): Promise<boolean> {
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return true;
+  } catch (err) {
+    if (isNotFound(err)) return false;
+    throw err;
+  }
+}
+
+/** Copies inside the backup bucket. Returns only after the history object is readable. */
 export async function copyWithinBackup(
   destClient: S3Client,
   layout: ObjectLayout,
@@ -268,16 +281,33 @@ export async function copyWithinBackup(
       IfNoneMatch: "*",
     }));
   } catch (err) {
-    if (isPreconditionFailed(err)) return;
-    if (isNotFound(err)) return;
-    throw err;
+    if (!isPreconditionFailed(err)) throw err;
+  }
+  if (!(await objectIsPresent(destClient, layout.destBucket, toKey))) {
+    throw new Error(`histórico não confirmado: ${toKey}`);
   }
 }
 
-export async function acquireBackupLock(client: S3Client, layout: ObjectLayout): Promise<boolean> {
+type LockBody = { runId?: string; startedAt?: string; released?: boolean };
+
+async function readLock(client: S3Client, bucket: string, key: string): Promise<{ etag: string; body: LockBody }> {
+  const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+  const existing = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const text = await existing.Body?.transformToString();
+  let body: LockBody = {};
+  try {
+    body = JSON.parse(text || "") as LockBody;
+  } catch {
+    body = {};
+  }
+  return { etag: head.ETag || "", body };
+}
+
+export async function acquireBackupLock(client: S3Client, layout: ObjectLayout): Promise<string | null> {
   const key = lockObjectKey(layout.destPrefix);
   assertDestWrite({ bucket: layout.destBucket, key, sourceBucket: layout.sourceBucket, destPrefix: layout.destPrefix });
-  const fresh = Buffer.from(JSON.stringify({ startedAt: new Date().toISOString() }));
+  const runId = randomUUID();
+  const fresh = Buffer.from(JSON.stringify({ runId, startedAt: new Date().toISOString(), released: false }));
   try {
     await client.send(new PutObjectCommand({
       Bucket: layout.destBucket,
@@ -286,31 +316,51 @@ export async function acquireBackupLock(client: S3Client, layout: ObjectLayout):
       ContentType: "application/json",
       IfNoneMatch: "*",
     }));
-    return true;
+    return runId;
   } catch (err) {
     if (!isPreconditionFailed(err)) throw err;
   }
-  const existing = await client.send(new GetObjectCommand({ Bucket: layout.destBucket, Key: key }));
-  const text = await existing.Body?.transformToString();
-  let startedAt = Number.NaN;
+  const current = await readLock(client, layout.destBucket, key);
+  const startedAt = Date.parse(String(current.body.startedAt || ""));
+  const take = lockCanBeTaken({
+    startedAt: Number.isFinite(startedAt) ? startedAt : null,
+    released: current.body.released === true,
+    now: Date.now(),
+    ttlMs: LOCK_TTL_MS,
+  });
+  if (!take || !current.etag) return null;
   try {
-    const parsed = JSON.parse(text || "") as { startedAt?: string };
-    startedAt = Date.parse(String(parsed.startedAt || ""));
-  } catch {
-    startedAt = Number.NaN;
+    await client.send(new PutObjectCommand({
+      Bucket: layout.destBucket,
+      Key: key,
+      Body: fresh,
+      ContentType: "application/json",
+      IfMatch: current.etag,
+    }));
+    return runId;
+  } catch (err) {
+    if (isPreconditionFailed(err)) return null;
+    throw err;
   }
-  if (Number.isFinite(startedAt) && Date.now() - startedAt < LOCK_TTL_MS) return false;
-  await client.send(new PutObjectCommand({
-    Bucket: layout.destBucket,
-    Key: key,
-    Body: fresh,
-    ContentType: "application/json",
-  }));
-  return true;
 }
 
-export async function releaseBackupLock(client: S3Client, layout: ObjectLayout): Promise<void> {
-  await deleteBackupKeys(client, layout, [lockObjectKey(layout.destPrefix)], "release-lock");
+export async function releaseBackupLock(client: S3Client, layout: ObjectLayout, runId: string): Promise<void> {
+  const key = lockObjectKey(layout.destPrefix);
+  const current = await readLock(client, layout.destBucket, key);
+  if (!sameLockOwner(current.body.runId, runId) || !current.etag) return;
+  const body = Buffer.from(JSON.stringify({ runId, released: true, startedAt: current.body.startedAt || "" }));
+  try {
+    await client.send(new PutObjectCommand({
+      Bucket: layout.destBucket,
+      Key: key,
+      Body: body,
+      ContentType: "application/json",
+      IfMatch: current.etag,
+    }));
+  } catch (err) {
+    if (isPreconditionFailed(err) || isNotFound(err)) return;
+    throw err;
+  }
 }
 
 export async function alertMarkerExists(client: S3Client, bucket: string, key: string): Promise<boolean> {

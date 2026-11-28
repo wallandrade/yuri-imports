@@ -10,7 +10,11 @@ import {
   datedKeysToDelete,
   emptyManifest,
   encodeCopySource,
+  historyKeysForOriginal,
   historyObjectKey,
+  lockCanBeTaken,
+  manifestDelta,
+  applyManifestDelta,
   mediaRunObjects,
   mirrorObjectKey,
   mysqlBackupObjects,
@@ -19,6 +23,7 @@ import {
   planMediaBackup,
   readMediaBackupConfig,
   readRetentionDays,
+  sameLockOwner,
   readStaleWindowMs,
   stripMirrorKey,
   unknownRootPrefixes,
@@ -303,4 +308,22 @@ test("histórico do mesmo dia não reutiliza a chave e prefixo novo aparece", ()
   assert.match(morning, /media\/history\/2026-11-28\/0330\/abc\/products\/a.jpg/);
   assert.deepEqual(unknownRootPrefixes(["products/a.jpg", "novo/b.jpg"], ["products/"]), ["novo/"]);
   assert.deepEqual(unknownRootPrefixes(["novo/b.jpg"], null), []);
+  const dayPrefix = "media/history/2026-11-20/";
+  const keys = [
+    `${dayPrefix}0330/abc/products/a.jpg`,
+    `${dayPrefix}1800/def/products/extra/a.jpg`,
+    `${dayPrefix}1800/def/x/products/a.jpg`,
+  ];
+  assert.deepEqual(historyKeysForOriginal(keys, dayPrefix, "products/a.jpg"), [`${dayPrefix}0330/abc/products/a.jpg`]);
+  const base: MediaManifest = { version: 1, objects: { "products/a.jpg": { etag: "old", size: 4 } } };
+  const delta = manifestDelta(base, new Map(), [{ type: "archive-gone", key: "products/a.jpg" }]);
+  assert.equal(delta.upserts["products/a.jpg"]?.etag, "old");
+  assert.equal(delta.upserts["products/a.jpg"]?.gone, true);
+  const forgotten = manifestDelta(base, new Map(), [{ type: "forget", key: "products/a.jpg" }]);
+  assert.deepEqual(forgotten.deletes, ["products/a.jpg"]);
+  assert.equal(applyManifestDelta(base, forgotten).objects["products/a.jpg"], undefined);
+  assert.equal(lockCanBeTaken({ startedAt: 0, released: false, now: 1, ttlMs: 10 }), false);
+  assert.equal(lockCanBeTaken({ startedAt: 0, released: true, now: 1, ttlMs: 10 }), true);
+  assert.equal(sameLockOwner("run-a", "run-b"), false);
+  assert.equal(sameLockOwner("run-a", "run-a"), true);
 });

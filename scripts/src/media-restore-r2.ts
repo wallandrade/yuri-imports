@@ -12,7 +12,7 @@
 import { createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { mirrorObjectKey, normalizeDestPrefix } from "./backup/policy";
+import { historyKeysForOriginal, mirrorObjectKey, normalizeDestPrefix } from "./backup/policy";
 import { createR2Client, listBackupObjects } from "./backup/r2io";
 
 const log = (...parts: unknown[]) => console.log(`[media-restore] ${new Date().toISOString()}`, ...parts);
@@ -49,11 +49,9 @@ async function main(): Promise<void> {
   });
   let backupKey = mirrorObjectKey(destPrefix, originalKey);
   if (day) {
-    const listed = await listBackupObjects(client, bucket, `${destPrefix}history/${day}/`);
-    const matches = listed
-      .map((item) => item.key)
-      .filter((key) => key.endsWith(`/${originalKey}`))
-      .sort();
+    const dayPrefix = `${destPrefix}history/${day}/`;
+    const listed = await listBackupObjects(client, bucket, dayPrefix);
+    const matches = historyKeysForOriginal(listed.map((item) => item.key), dayPrefix, originalKey);
     const found = matches[matches.length - 1];
     if (!found) throw new Error("versão não encontrada nesse dia");
     backupKey = found;
