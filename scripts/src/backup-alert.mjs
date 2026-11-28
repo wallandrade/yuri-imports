@@ -71,8 +71,19 @@ export async function notifyOwnerBackupAlert({ title, lines, env = process.env, 
       body: JSON.stringify({ phone: phone.phone, message }),
       signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok) {
-      const error = `HTTP ${response.status}`;
+    let json = null;
+    if (typeof response.json === "function") {
+      try {
+        json = await response.json();
+      } catch {
+        json = null;
+      }
+    }
+    const body = json && typeof json === "object" ? json : null;
+    const hasError = Boolean(body && (body.error || body.erro));
+    const httpOk = response.ok && response.status >= 200 && response.status < 300;
+    if (!httpOk || hasError) {
+      const error = hasError ? "zapi_error" : `HTTP ${response.status}`;
       console.error(`[backup-alert] Z-API não enviou o aviso: ${error}`);
       return { ok: false, error };
     }

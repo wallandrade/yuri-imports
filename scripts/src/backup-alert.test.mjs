@@ -53,6 +53,17 @@ test("grupo e destino vazio não chamam a Z-API", async () => {
   assert.equal(called, false);
 });
 
+test("HTTP 200 com error no corpo não conta como enviado", async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ error: "disconnected" }),
+  });
+  const result = await notifyOwnerBackupAlert({ title: "falhou", env: ENV, fetchImpl });
+  assert.equal(result.ok, false);
+  assert.equal(result.error, "zapi_error");
+});
+
 test("a Z-API estoura em 15s", async () => {
   const fetchImpl = async (_url, init) => {
     assert.ok(init.signal);
