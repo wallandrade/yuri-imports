@@ -13,7 +13,11 @@
     "audit:endpoints": "tsx ./src/audit-endpoints-scope.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "backup:db:r2": "node --max-old-space-size=192 ./src/db-backup-r2.mjs",
-    "restore:db:r2": "node ./src/db-restore-r2.mjs"
+    "restore:db:r2": "node ./src/db-restore-r2.mjs",
+    "backup:media:r2": "NODE_OPTIONS=--max-old-space-size=512 tsx ./src/media-backup-r2.ts",
+    "restore:media:r2": "tsx ./src/media-restore-r2.ts",
+    "backup:watchdog": "tsx ./src/backup-watchdog.ts",
+    "test:backup": "node --test --import tsx ./src/backup/policy.test.ts ./src/backup-alert.test.mjs ./src/alert-once.test.mjs"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.916.0",

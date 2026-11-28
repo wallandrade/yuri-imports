@@ -1,6 +1,6 @@
 # Integrações — Yuri Import
 
-> **Última atualização:** 2026-11-26
+> **Última atualização:** 2026-11-28
 
 Providers externos **presentes no código**. Precedência: código > memória.
 
@@ -8,6 +8,7 @@ Providers externos **presentes no código**. Precedência: código > memória.
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Backup da mídia no R2 e aviso de atraso | Copia o bucket inteiro de `clayton-assets` para `media/`. Tokens separados de leitura e escrita. Espelho não é apagado. Histórico com chave única. Mídia sem expiração. Limpeza só `mysql/*.sql.gz` com mais de 30 dias. Um WhatsApp por dia. Vigilante 06:00 em `America/Sao_Paulo`. Doc: `docs/MEDIA_BACKUP_R2.md` | Sem escrita em `clayton-assets`. Sem n8n e sem grupo. Pedido, PIX e estoque iguais |
 | 2026-11-26 | Links da loja usam `https://www.compras-yu.com` | Menu, IA, grupos, senha, afiliado e Reportana. Texto salvo com `imports-py.com`, `yuri-imports-py.com` ou `yury-imports.com` troca o host na hora do envio. Vídeo da filmagem nesses hosts não sai | Webhooks, PIX, Z-API e o envio de pago, rastreio e postado iguais. Sem n8n novo |
 | 2026-11-24 | Mensagem personalizada de grupo pode ser só texto e diária | `POST /admin/whatsapp/groups/custom` aceita imagem e link vazios. Sem foto, o job usa `send-text` na fila direta da Z-API. Modo `daily` repete um HH:mm até `active=0`. Janela 08:00–19:00 em Brasília. Na subida entra uma vez o lembrete `seed-filmagem-abertura` | Rodada de produto, peptídeo, PIX, estoque, senha de baixa e o n8n iguais |
 | 2026-11-23 | Rota Shopee sai pela Z-API | `sendCustomerWhatsapp` com origem `shopee_route` e `preferImmediate`. Entra na fila só se bater na trava de 6 minutos ou 10 por hora. A hora só grava depois que o envio é aceito. O ID volta em `POST /api/whatsapp/support/inbound`. Chave `zapi_channel_shopee_route` (padrão direto). Sem URL, a chave n8n não envia | Fluxos n8n, PIX e os outros avisos iguais |
@@ -382,7 +383,11 @@ Módulo isolado da loja. Não lê `orders`, PIX nem frete.
 ## Storage
 
 - **Cloudflare R2** via `@aws-sdk/client-s3` — `artifacts/api-server/src/lib/r2.ts` (imagens de produto, settings, etiquetas, PDFs EnvioEcom, aba Imagem em `admin-images/`, etc.).
-- Backup do MySQL: `scripts/src/db-backup-r2.mjs` envia `mysql/YYYY-MM-DD_HHmm.sql.gz` para o bucket `yuri-imports-db-backups`. O job no App Platform ainda é manual. Doc: `docs/DB_BACKUP_R2.md`.
+- Backup do MySQL: `scripts/src/db-backup-r2.mjs` envia `mysql/YYYY-MM-DD_HHmm.sql.gz` para o bucket `yuri-imports-db-backups`. O job `db-backup-r2` no App Platform (`0 3 * * *`, `America/Sao_Paulo`) é criado no painel; não há spec `.do/` no repo. Doc: `docs/DB_BACKUP_R2.md`. Falha manda WhatsApp para `BACKUP_ALERT_PHONE`.
+- Backup da mídia: `scripts/src/media-backup-r2.ts` lê `clayton-assets` (prefixos `products/`, `tracking-labels/`, `admin-images/`, `envioecom-labels/`, `whatsapp-groups/`, `site-settings/`, `uploads/`) e grava só em `yuri-imports-db-backups/media/`. Espelho incremental + `media/history/YYYY-MM-DD/`. Sem prazo por padrão (`MEDIA_BACKUP_RETENTION_DAYS` vazio). Marca `media/runs/`. Job `media-backup-r2` (`30 3 * * *`) ainda é manual no painel. Doc: `docs/MEDIA_BACKUP_R2.md`.
+- Limpeza do bucket: depois do dump, `mysqlDumpKeysToDelete` apaga só `mysql/AAAA-MM-DD_HHMM.sql.gz` com mais de 30 dias. Mídia não entra.
+- Atraso: `scripts/src/backup-watchdog.ts`, job `backup-watchdog` (`0 6 * * *`, `time_zone: America/Sao_Paulo` = 06:00 em Brasília, não UTC). Sem arquivo novo em 26h (`BACKUP_STALE_HOURS`) sai código 1. A marca `media/state/alerts/` só é gravada em falha de dump, mídia ou vigilante. Limpeza dos dumps antigos avisa sem gravar essa marca. Token `BACKUP_WATCHDOG_R2_*` só leitura. Sem n8n.
+- Tokens da mídia: `MEDIA_BACKUP_SOURCE_R2_*` lê só `clayton-assets`; `MEDIA_BACKUP_DEST_R2_*` escreve só `yuri-imports-db-backups`. O espelho não é apagado. Histórico em `media/history/AAAA-MM-DD/HHMM/<etag>/`. R2 não tem versionamento S3; a trava de bucket no prefixo `media/history/` é manual.
 - Scripts de migração de imagens: `scripts/src/migrate-product-images-to-r2.ts`.
 
 ## E-mail / CRM
